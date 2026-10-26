@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import os
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
@@ -155,6 +155,7 @@ def scan_records(
     *,
     max_records: int | None = None,
     start_after: int = 0,
+    on_skip: Callable[[RawBlock], None] | None = None,
     max_record_bytes: int = DEFAULT_MAX_RECORD_BYTES,
     chunk_size: int = CHUNK_SIZE,
     spool_dir: Path | None = None,
@@ -170,6 +171,9 @@ def scan_records(
     )
     for block in blocks:
         if block.record_no <= start_after:
+            status.records_read = block.record_no
+            if on_skip is not None and block.record_no == start_after:
+                on_skip(block)  # 供调用方核对检查点对应的字节是否与已提交记录一致
             if block.spill_path is not None:
                 block.spill_path.unlink(missing_ok=True)
             continue

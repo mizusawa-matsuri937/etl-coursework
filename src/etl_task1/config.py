@@ -33,6 +33,7 @@ class Settings:
     sample_max_records: int | None = None
     batch_rows: int = 10_000
     batch_bytes: int = 32 * MIB
+    max_record_bytes: int = 32 * MIB
     encoding: str = "utf-8"
     env: str = "prod"
     fault_injection: str | None = None
@@ -52,6 +53,7 @@ class Settings:
             "sample_max_records": self.sample_max_records,
             "batch_rows": self.batch_rows,
             "batch_bytes": self.batch_bytes,
+            "max_record_bytes": self.max_record_bytes,
         }
 
     def effective_config_json(self) -> str:
@@ -110,6 +112,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         sample_max_records=sample_max,
         batch_rows=_positive_int(env, "ETL_BATCH_ROWS", 10_000) or 10_000,
         batch_bytes=_positive_int(env, "ETL_BATCH_BYTES", 32 * MIB) or 32 * MIB,
+        max_record_bytes=_positive_int(env, "ETL_MAX_RECORD_BYTES", 32 * MIB) or 32 * MIB,
         encoding="utf-8",
         env=etl_env,
         fault_injection=fault,

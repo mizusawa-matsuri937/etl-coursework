@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
+for _sub in ("fixtures", "unit", "integration"):
+    sys.path.insert(0, str(Path(__file__).parent / _sub))
 
 
 @pytest.fixture

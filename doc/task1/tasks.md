@@ -15,9 +15,10 @@
   - 文件：`source.py`、`identity.py`、`parser.py`、`records.py`、`evidence.py`、`transform.py`、`quality.py`；对应 `unit/test_*.py`；`fixtures/README.md`、`fixtures/build_fixtures.py`、`fixtures/task1_cases.json`。
   - 检查：运行 `tests/unit`；覆盖 AC01–AC05 的核心行为及固定样本 10/6/4 分类。边界、空值、非法编码、原文回放和稳定 ID 均验证；数据库相关 AC 不提前勾选。
   - 实测（2026-10-26，工作目录：项目根目录）：`docker compose --profile test run --rm etl-test pytest -q tests/unit` 共 110 项通过；固定样本得到读取 10、有效 6、隔离 4，observed 产品 6/用户 8，valid 产品 4/用户 4，空用户 1。另用真实文件前 200,000 条做只读冒烟（非正式试跑）：约 45,000 条/秒，进程峰值 RSS 约 23 MiB；发现 1,519 条隔离，见 design 的"真实数据初步观察"。
-- [ ] T1-03：实现数据库约束、批次装载与恢复。
+- [x] T1-03：实现数据库约束、批次装载与恢复。2026-10-26 完成。
   - 文件：`sql/001_task1_schema.sql`、`sql/task1_integrity.sql`；`db.py`、`loader.py`、`checkpoint.py`；`integration/test_load.py`、`integration/test_resume.py`、`integration/test_evidence.py`；`doc/task1/data-dictionary.md`。
   - 检查：运行上述集成测试及完整性 SQL，覆盖 AC05、AC06、AC07、AC09；同事务检查点、同键内容冲突、重复运行、提交前后中断均在真实 PostgreSQL 验证。
+  - 实测（2026-10-26，工作目录：项目根目录）：`docker compose --profile test run --rm etl-test pytest -q tests` 共 148 项通过（单元 110，集成 38，连接独立的 `etl_test` 库）。真实文件前 50,000 条装入测试库的冒烟（非正式试跑）：约 13,000 条/秒，完整性 SQL 10 项全 0，数据库表与索引合计约 143 MB。
 - [ ] T1-04：完成统计、报告和 Airflow 流程。
   - 文件：`sql/task1_counts.sql`、`dags/amazon_reviews_task1.py`、`compose.yaml`；`validation.py`、`reporting.py`、`pipeline.py`、`finalize.py`；`integration/test_counts.py`、`integration/test_reports.py`、`integration/test_dag.py`、`integration/test_pipeline_failures.py`；`doc/task1/runbook.md`。
   - 检查：覆盖 AC08、AC10、AC11；运行对应集成测试并由实际 scheduler 触发成功/失败样本；observed 产品/用户为 6/8、valid 为 4/4；收尾不得掩盖失败。

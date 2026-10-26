@@ -15,5 +15,5 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-addopts = "-p no:cacheprovider"
+addopts = "-p no:cacheprovider --import-mode=importlib"
 markers = ["integration: 需要真实 PostgreSQL 的集成测试"]
