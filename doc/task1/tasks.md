@@ -11,9 +11,10 @@
   - 文件：`pyproject.toml`、`requirements.lock`、`Dockerfile`、`compose.yaml`、`.env.example`、`.dockerignore`、`.gitignore`、`docker/init-databases.sh`；`__init__.py`、`config.py`；`conftest.py`、`unit/test_config.py`。
   - 检查：`docker compose config --quiet` 和配置测试；验证 arm64 镜像、依赖版本、源只读、持久卷及数据库隔离。覆盖 AC06/AC14 的环境部分，完整验收留待后续步骤。
   - 实测（2026-10-26，Colima 0.10.3 / Docker 29.5.2 / Compose 5.6.1，4 CPU、8 GiB）：`docker compose config --quiet` 与 `--profile test` 通过；镜像在 arm64 构建成功（Python 3.12.14、Airflow 3.3.2、psycopg 3.3.5、pytest 9.1.1）；`etl-test` 运行 `tests/unit` 17 项通过；跨库访问均被拒绝；源文件只读，`src` 只读，`outputs` 可写；down/up 后业务表数据保留；api-server 健康检查返回 3.3.2；scheduler 与 dag-processor 运行。
-- [ ] T1-02：实现来源校验、流式解析、标识和基础转换。
+- [x] T1-02：实现来源校验、流式解析、标识和基础转换。2026-10-26 完成。
   - 文件：`source.py`、`identity.py`、`parser.py`、`records.py`、`evidence.py`、`transform.py`、`quality.py`；对应 `unit/test_*.py`；`fixtures/README.md`、`fixtures/build_fixtures.py`、`fixtures/task1_cases.json`。
   - 检查：运行 `tests/unit`；覆盖 AC01–AC05 的核心行为及固定样本 10/6/4 分类。边界、空值、非法编码、原文回放和稳定 ID 均验证；数据库相关 AC 不提前勾选。
+  - 实测（2026-10-26，工作目录：项目根目录）：`docker compose --profile test run --rm etl-test pytest -q tests/unit` 共 110 项通过；固定样本得到读取 10、有效 6、隔离 4，observed 产品 6/用户 8，valid 产品 4/用户 4，空用户 1。另用真实文件前 200,000 条做只读冒烟（非正式试跑）：约 45,000 条/秒，进程峰值 RSS 约 23 MiB；发现 1,519 条隔离，见 design 的"真实数据初步观察"。
 - [ ] T1-03：实现数据库约束、批次装载与恢复。
   - 文件：`sql/001_task1_schema.sql`、`sql/task1_integrity.sql`；`db.py`、`loader.py`、`checkpoint.py`；`integration/test_load.py`、`integration/test_resume.py`、`integration/test_evidence.py`；`doc/task1/data-dictionary.md`。
   - 检查：运行上述集成测试及完整性 SQL，覆盖 AC05、AC06、AC07、AC09；同事务检查点、同键内容冲突、重复运行、提交前后中断均在真实 PostgreSQL 验证。

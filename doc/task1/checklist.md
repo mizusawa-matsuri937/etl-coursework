@@ -5,11 +5,11 @@
 下列测试路径是计划中的验证位置，文件尚未实现，不是已运行证据。实际执行后填写日期、命令、测试方法或运行 ID、结果及证据位置，再勾选；不在本文件重新定义 AC。
 
 - [x] AC00 计划与已确认决定一致：2026-10-22 已核对 spec 五个板块、规则短条目、示范 AC 表头、目录链接、AC 全量对应及完成状态；仅文档检查通过。
-- [ ] AC01 输入版本可核验：未执行。计划验证：`tests/unit/test_source.py`，并核对失败场景的数据库行数。
-- [ ] AC02 边界与文本保留正确：未执行。计划验证：`tests/unit/test_parser.py`、`tests/unit/test_evidence.py`；内存测量见 AC12。
-- [ ] AC03 ID 稳定且保留内容重复的记录：未执行。计划验证：`tests/unit/test_identity.py`、`tests/unit/test_parser.py`。
-- [ ] AC04 基础转换保留原值：未执行。计划验证：`tests/unit/test_transform.py`、`tests/unit/test_quality.py`。
-- [ ] AC05 原始证据可逐字节回放：未执行。计划验证：`tests/unit/test_evidence.py`、`tests/integration/test_evidence.py`；模拟旁路写入失败，不得提交指向不完整文件的记录。
+- [ ] AC01 输入版本可核验：部分完成，不勾选。2026-10-26 容器内 `pytest tests/unit/test_source.py` 通过（正确输入实测值、哈希/大小不符、缺文件、缺必需元数据、下载与验证时间分开）；"失败时数据库不新增评论"需 T1-03 的数据库测试。
+- [x] AC02 边界与文本保留正确：2026-10-26 容器内 `pytest -q tests/unit` 共 110 项通过，覆盖 LF/CRLF、连续空行、EOF 无换行、字段重排、重复前缀/未知行隔离、块边界（chunk=1..64）与超过 32 MiB 单行旁路；20 MiB 记录的 tracemalloc 峰值低于 6 MiB。正式 RSS 实测见 AC12。
+- [x] AC03 ID 稳定且保留内容重复的记录：2026-10-26 `tests/unit/test_identity.py`、`test_parser.py` 通过；同序号 ID 不变，内容相同的两条 ID 不同且都保留，样本/全量抽取 ID 不同。
+- [x] AC04 基础转换保留原值：2026-10-26 `tests/unit/test_transform.py`、`test_quality.py` 通过；评分/有用票/时间的合法与非法输入、Unix 0、空与缺失的用户/正文均按 spec 验证。
+- [ ] AC05 原始证据可逐字节回放：部分完成，不勾选。2026-10-26 `tests/unit/test_evidence.py` 通过：10 条夹具按定位重取字节与哈希一致，非法编码/NUL 字节保留，问题可追到字段，旁路文件不完整可被检出；数据库侧 `tests/integration/test_evidence.py` 及"不提交指向不完整文件的记录"待 T1-03。
 - [ ] AC06 数据约束与环境隔离生效：部分完成，不勾选。环境部分已于 2026-10-26 验证（三库/三角色互相拒绝访问、源只读、持久卷保留数据）；约束、有效/隔离子表与内容冲突等仍未执行。计划验证：Compose 配置与实际连接/挂载检查；`tests/integration/test_load.py`、`sql/task1_integrity.sql`。
 - [ ] AC07 重跑幂等：未执行。计划验证：`tests/integration/test_load.py`；保存正式两次运行 ID、行数、批次与 SQL 核对输出。
 - [ ] AC08 数量口径准确且守恒：未执行。计划验证：`tests/integration/test_counts.py`；SQL 明细、问题码分布与 summary.json 一致。
@@ -20,4 +20,4 @@
 - [ ] AC13 全量处理及差异核对：未执行。计划验证：实际 DAG run、`sql/task1_integrity.sql`、`sql/task1_counts.sql`、manifest、summary 和排查依据；差异未解释时保持 `review_required`，不得勾选。
 - [ ] AC14 交付可复现且状态真实：部分完成，不勾选。镜像构建、锁定版本与配置示例已于 2026-10-26 验证；runbook、字段字典、样本复现与恢复尚未执行。计划验证：按 runbook 实际复现固定样本和恢复，核对已勾选项目的证据；未初始化 Git 或未运行步骤不能标完成。
 
-当前汇总：计划 AC 完成 1/1；实施 AC 完成 0/14（AC06、AC14 仅环境部分已验证）。容器已启动，尚无建表或全量运行记录。本次初始 Git 提交仅归档计划与项目规范，不代表实施验收完成。
+当前汇总：计划 AC 完成 1/1；实施 AC 完成 3/14（AC02–AC04，均为单元测试级）；AC01、AC05 的解析侧已验证，AC06、AC14 仅环境部分已验证。容器已启动，尚无建表或全量运行记录。本次初始 Git 提交仅归档计划与项目规范，不代表实施验收完成。

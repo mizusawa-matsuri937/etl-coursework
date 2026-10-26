@@ -1,6 +1,6 @@
 # ETL 作业项目
 
-当前状态：任务 1 计划已完成，T1-01（容器环境与项目骨架）于 2026-10-26 完成并验证；解析程序、数据库表结构、Airflow DAG 和全量运行都未完成。
+当前状态：任务 1 计划已完成，T1-01（容器环境）与 T1-02（来源校验、流式解析、标识、基础转换及固定样本）于 2026-10-26 完成并通过单元测试；数据库表结构、批次装载、Airflow DAG 和全量运行都未完成。
 
 任务 1 的目标是全量流式抽取 Amazon 评论，分批装载 PostgreSQL，保留原始证据与异常，并通过 Airflow 完成数量核对和运行报告。
 
@@ -15,8 +15,9 @@ ETL作业模板/
 ├── Dockerfile / requirements.lock / pyproject.toml
 ├── .env.example              # 配置模板；复制为 .env 后填写
 ├── docker/init-databases.sh  # 创建 etl_movies / airflow_meta / etl_test 三个隔离库
-├── src/etl_task1/            # Python 包（目前仅 config.py）
-├── tests/unit/               # 单元测试
+├── src/etl_task1/            # Python 包：config、source、identity、parser、transform、quality、records、evidence
+├── tests/unit/               # 单元测试（110 项）
+├── tests/fixtures/           # 10 条固定样本、生成脚本与预期值
 ├── dags/  sql/               # 待 T1-03/T1-04 实现
 └── doc/
     ├── request-template.md   # 公共请求模板
@@ -44,7 +45,7 @@ ETL作业模板/
 
 1. 阅读 [spec](doc/task1/spec.md)，了解目标、范围、规则、AC 测试与假设。
 2. 阅读 [design](doc/task1/design.md)，了解架构、模型、批次恢复和资源预算。
-3. 按 [tasks](doc/task1/tasks.md) 执行；下一项为 **T1-02 来源校验、流式解析、标识和基础转换**。
+3. 按 [tasks](doc/task1/tasks.md) 执行；下一项为 **T1-03 数据库约束、批次装载与恢复**。
 4. 在 [checklist](doc/task1/checklist.md) 登记每项 AC 的实际结果；未执行不能勾选。
 5. 后续请求见 [请求模板](doc/request-template.md)。文档写法遵守 CLAUDE.md，后续任务独立放在 doc/taskN/。
 
@@ -74,9 +75,9 @@ docker compose up -d   # 工作目录：项目根目录
 docker compose --profile test run --rm etl-test pytest -q tests/unit
 ```
 
-`docker compose` 需在 `~/.docker/config.json` 中加入 `"cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"]`。Airflow 界面为 `http://127.0.0.1:8080`（仅本机、免登录，不得对外暴露）。目前除配置单元测试外，解析、装载、DAG 等命令仍是 tasks 中的计划。
+`docker compose` 需在 `~/.docker/config.json` 中加入 `"cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"]`。Airflow 界面为 `http://127.0.0.1:8080`（仅本机、免登录，不得对外暴露）。单元测试目前覆盖配置、来源校验、解析、转换与证据回放；数据库装载、DAG 等命令仍是 tasks 中的计划。
 
-已验证范围：计划文件检查，以及 T1-01 的容器环境与配置单元测试；不代表解析、装载、DAG 或全量验收已通过。未来运行结果保存于 `outputs/task1/<extraction_id>/<run_id>/`，不得用规划数字冒充实测结果。
+已验证范围：计划文件检查、T1-01 的容器环境，以及 T1-02 的单元测试（含固定样本 10/6/4）；不代表数据库装载、DAG 或全量验收已通过。未来运行结果保存于 `outputs/task1/<extraction_id>/<run_id>/`，不得用规划数字冒充实测结果。
 
 ## 阶段记录
 
@@ -88,6 +89,7 @@ docker compose --profile test run --rm etl-test pytest -q tests/unit
 | 2026-10-26 | 已初始化本地 Git 仓库，默认分支为 main；尚无提交或远程仓库，业务实现未开始 |
 | 2026-10-26 | 初始提交归档任务 1 计划、项目规范、请求模板与忽略规则；业务实现未开始 |
 | 2026-10-26 | 创建 GitHub 公开仓库并推送 main，关联 origin/main；业务实现未开始 |
+| 2026-10-26 | 完成 T1-02：来源校验、流式解析、标识、转换与固定样本，110 项单元测试通过；前 200,000 条真实记录冒烟发现约 0.76% 非 UTF-8 隔离，规则未改 |
 | 2026-10-26 | AGENTS.md 并入 CLAUDE.md；完成 T1-01：容器环境、依赖锁定、三库隔离与配置模块，已在 Colima 上验证；解析与装载未开始 |
 
 本目录已初始化独立 Git 仓库，当前分支为 `main`，跟踪 `origin/main`。GitHub 公开仓库为 [mizusawa-matsuri937/etl-coursework](https://github.com/mizusawa-matsuri937/etl-coursework)。当前仅归档计划与项目规范，没有阶段标签；业务实现尚未开始。

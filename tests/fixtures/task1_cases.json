@@ -1,0 +1,27 @@
+{
+  "description": "任务 1 固定样本（人工构造，10 条）的预期值；由 spec 的固定样本表手写，不由实现生成。",
+  "totals": {
+    "records_read": 10,
+    "records_valid": 6,
+    "records_quarantined": 4,
+    "distinct_products_observed": 6,
+    "distinct_users_observed": 8,
+    "distinct_products_valid": 4,
+    "distinct_users_valid": 4,
+    "user_id_empty": 1,
+    "user_id_missing": 0,
+    "records_removed_by_dedup": 0
+  },
+  "records": [
+    {"record_no": 1, "status": "valid", "product": "AAAAAAAAAA", "user": "USER_A", "issues": []},
+    {"record_no": 2, "status": "valid", "product": "AAAAAAAAAA", "user": "USER_A", "issues": []},
+    {"record_no": 3, "status": "valid", "product": "AAAAAAAAAA", "user": null, "user_status": "blank", "issues": ["empty_user_id"]},
+    {"record_no": 4, "status": "valid", "product": "BBBBBBBBBB", "user": "USER_B", "issues": ["invalid_helpfulness", "invalid_score", "invalid_review_time"]},
+    {"record_no": 5, "status": "quarantined", "reasons": ["invalid_utf8"], "product": "BBBBBBBBBB", "user": "USER_C", "issues": ["invalid_utf8"]},
+    {"record_no": 6, "status": "quarantined", "reasons": ["duplicate_prefix"], "product": "CCCCCCCCCC", "user": "USER_D", "issues": ["duplicate_prefix"]},
+    {"record_no": 7, "status": "quarantined", "reasons": ["missing_product_id"], "product": null, "product_status": "missing", "user": "USER_E", "issues": ["missing_product_id"]},
+    {"record_no": 8, "status": "quarantined", "reasons": ["nul_byte"], "product": "DDDDDDDDDD", "user": "USER_F", "issues": ["nul_byte"]},
+    {"record_no": 9, "status": "valid", "product": "EEEEEEEEEE", "user": "unknown", "issues": []},
+    {"record_no": 10, "status": "valid", "product": "FFFFFFFFFF", "user": "USER_G", "issues": ["empty_review_text"]}
+  ]
+}
