@@ -40,6 +40,8 @@ def test_wrong_hash_fails_before_any_load(conn, fixture_files, out_dir):
     r = run_all(params(fixture_files, source_manifest_path=str(bad)))
     assert_failed_run(r, "verify_source")
     assert r["steps"]["extract_load"] is None
+    tasks = read_summary(r["final"])["tasks"]
+    assert tasks == {"verify_source": "failed", "extract_load": "not_run", "validate_counts": "not_run", "export_results": "not_run"}
     assert conn.execute("SELECT count(*) FROM review_record").fetchone()[0] == 0  # 不新增评论
     assert conn.execute("SELECT count(*) FROM source_file").fetchone()[0] == 0
     f = failures(out_dir)["verify_source-try1.json"]
@@ -67,7 +69,8 @@ def test_truncated_gzip_keeps_progress_and_reports_incomplete(conn, make_setting
     s = read_summary(r["final"])
     assert s["extraction"]["status"] == "failed" and s["extraction"]["gzip_verified"] is False
     assert "EOFError" in s["extraction"]["failure_reason"]
-    assert s["tasks"]["extract_load"] == "failed_or_not_run" and "counts" not in s
+    assert s["tasks"] == {"verify_source": "success", "extract_load": "failed", "validate_counts": "not_run", "export_results": "not_run"}
+    assert "counts" not in s
     assert any(f["task"] == "extract_load" for f in s["failures"])
 
 

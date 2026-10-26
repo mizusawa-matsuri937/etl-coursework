@@ -209,8 +209,11 @@ def finalize_report_step(params: RunParams, upstream: dict[str, dict[str, Any] |
     s = settings_for(params)
     verify, extract, validate, export = (upstream.get(n) for n in STEP_NAMES)
     eid = (verify or {}).get("extraction_id") or (extract or {}).get("extraction_id")
-    tasks = {n: ("success" if upstream.get(n) is not None else "failed_or_not_run") for n in STEP_NAMES}
     failures = _read_failures(s.output_dir, params.run_key)
+    failed_tasks = {f.get("task") for f in failures}
+    # 成功优先（重试后成功的任务也会留下首次失败记录）；有失败记录为 failed；其余是上游失败而未运行
+    tasks = {n: ("success" if upstream.get(n) is not None else ("failed" if n in failed_tasks else "not_run"))
+             for n in STEP_NAMES}
 
     summary: dict[str, Any] = {
         "report_version": reporting.REPORT_VERSION, "generated_at": reporting.utc_now(),
