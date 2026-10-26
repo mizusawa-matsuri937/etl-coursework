@@ -1,6 +1,6 @@
 # ETL 作业项目
 
-当前状态：已完成任务 1 第一轮 spec、design、tasks、checklist，并于 2026-10-22 按严格规范重整至 doc/task1/，尚未开始业务实现。本轮范围是计划文件；容器环境、数据库、解析程序和全量运行都未完成。
+当前状态：任务 1 计划已完成，T1-01（容器环境与项目骨架）于 2026-10-26 完成并验证；解析程序、数据库表结构、Airflow DAG 和全量运行都未完成。
 
 任务 1 的目标是全量流式抽取 Amazon 评论，分批装载 PostgreSQL，保留原始证据与异常，并通过 Airflow 完成数量核对和运行报告。
 
@@ -8,9 +8,16 @@
 
 ```text
 ETL作业模板/
-├── AGENTS.md                 # 协作约定与计划文件严格规范
+├── CLAUDE.md                 # 协作约定与计划文件严格规范（原 AGENTS.md）
 ├── README.md                 # 项目入口与真实进度
 ├── .gitignore
+├── compose.yaml              # PostgreSQL 18 + Airflow 3.3.2（LocalExecutor）+ 测试服务
+├── Dockerfile / requirements.lock / pyproject.toml
+├── .env.example              # 配置模板；复制为 .env 后填写
+├── docker/init-databases.sh  # 创建 etl_movies / airflow_meta / etl_test 三个隔离库
+├── src/etl_task1/            # Python 包（目前仅 config.py）
+├── tests/unit/               # 单元测试
+├── dags/  sql/               # 待 T1-03/T1-04 实现
 └── doc/
     ├── request-template.md   # 公共请求模板
     └── task1/                # 任务 1 第一轮计划
@@ -37,9 +44,9 @@ ETL作业模板/
 
 1. 阅读 [spec](doc/task1/spec.md)，了解目标、范围、规则、AC 测试与假设。
 2. 阅读 [design](doc/task1/design.md)，了解架构、模型、批次恢复和资源预算。
-3. 按 [tasks](doc/task1/tasks.md) 执行；下一项仍为 **T1-01 环境与项目骨架**。
+3. 按 [tasks](doc/task1/tasks.md) 执行；下一项为 **T1-02 来源校验、流式解析、标识和基础转换**。
 4. 在 [checklist](doc/task1/checklist.md) 登记每项 AC 的实际结果；未执行不能勾选。
-5. 后续请求见 [请求模板](doc/request-template.md)。文档写法遵守 AGENTS.md，后续任务独立放在 doc/taskN/。
+5. 后续请求见 [请求模板](doc/request-template.md)。文档写法遵守 CLAUDE.md，后续任务独立放在 doc/taskN/。
 
 本阶段不实现产品采集、实体合并或评论逻辑去重。重复内容的原始评论仍分别保留；完整作业的其他任务后续单独规划。
 
@@ -56,9 +63,20 @@ ETL作业模板/
 
 ## 运行与验证
 
-尚无可运行程序、Compose 配置或测试。tasks 中的命令是待实现的检查约定，不是现在可直接运行的完成品。环境完成后补充真实安装与运行命令。
+环境准备（macOS arm64，已用 Colima 验证）：
 
-当前检查仅针对计划文件的编号、引用、状态和固定样本预期；不代表功能测试、容器启动或全量验收已通过。未来运行结果保存于 `outputs/task1/<extraction_id>/<run_id>/`，不得用规划数字冒充实测结果。
+```bash
+brew install colima docker docker-compose
+colima start --cpu 4 --memory 8 --disk 100
+cp .env.example .env   # 然后按文件内说明填写口令、密钥与 SOURCE_HOST_DIR
+docker compose build
+docker compose up -d   # 工作目录：项目根目录
+docker compose --profile test run --rm etl-test pytest -q tests/unit
+```
+
+`docker compose` 需在 `~/.docker/config.json` 中加入 `"cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"]`。Airflow 界面为 `http://127.0.0.1:8080`（仅本机、免登录，不得对外暴露）。目前除配置单元测试外，解析、装载、DAG 等命令仍是 tasks 中的计划。
+
+已验证范围：计划文件检查，以及 T1-01 的容器环境与配置单元测试；不代表解析、装载、DAG 或全量验收已通过。未来运行结果保存于 `outputs/task1/<extraction_id>/<run_id>/`，不得用规划数字冒充实测结果。
 
 ## 阶段记录
 
@@ -70,5 +88,6 @@ ETL作业模板/
 | 2026-10-26 | 已初始化本地 Git 仓库，默认分支为 main；尚无提交或远程仓库，业务实现未开始 |
 | 2026-10-26 | 初始提交归档任务 1 计划、项目规范、请求模板与忽略规则；业务实现未开始 |
 | 2026-10-26 | 创建 GitHub 公开仓库并推送 main，关联 origin/main；业务实现未开始 |
+| 2026-10-26 | AGENTS.md 并入 CLAUDE.md；完成 T1-01：容器环境、依赖锁定、三库隔离与配置模块，已在 Colima 上验证；解析与装载未开始 |
 
 本目录已初始化独立 Git 仓库，当前分支为 `main`，跟踪 `origin/main`。GitHub 公开仓库为 [mizusawa-matsuri937/etl-coursework](https://github.com/mizusawa-matsuri937/etl-coursework)。当前仅归档计划与项目规范，没有阶段标签；业务实现尚未开始。

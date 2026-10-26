@@ -29,10 +29,10 @@ Python 负责字节解析和转换，PostgreSQL 负责约束、批量装载和�
 | 数据库 | PostgreSQL 18 | 业务数据保存在 `etl_movies`；Airflow 元数据库为独立的 `airflow_meta` |
 | 数据库驱动 | Psycopg 3 | `COPY FROM STDIN` 写临时暂存表，再在同一事务内合并并登记检查点 |
 | 流程编排 | Airflow 3.3.2，LocalExecutor | 单机、手动触发、`max_active_runs=1`，重型装载任务并发数为 1 |
-| 环境 | Docker Compose v2，Linux arm64 容器 | 原文件只读挂载，数据库使用持久卷，开发环境只对本机开放端口 |
+| 环境 | Docker Compose v2，Linux arm64 容器 | 原文件只读挂载（只挂载 gzip 与 manifest 两个文件，不暴露其所在目录），源码、SQL、DAG 以只读绑定挂载而不进入镜像，数据库使用持久卷，开发环境只对本机开放端口 |
 | 检查 | pytest、SQL 核对、真实 PostgreSQL 集成测试 | 固定小样本、故障注入、全量运行分别记录证据 |
 
-Python 3.12、PostgreSQL 18 在所选 Airflow 版本的兼容范围内。参考镜像选用 `apache/airflow:3.3.2-python3.12`；实施环境任务须验证 arm64 构建，固定实际镜像摘要、PostgreSQL 小版本、Psycopg 与测试依赖版本。当前没有依赖锁文件或已验证的镜像拉取结果，不能使用“已锁定环境”的表述。
+Python 3.12、PostgreSQL 18 在所选 Airflow 版本的兼容范围内。参考镜像选用 `apache/airflow:3.3.2-python3.12`；2026-10-26 实施验证：基础镜像固定为 index 摘要 `sha256:9df9c8be4096b9cc626bd7cb1f2b8c712eef66c59c615f8c7e6200871ca10bd1`（arm64 子摘要 `2ab95b4a…`），PostgreSQL 为 `postgres:18.6` 固定 index 摘要 `sha256:edb0c08d…`；`requirements.lock` 依 Airflow 3.3.2 的 constraints-3.12 在 aarch64 上生成（psycopg 3.3.5、pytest 9.1.1）。锁文件仅针对 arm64，换 x86_64 须重新生成并验证。
 
 Compose 计划包含 PostgreSQL、一次性初始化、Airflow API 服务、scheduler 和 dag processor；本阶段无需 Celery、Redis 或 Kubernetes。ETL Python 包装入统一镜像，由 Airflow 调用；测试通过专用 `etl-test` 服务运行。Airflow 元数据与业务数据即使使用同一 PostgreSQL 服务，也必须使用不同数据库和角色；测试使用独立测试数据库。
 

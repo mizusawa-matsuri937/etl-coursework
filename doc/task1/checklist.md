@@ -10,7 +10,7 @@
 - [ ] AC03 ID 稳定且保留内容重复的记录：未执行。计划验证：`tests/unit/test_identity.py`、`tests/unit/test_parser.py`。
 - [ ] AC04 基础转换保留原值：未执行。计划验证：`tests/unit/test_transform.py`、`tests/unit/test_quality.py`。
 - [ ] AC05 原始证据可逐字节回放：未执行。计划验证：`tests/unit/test_evidence.py`、`tests/integration/test_evidence.py`；模拟旁路写入失败，不得提交指向不完整文件的记录。
-- [ ] AC06 数据约束与环境隔离生效：未执行。计划验证：Compose 配置与实际连接/挂载检查；`tests/integration/test_load.py`、`sql/task1_integrity.sql`。
+- [ ] AC06 数据约束与环境隔离生效：部分完成，不勾选。环境部分已于 2026-10-26 验证（三库/三角色互相拒绝访问、源只读、持久卷保留数据）；约束、有效/隔离子表与内容冲突等仍未执行。计划验证：Compose 配置与实际连接/挂载检查；`tests/integration/test_load.py`、`sql/task1_integrity.sql`。
 - [ ] AC07 重跑幂等：未执行。计划验证：`tests/integration/test_load.py`；保存正式两次运行 ID、行数、批次与 SQL 核对输出。
 - [ ] AC08 数量口径准确且守恒：未执行。计划验证：`tests/integration/test_counts.py`；SQL 明细、问题码分布与 summary.json 一致。
 - [ ] AC09 提交前后故障可恢复：未执行。计划验证：`tests/integration/test_resume.py`；比较有序记录哈希与规范值，记录 gzip 重扫耗时。
@@ -18,6 +18,6 @@
 - [ ] AC11 失败不能变成虚假成功：未执行。计划验证：`tests/integration/test_reports.py`、`tests/integration/test_pipeline_failures.py`；检查 run_gate 与 DAG 总状态。
 - [ ] AC12 资源预算有实测依据：未执行。计划验证：`tests/integration/test_resource_limits.py`、监测文件、数据库查询，记录容器/宿主限制。
 - [ ] AC13 全量处理及差异核对：未执行。计划验证：实际 DAG run、`sql/task1_integrity.sql`、`sql/task1_counts.sql`、manifest、summary 和排查依据；差异未解释时保持 `review_required`，不得勾选。
-- [ ] AC14 交付可复现且状态真实：未执行。计划验证：按 runbook 实际复现固定样本和恢复，核对已勾选项目的证据；未初始化 Git 或未运行步骤不能标完成。
+- [ ] AC14 交付可复现且状态真实：部分完成，不勾选。镜像构建、锁定版本与配置示例已于 2026-10-26 验证；runbook、字段字典、样本复现与恢复尚未执行。计划验证：按 runbook 实际复现固定样本和恢复，核对已勾选项目的证据；未初始化 Git 或未运行步骤不能标完成。
 
-当前汇总：计划 AC 完成 1/1；实施 AC 完成 0/14。尚无业务测试、容器启动、建表或全量运行记录。本次初始 Git 提交仅归档计划与项目规范，不代表实施验收完成。
+当前汇总：计划 AC 完成 1/1；实施 AC 完成 0/14（AC06、AC14 仅环境部分已验证）。容器已启动，尚无建表或全量运行记录。本次初始 Git 提交仅归档计划与项目规范，不代表实施验收完成。

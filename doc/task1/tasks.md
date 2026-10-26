@@ -5,11 +5,12 @@
 下面源码文件相对 `src/etl_task1/`，测试文件相对 `tests/`；其他路径相对项目根目录。文件和命令均为计划，尚不能直接运行。测试入口计划为 `docker compose --profile test run --rm etl-test pytest -q <测试路径>`，实际可用后再登记执行结果。
 
 - [x] T1-00：整理第一轮规格、设计、任务和验收计划。
-  - 文件：`doc/task1/spec.md`、`doc/task1/design.md`、`doc/task1/tasks.md`、`doc/task1/checklist.md`、`AGENTS.md`、`README.md`、`doc/request-template.md`。
+  - 文件：`doc/task1/spec.md`、`doc/task1/design.md`、`doc/task1/tasks.md`、`doc/task1/checklist.md`、`CLAUDE.md`、`README.md`、`doc/request-template.md`。
   - 检查：AC00；文档规范、已确认选型、输入/预期、目录链接和状态一致。未写业务代码或运行全量。
-- [ ] T1-01：准备容器环境与项目骨架。
+- [x] T1-01：准备容器环境与项目骨架。2026-10-26 完成，证据见下方检查。
   - 文件：`pyproject.toml`、`requirements.lock`、`Dockerfile`、`compose.yaml`、`.env.example`、`.dockerignore`、`.gitignore`、`docker/init-databases.sh`；`__init__.py`、`config.py`；`conftest.py`、`unit/test_config.py`。
   - 检查：`docker compose config --quiet` 和配置测试；验证 arm64 镜像、依赖版本、源只读、持久卷及数据库隔离。覆盖 AC06/AC14 的环境部分，完整验收留待后续步骤。
+  - 实测（2026-10-26，Colima 0.10.3 / Docker 29.5.2 / Compose 5.6.1，4 CPU、8 GiB）：`docker compose config --quiet` 与 `--profile test` 通过；镜像在 arm64 构建成功（Python 3.12.14、Airflow 3.3.2、psycopg 3.3.5、pytest 9.1.1）；`etl-test` 运行 `tests/unit` 17 项通过；跨库访问均被拒绝；源文件只读，`src` 只读，`outputs` 可写；down/up 后业务表数据保留；api-server 健康检查返回 3.3.2；scheduler 与 dag-processor 运行。
 - [ ] T1-02：实现来源校验、流式解析、标识和基础转换。
   - 文件：`source.py`、`identity.py`、`parser.py`、`records.py`、`evidence.py`、`transform.py`、`quality.py`；对应 `unit/test_*.py`；`fixtures/README.md`、`fixtures/build_fixtures.py`、`fixtures/task1_cases.json`。
   - 检查：运行 `tests/unit`；覆盖 AC01–AC05 的核心行为及固定样本 10/6/4 分类。边界、空值、非法编码、原文回放和稳定 ID 均验证；数据库相关 AC 不提前勾选。

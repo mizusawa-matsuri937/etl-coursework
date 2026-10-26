@@ -1,0 +1,11 @@
+# 由 uv pip compile 生成：Python 3.12、linux aarch64，约束 Airflow 3.3.2 constraints-3.12
+# 直接依赖：psycopg[binary]、pytest；其余为传递依赖。x86_64 复现需重新生成并验证。
+# 生成：uv pip compile <直接依赖文件> -c <airflow constraints-3.12.txt> --python-version 3.12 --python-platform aarch64-unknown-linux-gnu --no-header --no-annotate
+iniconfig==2.3.1
+packaging==26.3
+pluggy==1.6.0
+psycopg==3.3.5
+psycopg-binary==3.3.5
+pygments==2.21.0
+pytest==9.1.1
+typing-extensions==4.16.0
