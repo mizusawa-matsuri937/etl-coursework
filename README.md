@@ -25,6 +25,8 @@ ETL作业模板/
 ├── scripts/                  # run_dag_e2e.py 经真实 scheduler 触发 DAG 并等待；sample_host_stats.sh 宿主侧资源采样；gen_schema_appendix.py 从数据库生成字段字典附录
 └── doc/
     ├── request-template.md   # 公共请求模板
+    ├── handoffs/             # 任务间交接文档（新对话先读最新一份，见 CLAUDE.md）
+    ├── task2/                # 任务 2 计划，四个空文件待写（spec、design、tasks、checklist）
     └── task1/                # 任务 1 第一轮计划
         ├── spec.md           # 目标、范围、规则、AC测试、假设
         ├── design.md         # 设计思路与实现取舍
