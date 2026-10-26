@@ -280,6 +280,7 @@ def _scan_and_load(settings: Settings, v: SourceVerification, conn: psycopg.Conn
             raise CheckpointMismatch(f"检查点记录 {block.record_no} 与源文件不一致，不能恢复")
 
     if monitor is not None:
+        monitor.records_before = cp.last_record_no  # 续跑时检查点已有的记录数
         monitor.start(conn)  # 空间已不足时一批也不写
     pending: list[ParsedRecord] = []
     pending_bytes = 0

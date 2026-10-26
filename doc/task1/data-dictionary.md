@@ -2,7 +2,7 @@
 
 状态：2026-10-26 随 T1-03 建立，对应 `sql/001_task1_schema.sql`（schema_migration 版本 `001`）。表和约束的定义以该 SQL 为准，本文说明含义。设计理由见 [design](design.md)，规则见 [spec](spec.md)。
 
-所有业务表以 `extraction_id` 限定同一次抽取；样本、全量与不同规则版本互不混用。ID 均为小写 64 位十六进制 SHA-256。
+所有业务表以 `extraction_id` 限定同一次抽取；样本、全量与不同规则版本互不混用。`source_file_id`、`extraction_id`、`source_review_id` 等标识均为小写 64 位十六进制 SHA-256；`etl_run.run_id` 例外，为 `<Airflow run>-t<尝试号>` 或 UUID 十六进制。
 
 ## 表关系
 
@@ -39,9 +39,13 @@ erDiagram
 | source_eof_reached / gzip_verified | 是否读到源文件末尾并通过 gzip 校验；样本提前停止时为 false |
 | status | `loading`、`complete`、`failed`；full 要求 EOF 与 gzip 校验才能为 complete（约束） |
 | failure_reason | 失败时的异常类型与信息 |
+| created_at / completed_at | 抽取登记时间与完成时间（仅 `complete` 时有值） |
+
+## schema_migration
+记录已应用的建表脚本版本（`version`）与时间（`applied_at`）；`apply_schema` 据此判断是否需要建表。
 
 ## etl_run
-每次执行一行：`run_id`、`extraction_id`、可选的 `dag_id` / `airflow_run_id` / `image_digest`、`program_version`（包版本、解析/规则版本、源码树哈希、Git 提交）、起止时间、状态（`running` / `succeeded` / `failed` / `reused`）、失败原因及本次提交的批次数与记录数。重复运行完全相同的输入只新增 `reused` 审计行。
+每次执行一行：`run_id`、`extraction_id`、可选的 `dag_id` / `airflow_run_id` / `image_digest`（后者目前运行时未填）、`program_version`（包版本、解析/规则版本、源码树哈希、Git 提交）、起止时间、状态（`running` / `succeeded` / `failed` / `reused`）、失败原因及本次提交的批次数与记录数。重复运行完全相同的输入只新增 `reused` 审计行。进程被杀留下的 `running` 记录，会在后续运行取得该抽取的锁后登记为 `failed`（原因注明进程中断）。起止时间列为 `started_at` / `finished_at`，数量列为 `batches_committed` / `records_loaded`。
 
 ## etl_batch（检查点）
 | 列 | 含义 |
@@ -79,7 +83,7 @@ erDiagram
 | profile_name_raw | 昵称，不作用户标识 |
 | helpfulness_raw / helpful_votes / total_votes / helpfulness_ratio | 有用票原值；非负整数且分子≤分母；`0/0` 比率为 NULL；非法时三项规范值均为 NULL |
 | score_raw / score | 评分原值；规范值为 1–5 的 Decimal，可含小数 |
-| review_time_raw / review_time_unix / review_time_utc | 时间原值；Unix 整数秒及其 UTC 时间；无法转换时按 spec R21 置 NULL |
+| review_time_raw / review_time_unix / review_time_utc | 时间原值；Unix 整数秒及其 UTC 时间；非整数文本或超出 int64 时两者均为 NULL；整数合法但超出 datetime 范围时仅 UTC 时间为 NULL；均记 `invalid_review_time`，原值保留（spec R21） |
 | summary_raw / review_text_raw | 摘要与正文原文，不截断、不改写 |
 | field_present / field_start_lines | 八个字段是否存在、起始物理行号（JSONB），用于区分缺失与空值并支持后续血缘 |
 | rules_version | 产生规范值的规则版本 |

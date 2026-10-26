@@ -1,6 +1,6 @@
 # 任务 1 规格
 
-状态：第一轮计划，2026-10-22 按文档规范重整；尚未实现或执行业务验收。设计见 [design](design.md)，执行顺序见 [tasks](tasks.md)，完成情况见 [checklist](checklist.md)。
+状态：第一轮计划，2026-10-22 按文档规范重整；规则与 AC 定义未因实施而改动，实施与验收状态见 checklist。设计见 [design](design.md)，执行顺序见 [tasks](tasks.md)，完成情况见 [checklist](checklist.md)。
 
 ## 目标
 
@@ -59,7 +59,7 @@ review/text:
 
 ## AC测试
 
-以下为验收定义，实际完成情况只记入 checklist。AC00 是计划文件检查，AC01–AC14 为后续实施验收；当前只有 AC00 完成。
+以下为验收定义，实际完成情况只记入 checklist。AC00 是计划文件检查，AC01–AC14 为实施验收；各项是否完成以 checklist 为准。
 
 ### 固定样本
 

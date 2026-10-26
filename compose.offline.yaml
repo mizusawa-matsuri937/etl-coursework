@@ -1,0 +1,6 @@
+# 离线复现覆盖：把 Compose 网络设为 internal，容器无法访问外网（用于证明复现不依赖网络）。
+# 用法见 doc/task1/runbook.md 第 7 节；与 compose.e2e.yaml 一起使用，并使用独立的项目名与端口。
+# internal 网络不向宿主发布端口，因此该模式下通过 `docker compose exec` 操作，不使用 Airflow 网页。
+networks:
+  default:
+    internal: true

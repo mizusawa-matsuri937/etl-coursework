@@ -1,8 +1,8 @@
-docker compose --profile test run --rm etl-test pytest -q tests# 任务 1 开发任务
+# 任务 1 开发任务
 
-状态：T1-00 至 T1-05 已完成（含正式全量），T1-06 未开始。步骤按依赖顺序执行，后续实施需按用户明确的执行范围推进。
+状态：T1-00 至 T1-06 全部完成。步骤按依赖顺序执行，后续实施需按用户明确的执行范围推进。
 
-下面源码文件相对 `src/etl_task1/`，测试文件相对 `tests/`；其他路径相对项目根目录。文件和命令均为计划，尚不能直接运行。测试入口计划为 `docker compose --profile test run --rm etl-test pytest -q <测试路径>`，实际可用后再登记执行结果。
+下面源码文件相对 `src/etl_task1/`，测试文件相对 `tests/`；其他路径相对项目根目录。测试入口为 `docker compose --profile test run --rm etl-test pytest -q <测试路径>`，各任务的实际执行结果登记在对应条目下。
 
 - [x] T1-00：整理第一轮规格、设计、任务和验收计划。
   - 文件：`doc/task1/spec.md`、`doc/task1/design.md`、`doc/task1/tasks.md`、`doc/task1/checklist.md`、`CLAUDE.md`、`README.md`、`doc/request-template.md`。
@@ -26,9 +26,10 @@ docker compose --profile test run --rm etl-test pytest -q tests# 任务 1 开发
 - [x] T1-05：试跑资源并执行正式全量验收。2026-10-26 完成，证据见下方实测与 [任务 1 报告](task1-report.md)。
   - 文件：`metrics.py`、`integration/test_resource_limits.py`、`doc/task1/task1-report.md`、`scripts/sample_host_stats.sh`；另修改 `config.py`、`loader.py`、`checkpoint.py`、`pipeline.py`、`reporting.py`、`sql/task1_integrity.sql`、`compose.yaml`；生成 `outputs/task1/<extraction_id>/<run_id>/` 运行证据。
   - 检查：前置样本与恢复测试通过后，隔离试跑至少 100,000 条以修正预算，再经 Airflow 全量至 EOF；完成 AC07、AC12、AC13 的正式证据。数量差异未解释不标通过，保留同输入重跑核对结果。
-  - 实测（2026-10-26，工作目录：项目根目录）：195 项测试通过（含真实数据 100,000 条试跑、低磁盘模拟、160 MiB 超长记录）；经真实 scheduler 完成 100 万条样本运行（写 `etl_test`）；`full_run_1` 全量写入 `etl_movies`：792 批、7,911,696 条（有效 7,849,565，隔离 62,131），产品 253,059、用户 889,176 与官方一致，评论多 12 条已查明；运行中遇到约 15 分钟停顿和任务重试，装载从检查点恢复；完整性 SQL 在全量时超时，改写后 89 秒完成（正式运行中途修正）；`full_run_2_rerun` 复用既有抽取并附基准说明，状态 `succeeded`，结果表行数不变。
-- [ ] T1-06：核对全部 AC 并整理复现交付。
+  - 实测（2026-10-26，工作目录：项目根目录）：195 项测试通过（含真实数据 100,000 条试跑、低磁盘模拟、160 MiB 超长记录；其后新增 1 项续跑记录数测试，现为 196 项）；经真实 scheduler 完成 100 万条样本运行（写 `etl_test`）；`full_run_1` 全量写入 `etl_movies`：792 批、7,911,696 条（有效 7,849,565，隔离 62,131），产品 253,059、用户 889,176 与官方一致，评论多 12 条已查明；运行中遇到约 15 分钟停顿和任务重试，装载从检查点恢复；完整性 SQL 在全量时超时，改写后 89 秒完成（正式运行中途修正）；`full_run_2_rerun` 复用既有抽取并附基准说明，状态 `succeeded`，结果表行数不变。
+- [x] T1-06：核对全部 AC 并整理复现交付。2026-10-26 完成，证据见下方实测、[任务 1 报告](task1-report.md) 第 7、8 节与 checklist AC14。
   - 文件：`README.md`、`.env.example`、`doc/task1/` 下的计划与实际字段字典、runbook、报告，以及 `doc/request-template.md`。
   - 检查：AC14；预先准备镜像后，在独立测试库按 runbook 离线复现固定样本和一次恢复；核查 AC01–AC14 的实际证据、命令与版本。纯文档修改不无理由重跑全量，不声称未创建的提交或标签。
+  - 实测（2026-10-26，工作目录：项目根目录）：新增 `compose.offline.yaml`，在独立项目 `etl-repro`、容器无外网下，`docker compose --profile test run --rm etl-test pytest -q tests` 196 项通过；固定样本 10/6/4；第 2 批提交前故障后同参数续跑，结果一致；复现后 `down -v` 仅清理该项目。核对 checklist 引用的文件路径均存在，Git 跟踪文件无个人路径或口令；更正 README、CLAUDE.md、spec、design、tasks 中的过时"计划中"表述。
 
-实现与验证完成后再逐项勾选；T1-06 尚未执行。设计细节维护于 design，规则和验收定义维护于 spec，实际证据维护于 checklist。
+全部任务已完成并留有证据；用户的人工复核另行记录。设计细节维护于 design，规则和验收定义维护于 spec，实际证据维护于 checklist。

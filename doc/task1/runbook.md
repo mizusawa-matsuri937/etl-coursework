@@ -1,6 +1,6 @@
 # 任务 1 运行手册
 
-状态：2026-10-26 随 T1-04 建立，覆盖样本与端到端验证；全量运行章节在 T1-05 实测后补充。命令的工作目录均为项目根目录，环境为 macOS arm64 + Colima（见 README）。
+状态：2026-10-26 随 T1-04 建立，T1-05 补全量与资源章节，T1-06 补离线复现，并按第 7 节命令实际复现过固定样本与一次恢复。命令的工作目录均为项目根目录，环境为 macOS arm64 + Colima（见 README）。
 
 ## 1. 准备
 
@@ -82,7 +82,7 @@ python3 scripts/run_dag_e2e.py --run-id demo_transient --conf "{\"scope\":\"samp
 python3 scripts/run_dag_e2e.py --run-id full_run_1 --conf '{"scope":"full"}' --timeout 7200
 ```
 
-全量约需 45–60 分钟装载（速率随表增大由约 1 万降到约 1,500 条/秒）加约 2 分钟校验；脚本超时只影响等待，DAG 仍在运行，可在 Airflow 界面查看。差异未解释时 `run_gate` 失败、状态 `review_required`；有依据后用同参数加 `baseline_explanation` 重新触发，已完成的抽取只做完整性核对并复用。
+全量约需 60 分钟装载（净时间 3,567 s；速率随表增大由约 1 万降到约 1,500 条/秒）加约 2 分钟校验；脚本超时只影响等待，DAG 仍在运行，可在 Airflow 界面查看。差异未解释时 `run_gate` 失败、状态 `review_required`；有依据后用同参数加 `baseline_explanation` 重新触发，已完成的抽取只做完整性核对并复用。
 
 每个批次提交后装载器向 `<运行目录>/resources.jsonl` 追加一行样本（RSS、累计记录/字节、速率、数据库大小、磁盘剩余），结束时写 `resources.json` 汇总。宿主侧补充采样（容器 CPU/内存、PostgreSQL 数据与 WAL 目录）：
 
@@ -107,3 +107,25 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 - **输入或配置变化**：得到另一个 `extraction_id`，不会沿用旧检查点，也不会混入旧数据。
 - **已完成的抽取再次运行**：核对完整性后复用，只新增一条 `reused` 执行审计。
 - **数据库核对**：`etl_task1.db.run_integrity` 执行 `sql/task1_integrity.sql`；`etl_task1.validation.collect_counts` 执行 `sql/task1_counts.sql`。所有查询必须限定 `extraction_id`。
+
+## 7. 离线复现（独立项目、独立数据库、容器无外网）
+
+前提：镜像 `etl-task1:local` 与 `postgres:18.6` 已在本机（第 1 节 `docker compose build` 需要联网一次，之后不再需要）。复现使用独立的 Compose 项目名、独立的数据卷、不同的宿主端口和全新口令，不碰日常栈与业务库；`compose.offline.yaml` 把网络设为 `internal`，容器无法访问外网。
+
+```bash
+cp .env.example /tmp/etl-repro.env   # 填写口令（可用任意新值）、SOURCE_HOST_DIR，并把 POSTGRES_HOST_PORT、AIRFLOW_HOST_PORT 改成不冲突的值
+export COMPOSE_PROJECT_NAME=etl-repro COMPOSE_ENV_FILES=/tmp/etl-repro.env
+export COMPOSE_FILE=compose.yaml:compose.e2e.yaml:compose.offline.yaml
+docker compose up -d --no-build --pull never      # 全新的 PostgreSQL 卷，init 脚本重新建三个库
+docker compose exec -T airflow-scheduler python -c "import socket; socket.create_connection(('pypi.org',443),timeout=4)"   # 应当失败，证明无外网
+docker compose --profile test run --rm etl-test pytest -q tests                                                          # 单元 + 集成
+FX='"source_gzip_path":"/data/fixtures/task1_sample.txt.gz","source_manifest_path":"/data/fixtures/task1_sample.manifest.json"'
+python3 scripts/run_dag_e2e.py --run-id repro_ok --conf "{\"scope\":\"sample\",\"sample_max_records\":100,\"batch_rows\":3,$FX}"
+# 恢复：第 2 批提交前注入故障，DAG 失败；同参数去掉故障后重跑，从检查点续跑
+python3 scripts/run_dag_e2e.py --run-id repro_fault --conf "{\"scope\":\"sample\",\"sample_max_records\":100,\"batch_rows\":4,$FX,\"fault_injection\":\"before_commit:2\"}"
+python3 scripts/run_dag_e2e.py --run-id repro_resume --conf "{\"scope\":\"sample\",\"sample_max_records\":100,\"batch_rows\":4,$FX}"
+docker compose down -v                                # 只删除 etl-repro 项目的容器、网络和卷
+unset COMPOSE_PROJECT_NAME COMPOSE_ENV_FILES COMPOSE_FILE
+```
+
+预期：测试全部通过；`repro_ok` 与 `repro_resume` 成功，均为读取 10＝有效 6＋隔离 4，产品/用户 observed 6/8、valid 4/4、空用户 1；`repro_fault` 的 `extract_load` 失败、`run_gate` 失败，其后 `etl_run` 为 failed（已提交 1 批、4 条）再 succeeded（续跑 2 批、6 条）。Airflow 在该项目内以 `docker compose exec` 操作，网页端口不可用。端到端输出写在 `outputs/e2e/`，验证后可删除。

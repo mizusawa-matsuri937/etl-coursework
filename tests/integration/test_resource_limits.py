@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import tracemalloc
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,16 @@ def test_monitor_records_a_sample_per_batch_and_summary(conn, make_settings, ver
     assert summ["kind"] == "measured" and summ["records_this_run"] == 10 and summ["batches"] == 4
     assert summ["db_bytes_end"] and summ["db_growth_bytes"] is not None
     assert summ["peak_rss_bytes"] > 0 and summ["disk_free_min"]
+
+
+def test_resumed_run_reports_records_already_committed(conn, make_settings, verify, tmp_path):
+    faulty = make_settings(env="test", fault_injection="after_commit:2")
+    with pytest.raises(Exception):
+        load_extraction(faulty, verify(), conn)
+    s = make_settings()
+    mon = _monitor(tmp_path, s)
+    load_extraction(s, verify(), conn, monitor=mon)
+    assert mon.summary()["records_before_run"] == 6 and mon.summary()["records_this_run"] == 4
 
 
 def test_estimate_follows_the_design_formula():
@@ -128,8 +139,9 @@ def test_oversize_record_memory_is_bounded_by_the_limit_not_the_record_size(conn
 
 @pytest.mark.skipif(not (REAL_GZ.exists() and REAL_MANIFEST.exists()), reason="未挂载真实数据")
 def test_real_data_trial_of_100k_records(conn, base_settings):
-    """前 100,000 条真实记录的隔离试跑（前缀样本，非随机；不是正式全量）。结果落到 outputs/resource-trial。"""
-    out = base_settings.output_dir / "resource-trial"
+    """前 100,000 条真实记录的隔离试跑（前缀样本，非随机；不是正式全量）。结果落到 outputs/resource-trial/<UTC 时间戳>/，不覆盖旧证据。"""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    out = base_settings.output_dir / "resource-trial" / stamp
     s = dataclasses.replace(base_settings, source_gzip_path=REAL_GZ, source_manifest_path=REAL_MANIFEST,
                             output_dir=out, scope="sample", sample_max_records=100_000)
     mon = ResourceMonitor(out / "resources.jsonl", s.disk_paths(), s.min_free_bytes)
