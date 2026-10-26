@@ -1,0 +1,19 @@
+[project]
+name = "etl-task1"
+version = "0.1.0"
+description = "Amazon 电影评论 ETL 任务 1：全量评论流式抽取与装载"
+requires-python = ">=3.12,<3.13"
+dependencies = ["psycopg[binary]==3.3.5"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider --import-mode=importlib"
+markers = ["integration: 需要真实 PostgreSQL 的集成测试"]

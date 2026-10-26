@@ -1,0 +1,128 @@
+name: etl-task1
+
+x-etl-image: &etl-image
+  image: etl-task1:local
+  build:
+    context: .
+    dockerfile: Dockerfile
+
+x-etl-env: &etl-env
+  ETL_DB_HOST: postgres
+  ETL_DB_PORT: "5432"
+  ETL_DB_NAME: etl_movies
+  ETL_DB_USER: etl_app
+  ETL_DB_PASSWORD: ${ETL_DB_PASSWORD:?在 .env 中设置 ETL_DB_PASSWORD}
+  SOURCE_GZIP_PATH: /data/source/${SOURCE_GZIP_NAME:-movies.txt.gz}
+  SOURCE_MANIFEST_PATH: /data/source/${SOURCE_MANIFEST_NAME:-movies.txt.gz.download.json}
+  ETL_OUTPUT_DIR: /opt/etl/outputs
+
+x-airflow-env: &airflow-env
+  ETL_ENV: ${ETL_ENV:-prod}
+  ETL_RETRY_DELAY_SECONDS: ${ETL_RETRY_DELAY_SECONDS:-60}
+  ETL_MIN_FREE_BYTES: ${ETL_MIN_FREE_BYTES:-10737418240}  # 磁盘剩余低于此值时安全停止（默认 10 GiB）
+  AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?在 .env 中设置 AIRFLOW_FERNET_KEY}
+  AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
+  AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:?在 .env 中设置 AIRFLOW_JWT_SECRET}
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD:?在 .env 中设置 AIRFLOW_DB_PASSWORD}@postgres:5432/airflow_meta
+  # 本地单用户开发：端口只绑定 127.0.0.1，免登录；不得用于对外暴露的部署。
+  AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
+
+x-etl-mounts: &etl-mounts
+  - ./src:/opt/etl/src:ro
+  - ./sql:/opt/etl/sql:ro
+  - ./dags:/opt/airflow/dags:ro
+  - ./outputs:/opt/etl/outputs
+  - ./tests/fixtures/data:/data/fixtures:ro
+  - ${SOURCE_HOST_DIR:?在 .env 中设置 SOURCE_HOST_DIR}/${SOURCE_GZIP_NAME:-movies.txt.gz}:/data/source/${SOURCE_GZIP_NAME:-movies.txt.gz}:ro
+  - ${SOURCE_HOST_DIR:?}/${SOURCE_MANIFEST_NAME:-movies.txt.gz.download.json}:/data/source/${SOURCE_MANIFEST_NAME:-movies.txt.gz.download.json}:ro
+
+x-airflow-service: &airflow-service
+  <<: *etl-image
+  environment:
+    <<: [*airflow-env, *etl-env]
+  volumes: *etl-mounts
+  depends_on:
+    airflow-init:
+      condition: service_completed_successfully
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:18.6@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6
+    shm_size: 1gb  # 默认 64 MiB 在全量规模的并行 Hash Join 时会报 DiskFull（共享内存不足）
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?在 .env 中设置 POSTGRES_PASSWORD}
+      ETL_DB_PASSWORD: ${ETL_DB_PASSWORD:?}
+      AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD:?}
+      TEST_DB_PASSWORD: ${TEST_DB_PASSWORD:?在 .env 中设置 TEST_DB_PASSWORD}
+    volumes:
+      # PostgreSQL 18 镜像的数据目录在该挂载点下按主版本分层。
+      - pgdata:/var/lib/postgresql
+      - ./docker/init-databases.sh:/docker-entrypoint-initdb.d/10-init-databases.sh:ro
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  airflow-init:
+    <<: *etl-image
+    environment:
+      <<: *airflow-env
+    command: ["airflow", "db", "migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  airflow-apiserver:
+    <<: *airflow-service
+    command: ["airflow", "api-server"]
+    ports:
+      - "127.0.0.1:${AIRFLOW_HOST_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/v2/version"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  airflow-scheduler:
+    <<: *airflow-service
+    command: ["airflow", "scheduler"]
+
+  airflow-dag-processor:
+    <<: *airflow-service
+    command: ["airflow", "dag-processor"]
+
+  # 测试服务：仅在 --profile test 下运行，连接独立的 etl_test 库。
+  etl-test:
+    <<: *etl-image
+    profiles: ["test"]
+    entrypoint: []
+    working_dir: /opt/etl
+    environment:
+      <<: *etl-env
+      ETL_ENV: test
+      ETL_DB_NAME: etl_test
+      ETL_DB_USER: etl_test
+      ETL_DB_PASSWORD: ${TEST_DB_PASSWORD:?在 .env 中设置 TEST_DB_PASSWORD}
+    volumes:
+      - ./src:/opt/etl/src:ro
+      - ./tests:/opt/etl/tests:ro
+      - ./pyproject.toml:/opt/etl/pyproject.toml:ro
+      - ./dags:/opt/etl/dags:ro
+      - ./sql:/opt/etl/sql:ro
+      - ./outputs:/opt/etl/outputs  # 资源试跑结果写入 outputs/resource-trial
+      - ${SOURCE_HOST_DIR:?}/${SOURCE_GZIP_NAME:-movies.txt.gz}:/data/source/${SOURCE_GZIP_NAME:-movies.txt.gz}:ro
+      - ${SOURCE_HOST_DIR:?}/${SOURCE_MANIFEST_NAME:-movies.txt.gz.download.json}:/data/source/${SOURCE_MANIFEST_NAME:-movies.txt.gz.download.json}:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

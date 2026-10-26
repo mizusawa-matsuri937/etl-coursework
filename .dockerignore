@@ -1,0 +1,9 @@
+.git
+.idea
+.env
+.env.*
+!.env.example
+outputs
+movies.txt*
+**/__pycache__
+.venv

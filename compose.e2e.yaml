@@ -1,0 +1,18 @@
+# 端到端验证覆盖：让 Airflow 服务写入独立的 etl_test 库与独立输出目录，不污染业务库。
+# 用法：docker compose -f compose.yaml -f compose.e2e.yaml up -d
+# 仅用于开发验证；允许故障注入（ETL_ENV=test）并缩短重试间隔。
+x-e2e-env: &e2e-env
+  ETL_ENV: test
+  ETL_DB_NAME: etl_test
+  ETL_DB_USER: etl_test
+  ETL_DB_PASSWORD: ${TEST_DB_PASSWORD:?在 .env 中设置 TEST_DB_PASSWORD}
+  ETL_OUTPUT_DIR: /opt/etl/outputs/e2e
+  ETL_RETRY_DELAY_SECONDS: "2"
+
+services:
+  airflow-apiserver:
+    environment: *e2e-env
+  airflow-scheduler:
+    environment: *e2e-env
+  airflow-dag-processor:
+    environment: *e2e-env
