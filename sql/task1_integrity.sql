@@ -19,14 +19,16 @@ FROM review_record WHERE extraction_id = %(eid)s
 UNION ALL
 SELECT 'batch_counts_differ_from_records', count(*)
 FROM etl_batch b
+LEFT JOIN (  -- 一次分组汇总各批实际行，避免对每个批次反复扫描（全量时为二次方耗时）
+    SELECT batch_no,
+           count(*) FILTER (WHERE classification = 'valid') AS valid_n,
+           count(*) FILTER (WHERE classification = 'quarantined') AS quarantined_n,
+           min(record_no) AS first_no, max(record_no) AS last_no, sum(byte_size) AS bytes
+    FROM review_record WHERE extraction_id = %(eid)s GROUP BY batch_no) a USING (batch_no)
 WHERE b.extraction_id = %(eid)s AND (
-    b.valid_count <> (SELECT count(*) FROM review_record r WHERE r.extraction_id = b.extraction_id
-                      AND r.batch_no = b.batch_no AND r.classification = 'valid')
- OR b.quarantined_count <> (SELECT count(*) FROM review_record r WHERE r.extraction_id = b.extraction_id
-                      AND r.batch_no = b.batch_no AND r.classification = 'quarantined')
- OR b.first_record_no <> (SELECT min(record_no) FROM review_record r WHERE r.extraction_id = b.extraction_id AND r.batch_no = b.batch_no)
- OR b.last_record_no <> (SELECT max(record_no) FROM review_record r WHERE r.extraction_id = b.extraction_id AND r.batch_no = b.batch_no)
- OR b.byte_count <> (SELECT coalesce(sum(byte_size), 0) FROM review_record r WHERE r.extraction_id = b.extraction_id AND r.batch_no = b.batch_no))
+    a.batch_no IS NULL
+ OR b.valid_count <> a.valid_n OR b.quarantined_count <> a.quarantined_n
+ OR b.first_record_no <> a.first_no OR b.last_record_no <> a.last_no OR b.byte_count <> a.bytes)
 UNION ALL
 SELECT 'batches_not_contiguous', count(*)
 FROM etl_batch b

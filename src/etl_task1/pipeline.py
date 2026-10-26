@@ -18,7 +18,7 @@ from typing import Any, Callable
 
 import psycopg
 
-from . import reporting, validation
+from . import metrics, reporting, validation
 from .checkpoint import (CheckpointMismatch, ExtractionBusy, LoadConflict, RunContext,
                          plan_extraction_id)
 from .config import ConfigError, Settings, load_settings
@@ -149,9 +149,21 @@ def extract_load_step(params: RunParams, verified: dict[str, Any]) -> dict[str, 
         apply_schema(conn)
         ctx = RunContext(run_id=f"{params.run_key}-t{params.try_number}", dag_id=params.dag_id,
                          airflow_run_id=params.run_key)
-        r = load_extraction(s, v, conn, ctx, expected_extraction_id=verified["extraction_id"])
+        directory = reporting.run_dir(s.output_dir, verified["extraction_id"], params.run_key)
+        monitor = metrics.ResourceMonitor(directory / "resources.jsonl", s.disk_paths(), s.min_free_bytes)
+        try:
+            r = load_extraction(s, v, conn, ctx, expected_extraction_id=verified["extraction_id"],
+                                monitor=monitor)
+        finally:
+            monitor.finish(conn)
+            resources = monitor.summary()
+            try:  # 失败时也保留已测得的资源汇总
+                reporting.write_atomic(directory / "resources.json",
+                                       (json.dumps(resources, ensure_ascii=False, indent=2) + "\n").encode())
+            except OSError:
+                pass
     return {**dataclasses.asdict(r), "elapsed_seconds": round(time.monotonic() - started, 2),
-            "peak_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
+            "peak_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, "resources": resources}
 
 
 def validate_counts_step(params: RunParams, extraction_id: str) -> dict[str, Any]:
@@ -238,15 +250,17 @@ def finalize_report_step(params: RunParams, upstream: dict[str, dict[str, Any] |
                                          "source_eof_reached": row[2], "gzip_verified": row[3],
                                          "failure_reason": row[4], "batches_committed": prog[0],
                                          "last_record_no": prog[1]}
-        summary["resources"] = reporting.resources_snapshot(conn, s.output_dir)
+        summary["resources"] = {"report_time": reporting.resources_snapshot(conn, s.output_dir)}
     except psycopg.Error as exc:
         summary["database_available"] = False
         summary["database_error"] = f"{type(exc).__name__}: {exc}"[:500]
-        summary["resources"] = reporting.resources_snapshot(None, s.output_dir)
+        summary["resources"] = {"report_time": reporting.resources_snapshot(None, s.output_dir)}
     finally:
         if conn is not None:
             conn.close()
 
+    if extract and extract.get("resources"):
+        summary["resources"]["extract_load"] = extract["resources"]
     if validate:
         summary.update(counts=validate["counts"], invariants=validate["invariants"],
                        baseline=validate["baseline"], quality=validate["quality"])

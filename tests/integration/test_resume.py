@@ -158,3 +158,18 @@ def test_full_extraction_cannot_be_marked_complete_without_eof(conn, make_settin
     r = load_extraction(make_settings(), verify(), conn)
     with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
         conn.execute("UPDATE extraction SET gzip_verified = false WHERE extraction_id = %s", (r.extraction_id,))
+
+
+def test_run_left_running_by_a_killed_process_is_closed_by_the_next_run(conn, make_settings, verify):
+    faulty = make_settings(env="test", fault_injection="after_commit:1")
+    with pytest.raises(InjectedFault):
+        load_extraction(faulty, verify(), conn)
+    eid = plan_extraction_id(faulty, verify())
+    # 模拟进程被直接杀死：运行记录停在 running，抽取状态也未登记
+    conn.execute("UPDATE etl_run SET status = 'running', finished_at = NULL, failure_reason = NULL "
+                 "WHERE extraction_id = %s", (eid,))
+    load_extraction(make_settings(), verify(), conn)
+    rows = conn.execute("SELECT status, failure_reason, batches_committed FROM etl_run "
+                        "WHERE extraction_id = %s ORDER BY started_at", (eid,)).fetchall()
+    assert [r[0] for r in rows] == ["failed", "succeeded"]
+    assert "进程中断" in rows[0][1] and rows[0][2] == 1

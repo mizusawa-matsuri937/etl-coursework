@@ -141,6 +141,19 @@ def finish_run(conn: psycopg.Connection, run_id: str, status: str, reason: str |
         )
 
 
+def close_abandoned_runs(conn: psycopg.Connection, extraction_id: str) -> int:
+    """持有抽取锁后，同一抽取仍为 running 的运行必然已中断（进程被杀、容器暂停等）；登记为 failed。"""
+    with conn.transaction():
+        cur = conn.execute(
+            """UPDATE etl_run r SET status = 'failed', finished_at = now(),
+                   failure_reason = '进程中断，未登记结果；由后续运行在取得抽取锁后收尾',
+                   batches_committed = (SELECT count(*) FROM etl_batch b WHERE b.run_id = r.run_id),
+                   records_loaded = coalesce((SELECT sum(valid_count + quarantined_count)
+                                              FROM etl_batch b WHERE b.run_id = r.run_id), 0)
+               WHERE r.extraction_id = %s AND r.status = 'running'""", (extraction_id,))
+        return cur.rowcount
+
+
 def try_lock(conn: psycopg.Connection, extraction_id: str) -> bool:
     got = conn.execute("SELECT pg_try_advisory_lock(%s)", (advisory_key(extraction_id),)).fetchone()[0]
     return bool(got)

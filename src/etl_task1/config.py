@@ -37,6 +37,8 @@ class Settings:
     encoding: str = "utf-8"
     env: str = "prod"
     fault_injection: str | None = None
+    min_free_bytes: int = 10 * 1024 * MIB  # 磁盘剩余低于此值时安全停止；运行保护，不参与抽取 ID
+    disk_probe_paths: tuple[Path, ...] = ()  # 空表示探测 output_dir 与容器根文件系统
 
     def dsn(self, *, with_password: bool = False) -> str:
         """libpq 连接串；默认不含口令，避免进入日志。"""
@@ -44,6 +46,9 @@ class Settings:
         if with_password:
             parts += f" password={self.db_password}"
         return parts
+
+    def disk_paths(self) -> tuple[Path, ...]:
+        return self.disk_probe_paths or (self.output_dir, Path("/"))
 
     def effective_config(self) -> dict[str, object]:
         """参与抽取 ID 的有效配置：编码、样本范围与批次参数。"""
@@ -77,6 +82,19 @@ def _positive_int(env: Mapping[str, str], key: str, default: int | None) -> int 
         raise ConfigError(f"{key} 必须是整数，实际为 {raw!r}") from None
     if value <= 0:
         raise ConfigError(f"{key} 必须为正整数，实际为 {value}")
+    return value
+
+
+def _non_negative_int(env: Mapping[str, str], key: str, default: int) -> int:
+    raw = env.get(key, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ConfigError(f"{key} 必须是整数，实际为 {raw!r}") from None
+    if value < 0:
+        raise ConfigError(f"{key} 不能为负数，实际为 {value}")
     return value
 
 
@@ -118,4 +136,6 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         encoding="utf-8",
         env=etl_env,
         fault_injection=fault,
+        min_free_bytes=_non_negative_int(env, "ETL_MIN_FREE_BYTES", 10 * 1024 * MIB),
+        disk_probe_paths=tuple(Path(p) for p in env.get("ETL_DISK_PROBE_PATHS", "").split(":") if p.strip()),
     )

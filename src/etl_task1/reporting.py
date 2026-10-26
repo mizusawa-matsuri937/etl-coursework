@@ -88,6 +88,10 @@ def _fmt(n: Any) -> str:
     return f"{n:,}" if isinstance(n, int) and not isinstance(n, bool) else str(n)
 
 
+def _mib(n: Any) -> str:
+    return "未记录" if n is None else f"{n / 1048576:,.1f} MiB"
+
+
 def render_markdown(s: dict[str, Any]) -> str:
     L: list[str] = []
     a = L.append
@@ -191,7 +195,20 @@ def render_markdown(s: dict[str, Any]) -> str:
         a("")
         a("## 资源")
         a("")
-        a("下列为本次运行记录的实测值；资源预算与全量估算见 design 与 AC12 证据。")
+        a("下列为本次运行记录的实测值（单位已换算）；资源预算与全量估算见 design 与任务 1 报告。")
+        a("")
+        ex = s["resources"].get("extract_load")
+        if ex and not ex.get("records_this_run"):
+            a(f"- 本次复用既有抽取结果，未装载新记录；耗时 {ex['elapsed_seconds']} s（含来源校验后的完整性核对）；"
+              f"进程峰值 RSS {_mib(ex['peak_rss_bytes'])}")
+        elif ex:
+            a(f"- 装载耗时 {ex['elapsed_seconds']} s，批次 {_fmt(ex['batches'])}，本次处理记录 {_fmt(ex['records_this_run'])}，"
+              f"速率 {_fmt(ex['records_per_second'])} 条/秒（续跑前已有 {_fmt(ex['records_before_run'])} 条）")
+            a(f"- 峰值 RSS（进程）{_mib(ex['peak_rss_bytes'])}；采样峰值 {_mib(ex['peak_rss_sampled_bytes'])}；"
+              f"容器 cgroup 峰值 {_mib(ex['container_memory_peak_bytes'])}（含页缓存，不等于进程内存）")
+            a(f"- 数据库 {_mib(ex['db_bytes_start'])} → {_mib(ex['db_bytes_end'])}，增长 {_mib(ex['db_growth_bytes'])}"
+              f"（约 {_fmt(ex['db_bytes_per_record'])} 字节/条）")
+            a(f"- 磁盘剩余最小值 {json.dumps(ex['disk_free_min'], ensure_ascii=False)}（保留阈值 {_mib(ex['min_free_bytes_threshold'])}）")
         a("")
         a("```json")
         a(json.dumps(s["resources"], ensure_ascii=False, indent=2, default=str))

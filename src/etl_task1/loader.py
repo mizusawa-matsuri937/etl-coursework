@@ -17,6 +17,7 @@ from .checkpoint import (
     ExtractionBusy,
     LoadConflict,
     RunContext,
+    close_abandoned_runs,
     finish_run,
     load_checkpoint,
     plan_extraction_id,
@@ -28,6 +29,7 @@ from .checkpoint import (
 )
 from .config import Settings
 from .identity import RULES_VERSION
+from .metrics import ResourceMonitor
 from .db import run_integrity
 from .evidence import persist_spill
 from .parser import ScanStatus, scan_records
@@ -205,7 +207,7 @@ def _clean_stale_spills(evidence_dir: Path) -> None:
 
 def load_extraction(settings: Settings, verification: SourceVerification, conn: psycopg.Connection,
                     ctx: RunContext = RunContext(), *, expected_extraction_id: str | None = None,
-                    ) -> LoadResult:
+                    monitor: ResourceMonitor | None = None) -> LoadResult:
     """装载（或恢复、复用）一次抽取。表结构须已应用。"""
     if not conn.autocommit:
         raise ValueError("装载连接必须是自动提交模式（使用 etl_task1.db.connect）")
@@ -217,6 +219,7 @@ def load_extraction(settings: Settings, verification: SourceVerification, conn: 
     state = register_extraction(conn, settings, verification)
     if not try_lock(conn, eid):
         raise ExtractionBusy(f"抽取 {eid} 正由另一个装载器处理")
+    close_abandoned_runs(conn, eid)
     run_id = start_run(conn, eid, ctx)
     try:
         cp = load_checkpoint(conn, eid)
@@ -229,7 +232,7 @@ def load_extraction(settings: Settings, verification: SourceVerification, conn: 
             return LoadResult(eid, run_id, "reused", 0, valid, quarantined,
                               state.scope_complete, state.source_eof_reached, state.gzip_verified)
         _set_extraction(conn, eid, status="loading", failure_reason=None)
-        status = _scan_and_load(settings, verification, conn, run_id, eid, cp, fault)
+        status = _scan_and_load(settings, verification, conn, run_id, eid, cp, fault, monitor)
         _set_extraction(conn, eid, scope_complete=status.scope_complete,
                         source_eof_reached=status.source_eof_reached,
                         gzip_verified=status.gzip_verified, status="complete")
@@ -258,7 +261,8 @@ def _record_failure(conn: psycopg.Connection, eid: str, run_id: str, exc: BaseEx
 
 
 def _scan_and_load(settings: Settings, v: SourceVerification, conn: psycopg.Connection,
-                   run_id: str, eid: str, cp: Checkpoint, fault: tuple[str, int] | None) -> ScanStatus:
+                   run_id: str, eid: str, cp: Checkpoint, fault: tuple[str, int] | None,
+                   monitor: ResourceMonitor | None = None) -> ScanStatus:
     status = ScanStatus(records_read=cp.last_record_no)
     sample_max = settings.sample_max_records
     if sample_max is not None and cp.last_record_no >= sample_max:
@@ -275,6 +279,8 @@ def _scan_and_load(settings: Settings, v: SourceVerification, conn: psycopg.Conn
         if row is None or row != (block.sha256, block.end_offset):
             raise CheckpointMismatch(f"检查点记录 {block.record_no} 与源文件不一致，不能恢复")
 
+    if monitor is not None:
+        monitor.start(conn)  # 空间已不足时一批也不写
     pending: list[ParsedRecord] = []
     pending_bytes = 0
     batch_no = cp.last_batch_no
@@ -295,6 +301,9 @@ def _scan_and_load(settings: Settings, v: SourceVerification, conn: psycopg.Conn
         commit_batch(conn, run_id, eid, rows, fault)
         log.info("批次 %s 已提交：记录 %s–%s，有效 %s，隔离 %s", rows.batch_no, rows.first_record_no,
                  rows.last_record_no, rows.valid_count, rows.quarantined_count)
+        if monitor is not None:
+            monitor.on_batch(conn, batch_no=rows.batch_no, last_record_no=rows.last_record_no,
+                             batch_records=len(pending), batch_bytes=rows.byte_count)
         pending, pending_bytes = [], 0
 
     with open_gzip(v.path) as fh:

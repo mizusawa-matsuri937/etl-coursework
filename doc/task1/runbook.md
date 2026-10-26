@@ -74,10 +74,35 @@ python3 scripts/run_dag_e2e.py --run-id demo_transient --conf "{\"scope\":\"samp
 
 `fault_injection` 取值：`before_commit:N`、`after_commit:N`（第 N 批提交前/后抛错）、`transient_once:<标记文件>`（首次抛连接错误，之后成功）。恢复验证用同一参数重跑即可：已提交批次保留，从检查点后继续。回到正常配置：`unset COMPOSE_FILE; docker compose up -d`。
 
+## 5.1 正式全量与资源记录
+
+先 `unset COMPOSE_FILE; docker compose up -d` 回到正常配置（写业务库 `etl_movies`），确认磁盘剩余远大于 `ETL_MIN_FREE_BYTES`（默认 10 GiB；全量数据库约 23 GB，另需 WAL 与临时空间）。运行期间防止宿主休眠（如 `caffeinate -s`），休眠曾导致任务失联并被重试（见任务 1 报告）。
+
+```bash
+python3 scripts/run_dag_e2e.py --run-id full_run_1 --conf '{"scope":"full"}' --timeout 7200
+```
+
+全量约需 45–60 分钟装载（速率随表增大由约 1 万降到约 1,500 条/秒）加约 2 分钟校验；脚本超时只影响等待，DAG 仍在运行，可在 Airflow 界面查看。差异未解释时 `run_gate` 失败、状态 `review_required`；有依据后用同参数加 `baseline_explanation` 重新触发，已完成的抽取只做完整性核对并复用。
+
+每个批次提交后装载器向 `<运行目录>/resources.jsonl` 追加一行样本（RSS、累计记录/字节、速率、数据库大小、磁盘剩余），结束时写 `resources.json` 汇总。宿主侧补充采样（容器 CPU/内存、PostgreSQL 数据与 WAL 目录）：
+
+```bash
+scripts/sample_host_stats.sh outputs/full-run/host-stats.csv 15   # 后台运行，结束后终止该进程
+```
+
+100,000 条真实记录试跑是一个集成测试（需挂载真实数据，否则跳过），结果写 `outputs/resource-trial/trial-100k-summary.json`：
+
+```bash
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_resource_limits.py
+```
+
+磁盘保护：剩余空间低于 `ETL_MIN_FREE_BYTES` 时在已提交批次之后停止（`LowDiskSpace`，确定性错误不重试），释放空间后用同参数重新触发即可续跑。
+
 ## 6. 失败与恢复
 
 - **确定性错误**（哈希/大小不符、缺文件、gzip 损坏、数量守恒破坏、证据不完整、检查点不匹配）：任务失败且不重试；修正输入或配置后重新触发。
 - **暂时错误**（数据库断连/重启等）：自动重试，最多 2 次，间隔 `ETL_RETRY_DELAY_SECONDS`（默认 60 秒）。
+- **进程被杀或任务失联**：旧运行记录停在 `running`；新运行取得抽取锁后把它登记为 `failed`。旧进程若仍存活会持有抽取锁，新尝试得到 `ExtractionBusy`（暂时错误）并按重试等待。
 - **中断恢复**：重新触发同参数的运行。已提交的批次保留；装载器重新顺序解压扫描到检查点位置，核对检查点记录的哈希后继续。普通 gzip 不能随机跳转，扫描耗时计入恢复时间。
 - **输入或配置变化**：得到另一个 `extraction_id`，不会沿用旧检查点，也不会混入旧数据。
 - **已完成的抽取再次运行**：核对完整性后复用，只新增一条 `reused` 执行审计。

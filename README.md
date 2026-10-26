@@ -1,6 +1,6 @@
 # ETL 作业项目
 
-当前状态：任务 1 计划已完成，T1-01（容器环境）与 T1-02（解析与转换）、T1-03（数据库约束、批次装载与恢复）、T1-04（统计、报告与 Airflow 流程）于 2026-10-26 完成，经单元、集成测试和真实 scheduler 样本运行验证；资源试跑与全量运行未完成。
+当前状态：任务 1 计划已完成，T1-01（容器环境）与 T1-02（解析与转换）、T1-03（数据库约束、批次装载与恢复）、T1-04（统计、报告与 Airflow 流程）于 2026-10-26 完成，经单元、集成测试和真实 scheduler 样本运行验证；T1-05 于 2026-10-26 完成资源试跑、正式全量（7,911,696 条，经真实 Airflow 写入业务库）和同输入重跑，结果见 [任务 1 报告](doc/task1/task1-report.md)；T1-06（复现交付）未完成。
 
 任务 1 的目标是全量流式抽取 Amazon 评论，分批装载 PostgreSQL，保留原始证据与异常，并通过 Airflow 完成数量核对和运行报告。
 
@@ -27,8 +27,9 @@ ETL作业模板/
     └── task1/                # 任务 1 第一轮计划
         ├── spec.md           # 目标、范围、规则、AC测试、假设
         ├── design.md         # 设计思路与实现取舍
-        ├── tasks.md          # T1-00 至 T1-06，实施步骤未执行
-        └── checklist.md      # AC00 至 AC14 的完成情况
+        ├── tasks.md          # T1-00 至 T1-06，T1-00 至 T1-05 已完成
+        ├── checklist.md      # AC00 至 AC14 的完成情况
+        └── task1-report.md   # 资源试跑、全量运行与差异核对报告
 ```
 
 这些是当前已有文件。源码、Docker 配置、SQL、DAG 和测试在计划中列出，尚未创建。项目沿用“星期三项目开发”的协作结构。
@@ -48,7 +49,7 @@ ETL作业模板/
 
 1. 阅读 [spec](doc/task1/spec.md)，了解目标、范围、规则、AC 测试与假设。
 2. 阅读 [design](doc/task1/design.md)，了解架构、模型、批次恢复和资源预算。
-3. 按 [tasks](doc/task1/tasks.md) 执行；下一项为 **T1-05 试跑资源并执行正式全量验收**。
+3. 按 [tasks](doc/task1/tasks.md) 执行；下一项为 **T1-06 核对全部 AC 并整理复现交付**。
 4. 在 [checklist](doc/task1/checklist.md) 登记每项 AC 的实际结果；未执行不能勾选。
 5. 后续请求见 [请求模板](doc/request-template.md)。文档写法遵守 CLAUDE.md，后续任务独立放在 doc/taskN/。
 
@@ -80,7 +81,7 @@ docker compose --profile test run --rm etl-test pytest -q tests   # 单元 + 集
 
 `docker compose` 需在 `~/.docker/config.json` 中加入 `"cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"]`。Airflow 界面为 `http://127.0.0.1:8080`（仅本机、免登录，不得对外暴露）。测试覆盖配置、来源校验、解析、转换、证据回放、数据库约束、批次装载与恢复、统计报告与 DAG 定义。经 Airflow 运行、端到端验证与故障演示的命令见 [runbook](doc/task1/runbook.md)。
 
-已验证范围：计划文件检查、T1-01 的容器环境，T1-02 的单元测试（固定样本 10/6/4），以及 T1-03/T1-04 的集成测试与真实 scheduler 样本运行；不代表资源试跑或全量验收已通过。未来运行结果保存于 `outputs/task1/<extraction_id>/<run_id>/`，不得用规划数字冒充实测结果。
+已验证范围：计划文件检查、T1-01 的容器环境，T1-02 的单元测试（固定样本 10/6/4），以及 T1-03/T1-04 的集成测试与真实 scheduler 样本运行；T1-05 的资源试跑与全量运行证据见 [任务 1 报告](doc/task1/task1-report.md)；AC14（离线复现）尚未验收。未来运行结果保存于 `outputs/task1/<extraction_id>/<run_id>/`，不得用规划数字冒充实测结果。
 
 ## 阶段记录
 
@@ -95,6 +96,7 @@ docker compose --profile test run --rm etl-test pytest -q tests   # 单元 + 集
 | 2026-10-26 | 完成 T1-02：来源校验、流式解析、标识、转换与固定样本，110 项单元测试通过；前 200,000 条真实记录冒烟发现约 0.76% 非 UTF-8 隔离，规则未改 |
 | 2026-10-26 | 完成 T1-03：表结构、约束、批次装载、检查点恢复与证据旁路；148 项测试通过；前 50,000 条真实记录装入测试库的冒烟完整性全 0 |
 | 2026-10-26 | 完成 T1-04：数量核对、报告、Airflow DAG 与门禁；188 项测试通过；真实 scheduler 完成成功、错误哈希、gzip 截断、暂时错误重试等 6 次运行 |
+| 2026-10-26 | 完成 T1-05：100k/100 万条试跑、正式全量 7,911,696 条（产品 253,059、用户 889,176 与官方一致，评论多 12 条已查明）、同输入重跑复用；195 项测试通过 |
 | 2026-10-26 | AGENTS.md 并入 CLAUDE.md；完成 T1-01：容器环境、依赖锁定、三库隔离与配置模块，已在 Colima 上验证；解析与装载未开始 |
 
 本目录已初始化独立 Git 仓库，当前分支为 `main`，跟踪 `origin/main`。GitHub 公开仓库为 [mizusawa-matsuri937/etl-coursework](https://github.com/mizusawa-matsuri937/etl-coursework)。当前仅归档计划与项目规范，没有阶段标签；业务实现尚未开始。

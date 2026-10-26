@@ -19,6 +19,7 @@ x-etl-env: &etl-env
 x-airflow-env: &airflow-env
   ETL_ENV: ${ETL_ENV:-prod}
   ETL_RETRY_DELAY_SECONDS: ${ETL_RETRY_DELAY_SECONDS:-60}
+  ETL_MIN_FREE_BYTES: ${ETL_MIN_FREE_BYTES:-10737418240}  # 磁盘剩余低于此值时安全停止（默认 10 GiB）
   AIRFLOW__CORE__EXECUTOR: LocalExecutor
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
   AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?在 .env 中设置 AIRFLOW_FERNET_KEY}
@@ -50,6 +51,7 @@ x-airflow-service: &airflow-service
 services:
   postgres:
     image: postgres:18.6@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6
+    shm_size: 1gb  # 默认 64 MiB 在全量规模的并行 Hash Join 时会报 DiskFull（共享内存不足）
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?在 .env 中设置 POSTGRES_PASSWORD}
@@ -115,6 +117,7 @@ services:
       - ./pyproject.toml:/opt/etl/pyproject.toml:ro
       - ./dags:/opt/etl/dags:ro
       - ./sql:/opt/etl/sql:ro
+      - ./outputs:/opt/etl/outputs  # 资源试跑结果写入 outputs/resource-trial
       - ${SOURCE_HOST_DIR:?}/${SOURCE_GZIP_NAME:-movies.txt.gz}:/data/source/${SOURCE_GZIP_NAME:-movies.txt.gz}:ro
       - ${SOURCE_HOST_DIR:?}/${SOURCE_MANIFEST_NAME:-movies.txt.gz.download.json}:/data/source/${SOURCE_MANIFEST_NAME:-movies.txt.gz.download.json}:ro
     depends_on:
