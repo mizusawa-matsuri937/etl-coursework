@@ -1,6 +1,6 @@
 # 任务 1 字段字典
 
-状态：2026-10-26 随 T1-03 建立，对应 `sql/001_task1_schema.sql`（schema_migration 版本 `001`）。表和约束的定义以该 SQL 为准，本文说明含义。设计理由见 [design](design.md)，规则见 [spec](spec.md)。
+状态：2026-10-26 随 T1-03 建立，对应 `sql/001_task1_schema.sql`（schema_migration 版本 `001`）。表和约束的定义以该 SQL 为准，本文说明含义；文末附录由数据库系统目录自动生成（`python3 scripts/gen_schema_appendix.py`），列出全部列类型、可空性、默认值、约束、索引和触发器。设计理由见 [design](design.md)，规则见 [spec](spec.md)。
 
 所有业务表以 `extraction_id` 限定同一次抽取；样本、全量与不同规则版本互不混用。`source_file_id`、`extraction_id`、`source_review_id` 等标识均为小写 64 位十六进制 SHA-256；`etl_run.run_id` 例外，为 `<Airflow run>-t<尝试号>` 或 UUID 十六进制。
 
@@ -111,3 +111,319 @@ erDiagram
 - 主键、外键、`CHECK` 在 SQL 中定义；valid/quarantined 互斥由复合外键 `(extraction_id, source_review_id, classification)` 保证，完备性由延迟约束触发器在提交时检查。
 - `sql/task1_integrity.sql` 给出 10 项核对，`violations` 必须全为 0；通过 `etl_task1.db.run_integrity` 执行。
 - 其余 ER 关系见上图；`etl_run` 与 `extraction` 之间的关系是一对多。
+
+<!-- schema-appendix:begin（由 scripts/gen_schema_appendix.py 生成，勿手改） -->
+
+## 附录：列类型、约束与索引
+
+由 PostgreSQL 18.6 的系统目录自动生成（库 `etl_movies`，schema_migration 版本 001）。含义见上文，此处只列数据库实际的类型、可空性、默认值、约束、索引和触发器；与 `sql/001_task1_schema.sql` 一致。
+
+### source_file
+
+| 列 | 类型 | 可空 | 默认值 |
+|---|---|---|---|
+| `source_file_id` | `text` | 否 |  |
+| `path` | `text` | 否 |  |
+| `source_url` | `text` | 否 |  |
+| `download_completed_at` | `timestamp with time zone` | 是 |  |
+| `verified_at` | `timestamp with time zone` | 否 |  |
+| `recorded_size_bytes` | `bigint` | 否 |  |
+| `measured_size_bytes` | `bigint` | 否 |  |
+| `recorded_sha256` | `text` | 否 |  |
+| `measured_sha256` | `text` | 否 |  |
+| `sha256_is_official` | `boolean` | 否 | `false` |
+
+约束：
+
+- 主键 `source_file_pkey`：`PRIMARY KEY (source_file_id)`
+- CHECK `source_file_check`：`CHECK ((measured_size_bytes = recorded_size_bytes))`
+- CHECK `source_file_check1`：`CHECK ((measured_sha256 = recorded_sha256))`
+- CHECK `source_file_check2`：`CHECK ((source_file_id = measured_sha256))`
+- CHECK `source_file_measured_sha256_check`：`CHECK ((measured_sha256 ~ '^[0-9a-f]{64}$'::text))`
+- CHECK `source_file_measured_size_bytes_check`：`CHECK ((measured_size_bytes > 0))`
+- CHECK `source_file_recorded_sha256_check`：`CHECK ((recorded_sha256 ~ '^[0-9a-f]{64}$'::text))`
+- CHECK `source_file_recorded_size_bytes_check`：`CHECK ((recorded_size_bytes > 0))`
+- CHECK `source_file_source_file_id_check`：`CHECK ((source_file_id ~ '^[0-9a-f]{64}$'::text))`
+
+索引：
+
+- `source_file_pkey`：`btree (source_file_id)`
+
+### extraction
+
+| 列 | 类型 | 可空 | 默认值 |
+|---|---|---|---|
+| `extraction_id` | `text` | 否 |  |
+| `source_file_id` | `text` | 否 |  |
+| `parser_version` | `text` | 否 |  |
+| `rules_version` | `text` | 否 |  |
+| `config` | `jsonb` | 否 |  |
+| `scope` | `text` | 否 |  |
+| `sample_max_records` | `bigint` | 是 |  |
+| `scope_complete` | `boolean` | 否 | `false` |
+| `source_eof_reached` | `boolean` | 否 | `false` |
+| `gzip_verified` | `boolean` | 否 | `false` |
+| `status` | `text` | 否 | `'loading'::text` |
+| `failure_reason` | `text` | 是 |  |
+| `created_at` | `timestamp with time zone` | 否 | `now()` |
+| `completed_at` | `timestamp with time zone` | 是 |  |
+
+约束：
+
+- 主键 `extraction_pkey`：`PRIMARY KEY (extraction_id)`
+- 外键 `extraction_source_file_id_fkey`：`FOREIGN KEY (source_file_id) REFERENCES source_file(source_file_id)`
+- CHECK `extraction_check`：`CHECK (((scope = 'full'::text) = (sample_max_records IS NULL)))`
+- CHECK `extraction_check1`：`CHECK (((status <> 'complete'::text) OR scope_complete))`
+- CHECK `extraction_check2`：`CHECK (((status <> 'complete'::text) OR (scope = 'sample'::text) OR (source_eof_reached AND gzip_verified)))`
+- CHECK `extraction_extraction_id_check`：`CHECK ((extraction_id ~ '^[0-9a-f]{64}$'::text))`
+- CHECK `extraction_sample_max_records_check`：`CHECK ((sample_max_records > 0))`
+- CHECK `extraction_scope_check`：`CHECK ((scope = ANY (ARRAY['full'::text, 'sample'::text])))`
+- CHECK `extraction_status_check`：`CHECK ((status = ANY (ARRAY['loading'::text, 'complete'::text, 'failed'::text])))`
+
+索引：
+
+- `extraction_pkey`：`btree (extraction_id)`
+
+### etl_run
+
+| 列 | 类型 | 可空 | 默认值 |
+|---|---|---|---|
+| `run_id` | `text` | 否 |  |
+| `extraction_id` | `text` | 否 |  |
+| `dag_id` | `text` | 是 |  |
+| `airflow_run_id` | `text` | 是 |  |
+| `program_version` | `jsonb` | 否 |  |
+| `image_digest` | `text` | 是 |  |
+| `started_at` | `timestamp with time zone` | 否 | `now()` |
+| `finished_at` | `timestamp with time zone` | 是 |  |
+| `status` | `text` | 否 | `'running'::text` |
+| `failure_reason` | `text` | 是 |  |
+| `batches_committed` | `bigint` | 否 | `0` |
+| `records_loaded` | `bigint` | 否 | `0` |
+
+约束：
+
+- 主键 `etl_run_pkey`：`PRIMARY KEY (run_id)`
+- 外键 `etl_run_extraction_id_fkey`：`FOREIGN KEY (extraction_id) REFERENCES extraction(extraction_id)`
+- CHECK `etl_run_status_check`：`CHECK ((status = ANY (ARRAY['running'::text, 'succeeded'::text, 'failed'::text, 'reused'::text])))`
+
+索引：
+
+- `etl_run_pkey`：`btree (run_id)`
+
+### etl_batch
+
+| 列 | 类型 | 可空 | 默认值 |
+|---|---|---|---|
+| `extraction_id` | `text` | 否 |  |
+| `batch_no` | `integer` | 否 |  |
+| `first_record_no` | `bigint` | 否 |  |
+| `last_record_no` | `bigint` | 否 |  |
+| `resume_offset` | `bigint` | 否 |  |
+| `resume_line` | `bigint` | 否 |  |
+| `valid_count` | `integer` | 否 |  |
+| `quarantined_count` | `integer` | 否 |  |
+| `byte_count` | `bigint` | 否 |  |
+| `batch_sha256` | `text` | 否 |  |
+| `run_id` | `text` | 否 |  |
+| `committed_at` | `timestamp with time zone` | 否 | `now()` |
+
+约束：
+
+- 主键 `etl_batch_pkey`：`PRIMARY KEY (extraction_id, batch_no)`
+- 唯一 `etl_batch_extraction_id_first_record_no_key`：`UNIQUE (extraction_id, first_record_no)`
+- 唯一 `etl_batch_extraction_id_last_record_no_key`：`UNIQUE (extraction_id, last_record_no)`
+- 外键 `etl_batch_extraction_id_fkey`：`FOREIGN KEY (extraction_id) REFERENCES extraction(extraction_id)`
+- 外键 `etl_batch_run_id_fkey`：`FOREIGN KEY (run_id) REFERENCES etl_run(run_id)`
+- CHECK `etl_batch_batch_no_check`：`CHECK ((batch_no >= 1))`
+- CHECK `etl_batch_batch_sha256_check`：`CHECK ((batch_sha256 ~ '^[0-9a-f]{64}$'::text))`
+- CHECK `etl_batch_byte_count_check`：`CHECK ((byte_count >= 0))`
+- CHECK `etl_batch_check`：`CHECK ((last_record_no >= first_record_no))`
+- CHECK `etl_batch_check1`：`CHECK (((valid_count + quarantined_count) = ((last_record_no - first_record_no) + 1)))`
+- CHECK `etl_batch_first_record_no_check`：`CHECK ((first_record_no >= 1))`
+- CHECK `etl_batch_quarantined_count_check`：`CHECK ((quarantined_count >= 0))`
+- CHECK `etl_batch_resume_line_check`：`CHECK ((resume_line >= 1))`
+- CHECK `etl_batch_resume_offset_check`：`CHECK ((resume_offset >= 0))`
+- CHECK `etl_batch_valid_count_check`：`CHECK ((valid_count >= 0))`
+
+索引：
+
+- `etl_batch_extraction_id_first_record_no_key`：`btree (extraction_id, first_record_no)`
+- `etl_batch_extraction_id_last_record_no_key`：`btree (extraction_id, last_record_no)`
+- `etl_batch_pkey`：`btree (extraction_id, batch_no)`
+
+### review_record
+
+| 列 | 类型 | 可空 | 默认值 |
+|---|---|---|---|
+| `extraction_id` | `text` | 否 |  |
+| `source_review_id` | `text` | 否 |  |
+| `record_no` | `bigint` | 否 |  |
+| `start_line` | `bigint` | 否 |  |
+| `end_line` | `bigint` | 否 |  |
+| `start_offset` | `bigint` | 否 |  |
+| `end_offset` | `bigint` | 否 |  |
+| `byte_size` | `bigint` | 否 |  |
+| `raw_sha256` | `text` | 否 |  |
+| `classification` | `text` | 否 |  |
+| `product_id_observed` | `text` | 是 |  |
+| `product_id_status` | `text` | 否 |  |
+| `reviewer_id_observed` | `text` | 是 |  |
+| `reviewer_id_status` | `text` | 否 |  |
+| `batch_no` | `integer` | 否 |  |
+
+约束：
+
+- 主键 `review_record_pkey`：`PRIMARY KEY (extraction_id, source_review_id)`
+- 唯一 `review_record_extraction_id_record_no_key`：`UNIQUE (extraction_id, record_no)`
+- 唯一 `review_record_extraction_id_source_review_id_classification_key`：`UNIQUE (extraction_id, source_review_id, classification)`
+- 外键 `review_record_extraction_id_batch_no_fkey`：`FOREIGN KEY (extraction_id, batch_no) REFERENCES etl_batch(extraction_id, batch_no)`
+- CHECK `review_record_byte_size_check`：`CHECK ((byte_size > 0))`
+- CHECK `review_record_check`：`CHECK ((end_line >= start_line))`
+- CHECK `review_record_check1`：`CHECK (((end_offset - start_offset) = byte_size))`
+- CHECK `review_record_check2`：`CHECK (((product_id_status = 'ok'::text) = (product_id_observed IS NOT NULL)))`
+- CHECK `review_record_check3`：`CHECK (((reviewer_id_status = 'ok'::text) = (reviewer_id_observed IS NOT NULL)))`
+- CHECK `review_record_check4`：`CHECK (((classification <> 'valid'::text) OR (product_id_status = 'ok'::text)))`
+- CHECK `review_record_classification_check`：`CHECK ((classification = ANY (ARRAY['valid'::text, 'quarantined'::text])))`
+- CHECK `review_record_product_id_status_check`：`CHECK ((product_id_status = ANY (ARRAY['ok'::text, 'missing'::text, 'blank'::text, 'conflict'::text, 'undecodable'::text])))`
+- CHECK `review_record_raw_sha256_check`：`CHECK ((raw_sha256 ~ '^[0-9a-f]{64}$'::text))`
+- CHECK `review_record_record_no_check`：`CHECK ((record_no >= 1))`
+- CHECK `review_record_reviewer_id_status_check`：`CHECK ((reviewer_id_status = ANY (ARRAY['ok'::text, 'missing'::text, 'blank'::text, 'conflict'::text, 'undecodable'::text])))`
+- CHECK `review_record_source_review_id_check`：`CHECK ((source_review_id ~ '^[0-9a-f]{64}$'::text))`
+- CHECK `review_record_start_line_check`：`CHECK ((start_line >= 1))`
+- CHECK `review_record_start_offset_check`：`CHECK ((start_offset >= 0))`
+
+索引：
+
+- `review_record_batch_idx`：`btree (extraction_id, batch_no)`
+- `review_record_extraction_id_record_no_key`：`btree (extraction_id, record_no)`
+- `review_record_extraction_id_source_review_id_classification_key`：`btree (extraction_id, source_review_id, classification)`
+- `review_record_pkey`：`btree (extraction_id, source_review_id)`
+- `review_record_product_idx`：`btree (extraction_id, product_id_observed)`
+- `review_record_reviewer_idx`：`btree (extraction_id, reviewer_id_observed)`
+
+触发器：
+
+- `review_record_child_complete`：`CREATE CONSTRAINT TRIGGER review_record_child_complete AFTER INSERT ON public.review_record DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_review_record_child()`
+
+### review_staging
+
+| 列 | 类型 | 可空 | 默认值 |
+|---|---|---|---|
+| `extraction_id` | `text` | 否 |  |
+| `source_review_id` | `text` | 否 |  |
+| `classification` | `text` | 否 | `'valid'::text` |
+| `product_id_raw` | `text` | 否 |  |
+| `product_id` | `text` | 否 |  |
+| `reviewer_id_raw` | `text` | 是 |  |
+| `reviewer_id` | `text` | 是 |  |
+| `profile_name_raw` | `text` | 是 |  |
+| `helpfulness_raw` | `text` | 是 |  |
+| `helpful_votes` | `bigint` | 是 |  |
+| `total_votes` | `bigint` | 是 |  |
+| `helpfulness_ratio` | `numeric(12,10)` | 是 |  |
+| `score_raw` | `text` | 是 |  |
+| `score` | `numeric` | 是 |  |
+| `review_time_raw` | `text` | 是 |  |
+| `review_time_unix` | `bigint` | 是 |  |
+| `review_time_utc` | `timestamp with time zone` | 是 |  |
+| `summary_raw` | `text` | 是 |  |
+| `review_text_raw` | `text` | 是 |  |
+| `field_present` | `jsonb` | 否 |  |
+| `field_start_lines` | `jsonb` | 否 |  |
+| `rules_version` | `text` | 否 |  |
+
+约束：
+
+- 主键 `review_staging_pkey`：`PRIMARY KEY (extraction_id, source_review_id)`
+- 外键 `review_staging_extraction_id_source_review_id_classificati_fkey`：`FOREIGN KEY (extraction_id, source_review_id, classification) REFERENCES review_record(extraction_id, source_review_id, classification)`
+- CHECK `review_staging_check`：`CHECK (((product_id_raw = product_id) AND (btrim(product_id) <> ''::text)))`
+- CHECK `review_staging_check1`：`CHECK (((helpful_votes IS NULL) = (total_votes IS NULL)))`
+- CHECK `review_staging_check2`：`CHECK (((helpful_votes IS NULL) OR (helpful_votes <= total_votes)))`
+- CHECK `review_staging_check3`：`CHECK (((helpfulness_ratio IS NULL) = ((total_votes IS NULL) OR (total_votes = 0))))`
+- CHECK `review_staging_check4`：`CHECK (((reviewer_id IS NULL) OR ((reviewer_id = reviewer_id_raw) AND (btrim(reviewer_id) <> ''::text))))`
+- CHECK `review_staging_check5`：`CHECK (((review_time_utc IS NULL) OR (review_time_unix IS NOT NULL)))`
+- CHECK `review_staging_classification_check`：`CHECK ((classification = 'valid'::text))`
+- CHECK `review_staging_helpful_votes_check`：`CHECK ((helpful_votes >= 0))`
+- CHECK `review_staging_helpfulness_ratio_check`：`CHECK (((helpfulness_ratio >= (0)::numeric) AND (helpfulness_ratio <= (1)::numeric)))`
+- CHECK `review_staging_score_check`：`CHECK (((score >= (1)::numeric) AND (score <= (5)::numeric)))`
+- CHECK `review_staging_total_votes_check`：`CHECK ((total_votes >= 0))`
+
+索引：
+
+- `review_staging_pkey`：`btree (extraction_id, source_review_id)`
+- `review_staging_product_idx`：`btree (extraction_id, product_id)`
+- `review_staging_reviewer_idx`：`btree (extraction_id, reviewer_id)`
+
+### quarantine_record
+
+| 列 | 类型 | 可空 | 默认值 |
+|---|---|---|---|
+| `extraction_id` | `text` | 否 |  |
+| `source_review_id` | `text` | 否 |  |
+| `classification` | `text` | 否 | `'quarantined'::text` |
+| `reasons` | `text[]` | 否 |  |
+| `raw_bytes` | `bytea` | 是 |  |
+| `spill_path` | `text` | 是 |  |
+| `spill_sha256` | `text` | 是 |  |
+| `spill_size` | `bigint` | 是 |  |
+| `rules_version` | `text` | 否 |  |
+
+约束：
+
+- 主键 `quarantine_record_pkey`：`PRIMARY KEY (extraction_id, source_review_id)`
+- 外键 `quarantine_record_extraction_id_source_review_id_classific_fkey`：`FOREIGN KEY (extraction_id, source_review_id, classification) REFERENCES review_record(extraction_id, source_review_id, classification)`
+- CHECK `quarantine_record_check`：`CHECK (((raw_bytes IS NOT NULL) <> (spill_path IS NOT NULL)))`
+- CHECK `quarantine_record_check1`：`CHECK (((spill_path IS NULL) = ((spill_sha256 IS NULL) AND (spill_size IS NULL))))`
+- CHECK `quarantine_record_classification_check`：`CHECK ((classification = 'quarantined'::text))`
+- CHECK `quarantine_record_reasons_check`：`CHECK ((cardinality(reasons) >= 1))`
+- CHECK `quarantine_record_spill_sha256_check`：`CHECK ((spill_sha256 ~ '^[0-9a-f]{64}$'::text))`
+- CHECK `quarantine_record_spill_size_check`：`CHECK ((spill_size > 0))`
+
+索引：
+
+- `quarantine_record_pkey`：`btree (extraction_id, source_review_id)`
+
+### quality_issue
+
+| 列 | 类型 | 可空 | 默认值 |
+|---|---|---|---|
+| `extraction_id` | `text` | 否 |  |
+| `issue_key` | `text` | 否 |  |
+| `source_review_id` | `text` | 否 |  |
+| `field` | `text` | 是 |  |
+| `code` | `text` | 否 |  |
+| `severity` | `text` | 否 |  |
+| `evidence` | `text` | 是 |  |
+| `details` | `jsonb` | 否 | `'{}'::jsonb` |
+| `rule_version` | `text` | 否 |  |
+
+约束：
+
+- 主键 `quality_issue_pkey`：`PRIMARY KEY (extraction_id, issue_key)`
+- 外键 `quality_issue_extraction_id_source_review_id_fkey`：`FOREIGN KEY (extraction_id, source_review_id) REFERENCES review_record(extraction_id, source_review_id)`
+- CHECK `quality_issue_issue_key_check`：`CHECK ((issue_key ~ '^[0-9a-f]{64}$'::text))`
+- CHECK `quality_issue_severity_check`：`CHECK ((severity = ANY (ARRAY['error'::text, 'warning'::text, 'info'::text])))`
+
+索引：
+
+- `quality_issue_code_idx`：`btree (extraction_id, code)`
+- `quality_issue_pkey`：`btree (extraction_id, issue_key)`
+- `quality_issue_record_idx`：`btree (extraction_id, source_review_id)`
+
+### schema_migration
+
+| 列 | 类型 | 可空 | 默认值 |
+|---|---|---|---|
+| `version` | `text` | 否 |  |
+| `applied_at` | `timestamp with time zone` | 否 | `now()` |
+
+约束：
+
+- 主键 `schema_migration_pkey`：`PRIMARY KEY (version)`
+
+索引：
+
+- `schema_migration_pkey`：`btree (version)`
+
+<!-- schema-appendix:end -->

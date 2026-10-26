@@ -22,7 +22,7 @@ ETL作业模板/
 ├── compose.offline.yaml      # 离线复现覆盖：容器网络 internal，无外网
 ├── sql/                      # 表结构、完整性核对、数量核对、质量分布、产品汇总
 ├── dags/                     # amazon_reviews_task1.py
-├── scripts/                  # run_dag_e2e.py 经真实 scheduler 触发 DAG 并等待；sample_host_stats.sh 宿主侧资源采样
+├── scripts/                  # run_dag_e2e.py 经真实 scheduler 触发 DAG 并等待；sample_host_stats.sh 宿主侧资源采样；gen_schema_appendix.py 从数据库生成字段字典附录
 └── doc/
     ├── request-template.md   # 公共请求模板
     └── task1/                # 任务 1 第一轮计划
@@ -30,7 +30,7 @@ ETL作业模板/
         ├── design.md         # 设计思路与实现取舍
         ├── tasks.md          # T1-00 至 T1-06，全部已完成
         ├── checklist.md      # AC00 至 AC14 的完成情况
-        ├── data-dictionary.md # 字段字典与 ER 图
+        ├── data-dictionary.md # 字段字典与 ER 图（文末附录含列类型、约束、索引，由数据库生成）
         ├── runbook.md        # 运行手册（样本、全量、恢复、离线复现）
         └── task1-report.md   # 资源试跑、全量运行与差异核对报告
 ```
