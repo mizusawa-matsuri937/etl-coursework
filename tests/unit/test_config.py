@@ -26,6 +26,11 @@ def test_invalid_values(base_env, key, value):
         load_settings({**base_env, key: value})
 
 
+def test_sample_scope_requires_explicit_limit(base_env):
+    with pytest.raises(ConfigError, match="sample"):
+        load_settings({**base_env, "ETL_SCOPE": "sample"})
+
+
 def test_full_scope_rejects_record_limit(base_env):
     with pytest.raises(ConfigError, match="full"):
         load_settings({**base_env, "ETL_SCOPE": "full", "ETL_SAMPLE_MAX_RECORDS": "100"})

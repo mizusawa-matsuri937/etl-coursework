@@ -117,7 +117,7 @@ Compose 计划包含 PostgreSQL、一次性初始化、Airflow API 服务、sche
 
 ## Airflow 编排与收尾
 
-计划 DAG 名为 `amazon_reviews_task1`，手动触发且不做历史补跑。主流程如下：
+DAG 名为 `amazon_reviews_task1`，手动触发且不做历史补跑，已按下文实现并在真实 scheduler 上验证。主流程如下：
 
 ```mermaid
 flowchart LR
@@ -136,6 +136,15 @@ flowchart LR
 Airflow 只在任务间传递抽取 ID、运行 ID、文件位置和小型统计，不传递评论正文或整批数据。重试只用于数据库暂时不可用等可恢复基础设施问题，初始最多 2 次、间隔 60 秒；确定性输入错误与数量差异不盲目重试。单条数据异常按分类规则处理，不中止全文件。
 
 可配置项包括来源路径、manifest 路径、批次行数/字节数、编码、输出位置、样本范围和测试故障注入开关。正常配置禁止故障注入。`scope=full` 不允许记录数上限；`scope=sample` 必须记录范围，报告显著标明样本，不能拿样本数量与全量基准直接判等。样本成功门禁要求声明范围处理完成且不变量成立；全量成功还要求 EOF、gzip 验证与全量核对完成。普通样本报告不默认套用固定夹具的预期数字。
+
+### 实施补充（2026-10-26）
+
+- 业务逻辑在 `pipeline.py` 的纯 Python 步骤函数中，DAG 文件只负责依赖、重试与状态；步骤之间只传小型 JSON。DAG 参数含 `scope`、`sample_max_records`、`batch_rows`、输入路径、`baseline_explanation` 与仅测试可用的 `fault_injection`。
+- 错误分类：数据库连接中断/重启/资源紧张（SQLSTATE 08、53、57 或无 SQLSTATE 的连接失败）、同抽取被占用视为暂时错误，按 `retries=2` 重试；认证失败、权限不足、输入不符、gzip 损坏、守恒破坏、证据不完整等一律确定性错误，转为 `AirflowFailException` 不重试。
+- 每个步骤失败时先写 `outputs/task1/_failures/<run_id>/<任务>-try<N>.json`，数据库不可用或抽取 ID 未知时仍留有原因。`finalize_report` 以上游 XCom 是否存在判断成败，并尽力读取数据库中的抽取状态；`run_gate` 只在收尾报告确认 `succeeded` 且交付完整时通过。
+- 全量与官方基准有差异时状态为 `review_required`，门禁失败；提供有依据的 `baseline_explanation` 后记为 `explained`，实测数不被修改。样本不与基准比较。
+- 批量装载后统计信息过期会让完整性 SQL 退化成嵌套循环（20,000 条样本曾耗时 40 余秒），所以核对前先对相关表 `ANALYZE`；刷新后 50,000 条样本的核对约 2 秒。
+- 端到端验证用 `compose.e2e.yaml` 覆盖：Airflow 服务写入 `etl_test` 与 `outputs/e2e/`，允许故障注入并缩短重试间隔；业务库不接收样本数据。
 
 ## 统计与报告实现
 

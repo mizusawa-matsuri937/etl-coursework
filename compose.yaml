@@ -17,6 +17,8 @@ x-etl-env: &etl-env
   ETL_OUTPUT_DIR: /opt/etl/outputs
 
 x-airflow-env: &airflow-env
+  ETL_ENV: ${ETL_ENV:-prod}
+  ETL_RETRY_DELAY_SECONDS: ${ETL_RETRY_DELAY_SECONDS:-60}
   AIRFLOW__CORE__EXECUTOR: LocalExecutor
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
   AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?在 .env 中设置 AIRFLOW_FERNET_KEY}
@@ -31,6 +33,7 @@ x-etl-mounts: &etl-mounts
   - ./sql:/opt/etl/sql:ro
   - ./dags:/opt/airflow/dags:ro
   - ./outputs:/opt/etl/outputs
+  - ./tests/fixtures/data:/data/fixtures:ro
   - ${SOURCE_HOST_DIR:?在 .env 中设置 SOURCE_HOST_DIR}/${SOURCE_GZIP_NAME:-movies.txt.gz}:/data/source/${SOURCE_GZIP_NAME:-movies.txt.gz}:ro
   - ${SOURCE_HOST_DIR:?}/${SOURCE_MANIFEST_NAME:-movies.txt.gz.download.json}:/data/source/${SOURCE_MANIFEST_NAME:-movies.txt.gz.download.json}:ro
 
@@ -110,6 +113,7 @@ services:
       - ./src:/opt/etl/src:ro
       - ./tests:/opt/etl/tests:ro
       - ./pyproject.toml:/opt/etl/pyproject.toml:ro
+      - ./dags:/opt/etl/dags:ro
       - ./sql:/opt/etl/sql:ro
       - ${SOURCE_HOST_DIR:?}/${SOURCE_GZIP_NAME:-movies.txt.gz}:/data/source/${SOURCE_GZIP_NAME:-movies.txt.gz}:ro
       - ${SOURCE_HOST_DIR:?}/${SOURCE_MANIFEST_NAME:-movies.txt.gz.download.json}:/data/source/${SOURCE_MANIFEST_NAME:-movies.txt.gz.download.json}:ro

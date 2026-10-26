@@ -75,13 +75,29 @@ def write_manifest(path: Path, gz: bytes) -> None:
     }, indent=2) + "\n", encoding="utf-8")
 
 
+BAD_HASH_MANIFEST_NAME = "task1_sample.bad_hash.manifest.json"
+TRUNCATED_GZIP_NAME = "task1_truncated.txt.gz"
+TRUNCATED_MANIFEST_NAME = "task1_truncated.manifest.json"
+
+
 def build(out_dir: Path = DATA_DIR) -> tuple[Path, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     gz = gzip_bytes(build_bytes())
     gz_path, manifest_path = out_dir / GZIP_NAME, out_dir / MANIFEST_NAME
     gz_path.write_bytes(gz)
     write_manifest(manifest_path, gz)
+    build_failure_cases(out_dir, gz)
     return gz_path, manifest_path
+
+
+def build_failure_cases(out_dir: Path, gz: bytes) -> None:
+    """失败演示输入：manifest 哈希错误；以及去掉 CRC/长度尾部的截断 gzip（manifest 与其自身一致）。"""
+    bad = json.loads((out_dir / MANIFEST_NAME).read_text(encoding="utf-8"))
+    bad["sha256"] = "0" * 64
+    (out_dir / BAD_HASH_MANIFEST_NAME).write_text(json.dumps(bad, indent=2) + "\n", encoding="utf-8")
+    truncated = gz[:-8]
+    (out_dir / TRUNCATED_GZIP_NAME).write_bytes(truncated)
+    write_manifest(out_dir / TRUNCATED_MANIFEST_NAME, truncated)
 
 
 if __name__ == "__main__":

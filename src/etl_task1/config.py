@@ -89,6 +89,8 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     sample_max = _positive_int(env, "ETL_SAMPLE_MAX_RECORDS", None)
     if scope == "full" and sample_max is not None:
         raise ConfigError("scope=full 不允许设置 ETL_SAMPLE_MAX_RECORDS")
+    if scope == "sample" and sample_max is None:
+        raise ConfigError("scope=sample 必须设置 ETL_SAMPLE_MAX_RECORDS，样本范围需要明确记录")
 
     encoding = env.get("ETL_ENCODING", "utf-8").strip() or "utf-8"
     if encoding.lower() != "utf-8":

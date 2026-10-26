@@ -23,6 +23,8 @@ def test_committed_fixture_matches_builder(tmp_path):
     gz, manifest = bf.build(tmp_path)
     assert gz.read_bytes() == (bf.DATA_DIR / bf.GZIP_NAME).read_bytes()
     assert manifest.read_text() == (bf.DATA_DIR / bf.MANIFEST_NAME).read_text()
+    for name in (bf.BAD_HASH_MANIFEST_NAME, bf.TRUNCATED_GZIP_NAME, bf.TRUNCATED_MANIFEST_NAME):
+        assert (tmp_path / name).read_bytes() == (bf.DATA_DIR / name).read_bytes(), name
 
 
 def test_per_record_expectations(tmp_path):

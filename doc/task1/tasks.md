@@ -19,9 +19,10 @@
   - 文件：`sql/001_task1_schema.sql`、`sql/task1_integrity.sql`；`db.py`、`loader.py`、`checkpoint.py`；`integration/test_load.py`、`integration/test_resume.py`、`integration/test_evidence.py`；`doc/task1/data-dictionary.md`。
   - 检查：运行上述集成测试及完整性 SQL，覆盖 AC05、AC06、AC07、AC09；同事务检查点、同键内容冲突、重复运行、提交前后中断均在真实 PostgreSQL 验证。
   - 实测（2026-10-26，工作目录：项目根目录）：`docker compose --profile test run --rm etl-test pytest -q tests` 共 148 项通过（单元 110，集成 38，连接独立的 `etl_test` 库）。真实文件前 50,000 条装入测试库的冒烟（非正式试跑）：约 13,000 条/秒，完整性 SQL 10 项全 0，数据库表与索引合计约 143 MB。
-- [ ] T1-04：完成统计、报告和 Airflow 流程。
-  - 文件：`sql/task1_counts.sql`、`dags/amazon_reviews_task1.py`、`compose.yaml`；`validation.py`、`reporting.py`、`pipeline.py`、`finalize.py`；`integration/test_counts.py`、`integration/test_reports.py`、`integration/test_dag.py`、`integration/test_pipeline_failures.py`；`doc/task1/runbook.md`。
+- [x] T1-04：完成统计、报告和 Airflow 流程。2026-10-26 完成。
+  - 文件：`sql/task1_counts.sql`、`dags/amazon_reviews_task1.py`、`compose.yaml`；`validation.py`、`reporting.py`、`pipeline.py`（收尾逻辑并入 pipeline，未单设 finalize.py）；`compose.e2e.yaml`、`scripts/run_dag_e2e.py`；`sql/task1_counts.sql` 之外另有质量分布与产品汇总 SQL；`integration/test_counts.py`、`integration/test_reports.py`、`integration/test_dag.py`、`integration/test_pipeline_failures.py`；`doc/task1/runbook.md`。
   - 检查：覆盖 AC08、AC10、AC11；运行对应集成测试并由实际 scheduler 触发成功/失败样本；observed 产品/用户为 6/8、valid 为 4/4；收尾不得掩盖失败。
+  - 实测（2026-10-26，工作目录：项目根目录）：`docker compose --profile test run --rm etl-test pytest -q tests` 共 188 项通过（单元 111，集成 77）。经真实 scheduler（`compose.e2e.yaml`，写入 `etl_test`）触发 6 次 DAG run：固定样本成功并得到 10/6/4；同输入再跑复用；真实文件前 50,000 条样本成功且 `source_eof_reached=false`、`gzip_verified=false`；错误哈希使 `verify_source` 失败且不重试、下游 `upstream_failed`、`run_gate` 失败；gzip 截断使 `extract_load` 失败、抽取标 failed；暂时错误第 1 次失败、第 2 次重试成功（`attempt=1/2` 日志）。
 - [ ] T1-05：试跑资源并执行正式全量验收。
   - 文件：`metrics.py`、`integration/test_resource_limits.py`、`doc/task1/task1-report.md`；生成 `outputs/task1/<extraction_id>/<run_id>/` 运行证据。
   - 检查：前置样本与恢复测试通过后，隔离试跑至少 100,000 条以修正预算，再经 Airflow 全量至 EOF；完成 AC07、AC12、AC13 的正式证据。数量差异未解释不标通过，保留同输入重跑核对结果。

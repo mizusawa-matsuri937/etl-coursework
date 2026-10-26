@@ -1,0 +1,7 @@
+{
+  "source_url": "https://example.invalid/task1_sample.txt.gz",
+  "download_completed_at": null,
+  "size_bytes": 303,
+  "sha256": "422d25b5a8b691f5c27799d14807a98045aa72d48b2e58aa484cb4f5f64ec55b",
+  "gzip_integrity": null
+}

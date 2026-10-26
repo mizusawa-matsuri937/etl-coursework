@@ -35,8 +35,18 @@ def apply_schema(conn: psycopg.Connection) -> bool:
     return True
 
 
+ANALYZED_TABLES = ("etl_batch", "review_record", "review_staging", "quarantine_record", "quality_issue")
+
+
+def analyze_tables(conn: psycopg.Connection) -> None:
+    """批量装载后统计信息过期，核对 SQL 会退化成嵌套循环（20,000 条样本曾耗时 40 余秒）；先刷新再核对。"""
+    for table in ANALYZED_TABLES:
+        conn.execute(f"ANALYZE {table}")
+
+
 def run_integrity(conn: psycopg.Connection, extraction_id: str) -> dict[str, int]:
     """执行 task1_integrity.sql，返回 {检查名: 违规数}。"""
+    analyze_tables(conn)
     sql = (sql_dir() / "task1_integrity.sql").read_text(encoding="utf-8")
     with conn.transaction():
         rows = conn.execute(sql, {"eid": extraction_id}).fetchall()
