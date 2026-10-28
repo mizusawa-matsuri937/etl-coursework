@@ -64,7 +64,7 @@
 ## 8. 遗留事项
 
 - 本阶段改动已提交到本地分支 `task2-manifest`，未推送、未开 PR；包含：新增 `src/etl_task2/`、`dags/amazon_products_task2_manifest.py`、`sql/101_task2_schema.sql`、`sql/task2_manifest_*.sql`、`tests/*/test_task2_*.py`、`doc/task2/` 四份计划与 runbook、本交接；修改 `README.md`、`CLAUDE.md`、`scripts/run_dag_e2e.py`、`tests/integration/conftest.py`。推送与合并须由用户要求。
-- 用户尚未人工复核 `doc/task2/` 的规则、设计与 checklist 证据。
+- 2026-10-28 用户已按 `doc/task2/checklist.md` 的命令人工复核，测试全部通过。
 - 业务库仍有任务 1 的样本抽取 `39019c6f…`，任务 2 未用它；是否删除仍由用户决定。
 - 爬虫部分（robots.txt、限速、缓存、有上限重试、快照、成功判定、重定向与模板变化证据）尚未规划。
 
