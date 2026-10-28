@@ -2,7 +2,7 @@
 
 状态：T2-00 至 T2-03 全部完成（2026-10-28），已提交到本地分支 `task2-manifest`。爬虫部分由用户完成，届时从 T2-04 续接。
 
-命令在项目根目录运行；`T="docker compose --profile test run --rm etl-test pytest -q"`。每项 AC 的详细复核命令见 [checklist](checklist.md)，这里只给阶段级检查。
+命令在项目根目录直接复制运行。每项 AC 的详细复核命令见 [checklist](checklist.md)，这里只给阶段级检查。
 
 - [x] T2-00 计划：spec、design、tasks、checklist。关联 AC00。
   - 完成情况：文档检查通过。
@@ -18,7 +18,7 @@
   - 完成情况：测试库固定样本构建 6 行，复用与冲突检测正常。
 
   ```bash
-  $T tests/unit/test_task2_urls.py tests/integration/test_task2_manifest.py
+  docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task2_urls.py tests/integration/test_task2_manifest.py
   ```
 
   期望：`31 passed`。
@@ -28,7 +28,7 @@
   - 完成情况：真实 scheduler 在 `etl_test` 跑 6 次（成功、复用、样本未允许、暂时错误重试、提交前故障、全量样本），结果均符合预期。
 
   ```bash
-  $T tests/integration/test_task2_failures.py tests/integration/test_task2_dag.py
+  docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task2_failures.py tests/integration/test_task2_dag.py
   ```
 
   期望：`17 passed`。

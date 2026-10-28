@@ -2,13 +2,15 @@
 
 状态：2026-10-28 AC00–AC10 均已由 AI 执行并通过；用户尚未人工复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
-复核方法：所有命令在项目根目录运行。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库，可随时重跑。下文 `T` 代表测试前缀：
+复核方法：以下命令都可在项目根目录直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库，可随时重跑；容器启动日志之后的最后一行就是结果。
+
+一次跑全部测试：
 
 ```bash
-T="docker compose --profile test run --rm etl-test pytest -q"
+docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-一次跑全部测试：`$T tests`，期望 `244 passed`。
+期望：`244 passed`。
 
 ## AC00 计划文件规范
 
@@ -26,7 +28,7 @@ diff <(grep -o "^| AC[0-9][0-9]" doc/task2/spec.md | tr -d '| ') <(grep -o "^## 
 - [x] 2026-10-28 通过（集成测试＋真实 scheduler 运行 `t2_no_allow`）。局限：“complete 但未验证 gzip 的全量抽取”被任务 1 约束禁止，无法构造测试。
 
 ```bash
-$T tests/integration/test_task2_manifest.py tests/integration/test_task2_failures.py -k "unknown_or_unfinished or sample_extraction or bad_extraction_id"
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task2_manifest.py tests/integration/test_task2_failures.py -k "unknown_or_unfinished or sample_extraction or bad_extraction_id"
 ```
 
 期望：`6 passed`。
@@ -36,7 +38,7 @@ $T tests/integration/test_task2_manifest.py tests/integration/test_task2_failure
 - [x] 2026-10-28 通过（集成测试）。
 
 ```bash
-$T tests/integration/test_task2_manifest.py -k "one_row_per_observed or match_task1"
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task2_manifest.py -k "one_row_per_observed or match_task1"
 ```
 
 期望：`2 passed`。
@@ -46,7 +48,7 @@ $T tests/integration/test_task2_manifest.py -k "one_row_per_observed or match_ta
 - [x] 2026-10-28 通过（单元测试）。
 
 ```bash
-$T tests/unit/test_task2_urls.py
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task2_urls.py
 ```
 
 期望：`13 passed`。
@@ -56,7 +58,7 @@ $T tests/unit/test_task2_urls.py
 - [x] 2026-10-28 通过（集成测试）。
 
 ```bash
-$T tests/integration/test_task2_manifest.py -k "not_collected or constraints_reject or complete_evidence"
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task2_manifest.py -k "not_collected or constraints_reject or complete_evidence"
 ```
 
 期望：`5 passed`。
@@ -66,7 +68,7 @@ $T tests/integration/test_task2_manifest.py -k "not_collected or constraints_rej
 - [x] 2026-10-28 通过（集成测试）。
 
 ```bash
-$T tests/integration/test_task2_manifest.py -k review_times
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task2_manifest.py -k review_times
 ```
 
 期望：`1 passed`。
@@ -76,7 +78,7 @@ $T tests/integration/test_task2_manifest.py -k review_times
 - [x] 2026-10-28 通过（集成测试；正式库重跑见 AC09）。
 
 ```bash
-$T tests/integration/test_task2_manifest.py -k "rebuild or missing_rows or conflicting"
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task2_manifest.py -k "rebuild or missing_rows or conflicting"
 ```
 
 期望：`5 passed`。
@@ -86,7 +88,7 @@ $T tests/integration/test_task2_manifest.py -k "rebuild or missing_rows or confl
 - [x] 2026-10-28 通过（集成测试＋真实 scheduler 在 `etl_test` 跑 6 次）。
 
 ```bash
-$T tests/integration/test_task2_manifest.py tests/integration/test_task2_failures.py tests/integration/test_task2_dag.py -k "before_commit or abandoned or transient or verification or unwritable or six_tasks or finalize_and_gate or manual_trigger or parse_time"
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task2_manifest.py tests/integration/test_task2_failures.py tests/integration/test_task2_dag.py -k "before_commit or abandoned or transient or verification or unwritable or six_tasks or finalize_and_gate or manual_trigger or parse_time"
 ```
 
 期望：`10 passed`。
@@ -104,7 +106,7 @@ docker compose exec -T postgres psql -U postgres -d airflow_meta -c "SELECT run_
 - [x] 2026-10-28 通过（集成测试；正式导出见 AC09）。
 
 ```bash
-$T tests/integration/test_task2_failures.py -k "exports_csv or no_review_text or export_failure"
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task2_failures.py -k "exports_csv or no_review_text or export_failure"
 ```
 
 期望：`3 passed`。
@@ -114,8 +116,7 @@ $T tests/integration/test_task2_failures.py -k "exports_csv or no_review_text or
 - [x] 2026-10-28 通过（正式库 `etl_movies`，运行 `t2_full_1` 与重跑 `t2_full_2_rerun`）。只读复核，不改数据：
 
 ```bash
-E=f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8
-docker compose exec -T postgres psql -U postgres -d etl_movies -c "SELECT status, in_valid_records, count(*) FROM task2.product_manifest WHERE extraction_id = '$E' GROUP BY 1, 2 ORDER BY 1, 2"
+docker compose exec -T postgres psql -U postgres -d etl_movies -c "SELECT status, in_valid_records, count(*) FROM task2.product_manifest WHERE extraction_id = 'f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8' GROUP BY 1, 2 ORDER BY 1, 2"
 ```
 
 期望：两行，`not_collected | f | 456` 与 `not_collected | t | 252603`。
@@ -145,9 +146,9 @@ shasum -a 256 outputs/task2/f1e8b845*/63fca8ef*/t2_full_*/product_manifest.csv
 ```bash
 docker compose exec -T postgres psql -U postgres -d etl_movies -c "SELECT version FROM schema_migration ORDER BY 1"
 git ls-files | grep -c '^outputs/'
-git grep -nE '/Users/|PASSWORD=[A-Za-z0-9]' -- . ':!*.example'
+git grep -nE '/Users/[a-z]|PASSWORD=[A-Za-z0-9]' -- . ':!*.example'
 ```
 
-期望：第一条为 `001`、`101` 两行；第二条输出 `0`；第三条无输出。再跑一次 `$T tests`，期望 `244 passed`（任务 1 的 196 项仍全部通过）。
+期望：第一条为 `001`、`101` 两行；第二条输出 `0`；第三条无输出。再跑一次 `docker compose --profile test run --rm etl-test pytest -q tests`，期望 `244 passed`（任务 1 的 196 项仍全部通过）。
 
 当前汇总：AC00–AC10 共 11 项，AI 执行通过 11 项；用户人工复核 0 项。
