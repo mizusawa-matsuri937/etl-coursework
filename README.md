@@ -1,6 +1,6 @@
 # ETL 作业项目
 
-当前状态：任务 1 计划已完成，T1-01（容器环境）与 T1-02（解析与转换）、T1-03（数据库约束、批次装载与恢复）、T1-04（统计、报告与 Airflow 流程）于 2026-10-26 完成，经单元、集成测试和真实 scheduler 样本运行验证；T1-05 于 2026-10-26 完成资源试跑、正式全量（7,911,696 条，经真实 Airflow 写入业务库）和同输入重跑，结果见 [任务 1 报告](doc/task1/task1-report.md)；T1-06（复现交付）于同日完成：独立项目、容器无外网下按 runbook 复现固定样本与一次恢复。
+当前状态：任务 1 计划已完成，T1-01（容器环境）与 T1-02（解析与转换）、T1-03（数据库约束、批次装载与恢复）、T1-04（统计、报告与 Airflow 流程）于 2026-10-26 完成，经单元、集成测试和真实 scheduler 样本运行验证；T1-05 于 2026-10-26 完成资源试跑、正式全量（7,911,696 条，经真实 Airflow 写入业务库）和同输入重跑，结果见 [任务 1 报告](doc/task1/task1-report.md)；T1-06（复现交付）于同日完成：独立项目、容器无外网下按 runbook 复现固定样本与一次恢复。任务 2 第一部分（ASIN 采集清单，T2-01 至 T2-03）于 2026-10-28 完成：正式库 `task2.product_manifest` 共 253,059 行、全部 `not_collected`，见 [任务 2 checklist](doc/task2/checklist.md)；第二部分爬虫由用户自行完成。
 
 任务 1 的目标是全量流式抽取 Amazon 评论，分批装载 PostgreSQL，保留原始证据与异常，并通过 Airflow 完成数量核对和运行报告。
 
@@ -16,17 +16,18 @@ ETL作业模板/
 ├── .env.example              # 配置模板；复制为 .env 后填写
 ├── docker/init-databases.sh  # 创建 etl_movies / airflow_meta / etl_test 三个隔离库
 ├── src/etl_task1/            # Python 包：config、source、identity、parser、transform、quality、records、evidence、db、checkpoint、loader、validation、reporting、metrics、pipeline
-├── tests/unit/ integration/  # 单元测试 111 项；集成测试 85 项（连接 etl_test 库）；合计 196 项
+├── src/etl_task2/            # 任务 2 采集清单：urls（候选链接）、manifest（表结构、前置检查、构建）、pipeline（DAG 步骤）
+├── tests/unit/ integration/  # 单元测试 124 项；集成测试 120 项（连接 etl_test 库）；合计 244 项（任务 1 196＋任务 2 48）
 ├── tests/fixtures/           # 10 条固定样本、生成脚本与预期值
 ├── compose.e2e.yaml          # 端到端验证覆盖：Airflow 写入 etl_test，不污染业务库
 ├── compose.offline.yaml      # 离线复现覆盖：容器网络 internal，无外网
-├── sql/                      # 表结构、完整性核对、数量核对、质量分布、产品汇总
-├── dags/                     # amazon_reviews_task1.py
+├── sql/                      # 表结构、完整性核对、数量核对、质量分布、产品汇总；101_task2_schema、task2_manifest_source/checks/export（任务 2 清单）
+├── dags/                     # amazon_reviews_task1.py、amazon_products_task2_manifest.py
 ├── scripts/                  # run_dag_e2e.py 经真实 scheduler 触发 DAG 并等待；sample_host_stats.sh 宿主侧资源采样；gen_schema_appendix.py 从数据库生成字段字典附录
 └── doc/
     ├── request-template.md   # 公共请求模板
     ├── handoffs/             # 任务间交接文档（新对话先读最新一份，见 CLAUDE.md）
-    ├── task2/                # 任务 2 计划，四个空文件待写（spec、design、tasks、checklist）
+    ├── task2/                # 任务 2 第一部分（ASIN 采集清单）：spec、design、tasks、checklist、runbook；T2-00 至 T2-03 已完成
     └── task1/                # 任务 1 第一轮计划
         ├── spec.md           # 目标、范围、规则、AC测试、假设
         ├── design.md         # 设计思路与实现取舍
@@ -104,5 +105,9 @@ docker compose --profile test run --rm etl-test pytest -q tests   # 单元 + 集
 | 2026-10-26 | 完成 T1-04：数量核对、报告、Airflow DAG 与门禁；188 项测试通过；真实 scheduler 完成成功、错误哈希、gzip 截断、暂时错误重试等 6 次运行 |
 | 2026-10-26 | 完成 T1-05：100k/100 万条试跑、正式全量 7,911,696 条（产品 253,059、用户 889,176 与官方一致，评论多 12 条已查明）、同输入重跑复用；195 项测试通过 |
 | 2026-10-26 | 完成 T1-06：独立 Compose 项目、无外网复现固定样本（10/6/4）与提交前故障恢复，196 项测试通过；AC01–AC14 均有实际证据 |
+| 2026-10-28 | 编写任务 2 第一部分（提取全部 ASIN、生成采集清单与候选链接）的 spec、design、tasks、checklist；实现未开始。爬虫部分由用户自行完成 |
+| 2026-10-28 | 完成 T2-01：task2 清单表与约束、候选链接构造、单事务构建（复用、冲突检测、不覆盖爬虫状态）；226 项测试通过（新增 30 项）；尚未接 Airflow，未在正式库构建 |
+| 2026-10-28 | 完成 T2-02：清单 DAG（检查→构建→核对→导出→收尾→门禁）、失败记录与导出；244 项测试通过；真实 scheduler 在 etl_test 完成成功、复用、样本未允许、暂时错误重试、提交前故障等 6 次运行；未在正式库构建 |
+| 2026-10-28 | 完成 T2-03：经 Airflow 在正式库构建清单 253,059 行（in_valid 252,603/456，全部 not_collected，url_issue 0），与任务 1 产品汇总逐行一致；同参数重跑复用；修正审计结束时间；任务 2 第一部分结束 |
 
 本目录已初始化独立 Git 仓库，当前分支为 `main`，跟踪 `origin/main`。GitHub 公开仓库为 [mizusawa-matsuri937/etl-coursework](https://github.com/mizusawa-matsuri937/etl-coursework)。提交按任务阶段在本地 `main` 上累积，没有阶段标签，也尚未推送。
