@@ -1,6 +1,6 @@
 # 交接：任务 2 第一部分（采集清单）→ 第二部分（爬虫）
 
-日期：2026-10-28。写给接手任务 2 爬虫部分的人（用户本人，或协助审阅的 agent）。第一部分 T2-00 至 T2-03 已完成，**尚未提交**（工作树改动，见第 8 节）。规则、设计与证据以 `doc/task2/` 为准，这里只讲接手所需的事实。
+日期：2026-10-28。写给接手任务 2 爬虫部分的人（用户本人，或协助审阅的 agent）。第一部分 T2-00 至 T2-03 已完成，提交在本地分支 `task2-manifest`（提交 `30ce205`，未推送、未合并到 `main`）。规则、设计与证据以 `doc/task2/` 为准，这里只讲接手所需的事实。
 
 ## 1. 先做什么
 
@@ -63,7 +63,7 @@
 
 ## 8. 遗留事项
 
-- 本阶段全部改动**未提交**：新增 `src/etl_task2/`、`dags/amazon_products_task2_manifest.py`、`sql/101_task2_schema.sql`、`sql/task2_manifest_*.sql`、`tests/*/test_task2_*.py`、`doc/task2/` 四份计划与 runbook、本交接；修改 `README.md`、`CLAUDE.md`、`scripts/run_dag_e2e.py`、`tests/integration/conftest.py`。提交须由用户要求。
+- 本阶段改动已提交到本地分支 `task2-manifest`，未推送、未开 PR；包含：新增 `src/etl_task2/`、`dags/amazon_products_task2_manifest.py`、`sql/101_task2_schema.sql`、`sql/task2_manifest_*.sql`、`tests/*/test_task2_*.py`、`doc/task2/` 四份计划与 runbook、本交接；修改 `README.md`、`CLAUDE.md`、`scripts/run_dag_e2e.py`、`tests/integration/conftest.py`。推送与合并须由用户要求。
 - 用户尚未人工复核 `doc/task2/` 的规则、设计与 checklist 证据。
 - 业务库仍有任务 1 的样本抽取 `39019c6f…`，任务 2 未用它；是否删除仍由用户决定。
 - 爬虫部分（robots.txt、限速、缓存、有上限重试、快照、成功判定、重定向与模板变化证据）尚未规划。
