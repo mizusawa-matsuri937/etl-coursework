@@ -23,7 +23,7 @@ ETL作业模板/
 ├── compose.offline.yaml      # 离线复现覆盖：容器网络 internal，无外网
 ├── sql/                      # 表结构、完整性核对、数量核对、质量分布、产品汇总；101_task2_schema、task2_manifest_source/checks/export（任务 2 清单）
 ├── dags/                     # amazon_reviews_task1.py、amazon_products_task2_manifest.py
-├── scripts/                  # run_dag_e2e.py 经真实 scheduler 触发 DAG 并等待；sample_host_stats.sh 宿主侧资源采样；gen_schema_appendix.py 从数据库生成字段字典附录
+├── scripts/                  # run_dag_e2e.py 经真实 scheduler 触发 DAG 并等待；sample_host_stats.sh 宿主侧资源采样；gen_schema_appendix.py 从数据库生成字段字典附录；check_task2_manifest.py 逐行核对任务 2 清单与任务 1 产品汇总
 └── doc/
     ├── request-template.md   # 公共请求模板
     ├── handoffs/             # 任务间交接文档（新对话先读最新一份，见 CLAUDE.md）
