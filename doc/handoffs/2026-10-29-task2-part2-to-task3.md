@@ -21,7 +21,7 @@
   - 只读核对脚本是 `python -m etl_task2.crawl.check`。
 - **用户叫停**：2026-10-29 07:58（北京时间），最后一次运行在库里记为 `interrupted`。
 - **之后补的（2026-10-29）**：
-  - Airflow DAG `amazon_products_task2_crawl` 调用爬虫（T2-06）：真实 scheduler 只在 `etl_test` 用离线假请求跑过，正式库没有经 DAG 发过真实请求。
+  - Airflow DAG `amazon_products_task2_crawl` 调用爬虫（T2-06）：真实 scheduler 只在 `etl_test` 用离线假请求跑过；用户 2026-10-29 决定不在正式库经 DAG 真实爬取，以命令行全量爬取的现有结果为准。
   - 迁移 `103` 给每次请求记录跳转链和页面模板（T2-07）。正式库已有的请求从快照回填了模板；跳转链没有原始数据，补不回来，保持为空。
 
 ## 3. 结果在哪里
@@ -103,7 +103,7 @@ docker compose --profile test run --rm etl-test pytest -q tests
   - 推送与合并须由用户要求。
 - **用户复核**：AC11–AC21 由 AI 执行通过，用户尚未按 `doc/task2/checklist.md` 复核。
 - **与作业要求的差距**（spec 假设 H07–H09）：
-  - 正式库还没有经 DAG 发过真实请求，需要 mihomo，由用户决定是否执行（runbook 6.2 节）。
+  - 正式库没有经 DAG 发过真实请求（用户决定不执行，现有结果即为任务 2 的交付）。
   - `103` 之前的请求没有跳转链。
   - 不读取 robots.txt（用户暂不处理）。
 - **可选的后续工作**：补爬被拦截的行；用浏览器渲染（Scrapling 的 Chromium 会话）处理 checkpoint 页。这类改动要先改 spec。

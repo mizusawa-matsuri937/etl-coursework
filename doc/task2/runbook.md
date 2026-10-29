@@ -203,7 +203,7 @@ docker exec etl-task2-crawl sh -c 'ls /proc/1/fd | wc -l'
 
 DAG `amazon_products_task2_crawl`：`check_crawl_input → crawl_pages → verify_crawl → finalize_report → run_gate`。每次最多处理 `limit` 个 ASIN、最多运行 `deadline_minutes` 分钟，重跑从未处理的行续接；报告在 `outputs/task2/<抽取>/crawl/<run_key>/`。Airflow 服务读取 `.env` 的 `CRAWL_PROXY_URLS`，修改后要执行 `docker compose up -d` 重建服务。
 
-正式库真实爬取（计划，尚未执行；需先按 6.1 节启动 mihomo，会消耗机场流量）：
+正式库真实爬取（用户 2026-10-29 决定不执行，留作以后需要时的用法；需先按 6.1 节启动 mihomo，会消耗机场流量）：
 
 ```bash
 python3 scripts/run_dag_e2e.py --dag-id amazon_products_task2_crawl --run-id t2c_live_1 --conf '{"limit":1000,"deadline_minutes":60}' --timeout 7200

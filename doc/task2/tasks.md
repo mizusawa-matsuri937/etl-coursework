@@ -65,7 +65,7 @@
 
 - [x] T2-06 爬虫接入 Airflow DAG `amazon_products_task2_crawl`。关联 AC20。
   - 文件：`src/etl_task2/crawl/pipeline.py`、`dags/amazon_products_task2_crawl.py`、`tests/integration/test_task2_crawl_dag.py`、`compose.yaml`（Airflow 服务的出口与句柄上限）。
-  - 完成情况：2026-10-29 测试 9 项通过；真实 scheduler 在 `etl_test` 跑成功、重跑、不存在的抽取 3 次，结果符合预期。正式库尚未经 DAG 发真实请求。
+  - 完成情况：2026-10-29 测试 9 项通过；真实 scheduler 在 `etl_test` 跑成功、重跑、不存在的抽取 3 次，结果符合预期。正式库未经 DAG 发真实请求（用户 2026-10-29 决定不在正式库经 DAG 真实爬取，以命令行全量爬取的现有结果为准）。
 
   ```bash
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task2_crawl_dag.py

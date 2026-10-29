@@ -269,7 +269,7 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC20 Airflow 爬虫 DAG
 
-- [x] 2026-10-29 通过（集成测试按 DAG 顺序以离线假请求运行；真实 scheduler 在 `etl_test` 运行 `t2c_e2e_ok`、`t2c_e2e_rerun` 均 success，`t2c_e2e_bad_extraction_2` 在检查步骤失败、只尝试 1 次、DAG failed）。正式库尚未经 DAG 发真实请求。
+- [x] 2026-10-29 通过（集成测试按 DAG 顺序以离线假请求运行；真实 scheduler 在 `etl_test` 运行 `t2c_e2e_ok`、`t2c_e2e_rerun` 均 success，`t2c_e2e_bad_extraction_2` 在检查步骤失败、只尝试 1 次、DAG failed）。正式库未经 DAG 发真实请求：用户 2026-10-29 决定不在正式库经 DAG 真实爬取，以命令行全量爬取的现有结果为准。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task2_crawl_dag.py
