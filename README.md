@@ -112,6 +112,6 @@ docker compose --profile test run --rm etl-test pytest -q tests   # 单元 + 集
 | 2026-10-28 | 完成 T2-02：清单 DAG（检查→构建→核对→导出→收尾→门禁）、失败记录与导出；244 项测试通过；真实 scheduler 在 etl_test 完成成功、复用、样本未允许、暂时错误重试、提交前故障等 6 次运行；未在正式库构建 |
 | 2026-10-28 | 完成 T2-03：经 Airflow 在正式库构建清单 253,059 行（in_valid 252,603/456，全部 not_collected，url_issue 0），与任务 1 产品汇总逐行一致；同参数重跑复用；修正审计结束时间；任务 2 第一部分结束 |
 | 2026-10-28 | 任务 2 第二部分：装好爬虫环境（Scrapling 0.5、镜像重建、Compose 服务 `crawler`）；用户随后因时间紧改为由 Claude 实现、用户复核 |
-| 2026-10-29 | 完成 T2-04、T2-05：爬虫（令牌桶、mihomo 15 个出口、cookie 会话、状态判定、快照与尝试日志、续跑）；修复会话句柄泄漏；用户叫停时已处理 29,126 个 ASIN（success 22,321，其余 223,933 未采集），只读核对通过；268 项测试通过；补写 spec R16–R31、AC11–AC18；尚未接入 Airflow，未提交 |
+| 2026-10-29 | 完成 T2-04、T2-05：爬虫（令牌桶、mihomo 15 个出口、cookie 会话、状态判定、快照与尝试日志、续跑）；修复会话句柄泄漏；用户叫停时已处理 29,126 个 ASIN（success 22,321，其余 223,933 未采集），只读核对通过；268 项测试通过；补写 spec R16–R31、AC11–AC18；尚未接入 Airflow；提交到本地分支 `task2-manifest`（`272eb11`），未推送 |
 
 本目录已初始化独立 Git 仓库，当前分支为 `main`，跟踪 `origin/main`。GitHub 公开仓库为 [mizusawa-matsuri937/etl-coursework](https://github.com/mizusawa-matsuri937/etl-coursework)。提交按任务阶段在本地 `main` 上累积，没有阶段标签，也尚未推送。

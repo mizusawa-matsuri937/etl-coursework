@@ -1,6 +1,6 @@
 # 交接：任务 2 第二部分（爬虫）→ 任务 3（电影页面筛选）
 
-日期：2026-10-29。写给接手后续任务的人（用户本人，或协助的 agent）。任务 2 第二部分（爬虫）的代码和文档都已完成，用户已叫停全量爬取，但改动**尚未提交**（在分支 `task2-manifest` 的工作区）。规则、设计与证据以 `doc/task2/` 为准，这里只写接手所需的事实。
+日期：2026-10-29。写给接手后续任务的人（用户本人，或协助的 agent）。任务 2 第二部分（爬虫）的代码和文档都已完成，用户已叫停全量爬取；改动已提交到本地分支 `task2-manifest`（提交 `272eb11`，未推送、未合并到 `main`）。规则、设计与证据以 `doc/task2/` 为准，这里只写接手所需的事实。
 
 ## 1. 先做什么
 
@@ -89,10 +89,10 @@ docker compose --profile test run --rm etl-test pytest -q tests
 
 ## 8. 遗留事项
 
-- **未提交**：本阶段改动都没有提交。
+- **提交状态**：本阶段改动已于 2026-10-29 提交到本地分支 `task2-manifest`（`272eb11`），未推送、未开 PR、未合并到 `main`。
   - 新增：`src/etl_task2/crawl/`（`crawler.py`、`check.py`）、`sql/102_task2_crawl.sql`、`scripts/crawl_mihomo.py`、两个测试文件、本交接文档。
   - 修改：`compose.yaml`、`.env.example`、`pyproject.toml`、`requirements.lock`、`README.md`、`CLAUDE.md`、`doc/task2/` 下的五份文档。
-  - 提交与推送须由用户要求。
+  - 推送与合并须由用户要求。
 - **用户复核**：AC11–AC18 由 AI 执行通过，用户尚未按 `doc/task2/checklist.md` 复核。
 - **与作业要求的差距**（spec 假设 H07–H09）：
   - 爬虫没有由 Airflow 调用（T2-06）。
