@@ -60,8 +60,10 @@
 ## 5. 给任务 3 的提示
 
 - **输入**：用 `status='success'` 的行，从 `snapshot_path` 读取快照（gzip 解压后是 HTML）。不要重新请求页面。读取时用 `content_hash` 核对快照。
-- **页面模板**：成功页有两种模板，`fetch_attempt.page_template` 为 `dp_product_title`（20,828）或 `automation_title`（1,493），解析时两种都要处理。
-- **其他站点的页面**：日本、新加坡出口有 167 个成功页被跳转到 `amazon.co.jp`（160）或 `amazon.sg`（7），`final_url` 的域名可以看出来。ASIN 一致，但不是 amazon.com 的页面，内容和语言可能不同；要保持、改判还是补爬，用户还没决定（spec H11）。
+- **页面模板（用户 2026-10-29 决定）**：成功页有两种模板，`fetch_attempt.page_template` 为 `dp_product_title`（20,828）或 `automation_title`（1,493）。**任务 3 只解析经典的 `dp_product_title`（`#productTitle`）页面，`automation_title` 页面不单独处理**；这 1,493 个在任务 3 里怎么计数（例如记为待确认），在任务 3 的 spec 里定。
+  - 取输入的条件：`product_manifest.status = 'success'`，`product_manifest.final_url LIKE 'https://www.amazon.com/%'`，且该 ASIN 最后一次尝试（`fetch_attempt.attempt_no = product_manifest.attempt_count`）的 `page_template = 'dp_product_title'`。共 **20,661** 个（2026-10-29 正式库查询核对）。
+  - 20,828 个经典页面里有 167 个跳到了其他站点，按下一条排除。
+- **其他站点的页面**：日本、新加坡出口有 167 个成功页被跳转到 `amazon.co.jp`（160）或 `amazon.sg`（7），`final_url` 的域名可以看出来。ASIN 一致，但不是 amazon.com 的页面，语言不同。**用户 2026-10-29 决定：保持 `success`，只计入成功采集数，不进入后续任务的数据样本**（spec H11）。
 - **非 success 的行**：`access_restricted`、`timeout`、`not_collected` 没有可用页面，任务 3 应把它们归为“待确认/无证据”，不能当作非电影。
 - **补爬**：想补更多页面，命令见 `doc/task2/runbook.md` 第 6 节（`--retry-status`）。补爬需要先启动 mihomo（6.1 节），还会消耗机场流量。
 
@@ -100,11 +102,10 @@ docker compose --profile test run --rm etl-test pytest -q tests
   - 修改：`compose.yaml`、`.env.example`、`pyproject.toml`、`requirements.lock`、`README.md`、`CLAUDE.md`、`doc/task2/` 下的五份文档。
   - 推送与合并须由用户要求。
 - **用户复核**：AC11–AC21 由 AI 执行通过，用户尚未按 `doc/task2/checklist.md` 复核。
-- **与作业要求的差距**（spec 假设 H07–H09、H11）：
+- **与作业要求的差距**（spec 假设 H07–H09）：
   - 正式库还没有经 DAG 发过真实请求，需要 mihomo，由用户决定是否执行（runbook 6.2 节）。
   - `103` 之前的请求没有跳转链。
   - 不读取 robots.txt（用户暂不处理）。
-  - 167 个跳到其他站点的成功页如何处理，待用户决定。
 - **可选的后续工作**：补爬被拦截的行；用浏览器渲染（Scrapling 的 Chromium 会话）处理 checkpoint 页。这类改动要先改 spec。
 
 ## 9. 文件索引
