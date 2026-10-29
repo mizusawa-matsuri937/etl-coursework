@@ -1,6 +1,6 @@
 # 任务 3 规格（电影页面筛选）
 
-状态：2026-10-29 编写计划；同日用户同意假设全部按建议执行，并授权连续完成全部任务后再审核。实现中按页面实例修订 R11、R14、R16 与 AC04（见 design“分类规则”）。完成情况见 checklist，用户尚未审核。设计见 [design](design.md)，执行顺序见 [tasks](tasks.md)，完成情况见 [checklist](checklist.md)。
+状态：2026-10-29 编写计划；同日用户同意假设全部按建议执行，并授权连续完成全部任务后再审核。实现中按页面实例修订 R11、R14、R16 与 AC04（见 design“分类规则”）。同日用户复核通过后，按已知问题修订 R11、R14、R15 与 AC04，规则版本升为 `t3r2`（见 design“规则版本 t3r2”）。设计见 [design](design.md)，执行顺序见 [tasks](tasks.md)，完成情况见 [checklist](checklist.md)。
 
 ## 目标
 
@@ -27,11 +27,11 @@
 - R08 [作业要求]：分类取六个互斥值：`movie` 电影、`non_movie` 非电影、`collection` 合集、`tv_series` 剧集、`concert_other` 演唱会或其他、`pending` 待确认；各类的含义见假设 H05。
 - R09 [作业要求]：载体只证明商品是视频节目。标题含 DVD、Blu-ray、VHS，或格式字段为这些载体，都不能单独构成电影依据；`movie` 必须另有作品级证据（导演、演员、正片片长、电影分级、电影类型）。
 - R10 [工程默认]：规则按固定优先级判定，首个命中即定：非电影 → 剧集 → 演唱会或其他 → 合集 → 电影 → 待确认；每条规则有稳定的 `rule_id`，模式与阈值随规则版本记录，具体取值见 design。
-- R11 [工程默认]：面包屑首级存在且不是 `Movies & TV`、证据区域内既没有视频载体或电视制式、也没有剧集、类别、导演或演员信号时为非电影；有这些信号但没有载体时为待确认（`conflicting_evidence`）；有载体时不论首级都按视频节目继续判定，首级不一致记为冲突证据；没有面包屑也没有载体时为待确认（`no_video_evidence`）。
+- R11 [工程默认]：面包屑首级存在且不是 `Movies & TV`、证据区域内既没有视频载体或电视制式、也没有剧集、类别、导演、演员信号或标题里的载体、Film/Movie、演出与合集字样时为非电影；有这些信号但没有载体时为待确认（`conflicting_evidence`）；有载体时不论首级都按视频节目继续判定，首级不一致记为冲突证据；没有面包屑也没有载体时为待确认（`no_video_evidence`）。
 - R12 [工程默认]：类别标签（概览 Genre 的各项与面包屑第 2 级起的各级）含电视类标签，或标题符合季、整部剧集、集数等剧集模式时为剧集。
 - R13 [工程默认]：类别标签属于演唱会与音乐录像、健身、专题、体育等受控列表，或标题符合现场演出、健身、教学模式时为演唱会或其他。
-- R14 [工程默认]：标题符合双片、三部曲、多片套装等合集模式时为合集（推断）；发行品牌名中的 “Collection”（如 Criterion Collection）不算合集依据；格式含 Box set、多碟只记为信号，不单独构成合集依据。
-- R15 [工程默认]：电影分两级：导演、正片片长、以及演员、电影分级、电影类型至少一项同时存在为结构化电影；只有正片片长加一项作品级证据，或无片长但有两项作品级证据为推断电影；都不满足为待确认（`insufficient_evidence`）。
+- R14 [工程默认]：标题符合双片、三部曲、多片套装等合集模式时为合集（推断）；发行品牌名中的 “Collection”（如 Criterion Collection）和只由载体组成的括号说明（如 “(Blu-ray 3D / Blu-ray / DVD)”）不算合集依据；格式含 Box set、多碟只记为信号，不单独构成合集依据。
+- R15 [工程默认]：“Various”“Artist Not Provided”“n/a” 等占位署名不算导演或演员。电影分两级：导演、正片片长、以及演员、电影分级、电影类型至少一项同时存在为结构化电影；只有正片片长加一项作品级证据，或无片长但有两项作品级证据为推断电影；都不满足为待确认（`insufficient_evidence`）。
 - R16 [作业要求]：每个分类记录证据级别：命中强条件且条件全部来自结构化字段为 `structured`，用到标题模式或只满足 R15 的推断电影条件为 `inferred`，待确认为 `missing`；人工抽查结论另存，与自动分类结果分开。
 - R17 [作业要求]：每个分类保存命中的 `rule_id`、规则版本和每条用到的信号；信号指向具体抽取字段（区域、序号、原值）与快照哈希、最终地址、采集时间；命中但未采用的其他类别信号记为冲突证据，同样可查。
 - R18 [作业要求]：采集统计按清单六种状态报告，分母为全部产品数；成功采集率 = `success` 数 / 全部产品数。按来源类型分别统计实时采集、离线快照、第三方补充，不合并为一个成功指标。
@@ -60,7 +60,7 @@
 | AC01 | R01, R02, R03, R04 | 测试库清单 10 行：`dp_page` 3 行，其余七组各 1 行；另建一个抽取的清单。 | 只读到指定抽取；每行一个输入组；七组均为 `pending`、`pending_reason` 等于组名、依据含清单状态与尝试序号；分类 10 行，六类之和为 10；`not_found` 行不是 `non_movie`。 |
 | AC02 | R05 | `dp_page` 3 行：快照正常、快照文件缺失、快照内容被改一个字节。 | 第一行正常分类；后两行为 `pending`，原因分别为 `snapshot_missing`、`snapshot_hash_mismatch`，各有一条质量问题，且没有抽取字段。 |
 | AC03 | R06, R07 | 一个合成页：导航含载体字样，面包屑为 `CDs & Vinyl`，概览的 Genre 单元格含一段 `<script>`，要点含一个未知标签。 | 抽取字段的区域、标签、序号、原值与夹具预期逐项相等；无导航文字、无脚本文本；未知标签保留、字段键为 NULL；Run time 与 Runtime 映射到同一字段键。 |
-| AC04 | R08–R15 | 15 个合成页：结构化电影；推断电影；面包屑为 Movies & TV、除标题 “X [DVD]” 外没有作品级字段；电视类型；标题 “Season 3”；演唱会类型；标题含 Workout；Double Feature；“(The Criterion Collection)” 单片；Box set 4 碟且有导演、演员与正片片长；CD 首级无视频载体；CD 首级有 VHS 且有导演、演员与正片片长；无面包屑也无视频载体；电视类型同时有导演与正片片长；Electronics 首级、无载体、标题 “Season 2”。 | 依次为 movie/structured、movie/inferred、pending/insufficient_evidence、tv_series/structured、tv_series/inferred、concert_other/structured、concert_other/inferred、collection/inferred、movie/structured、movie/structured、non_movie/structured、movie/structured、pending/no_video_evidence、tv_series/structured、pending/conflicting_evidence；`rule_id` 与夹具预期一致。 |
+| AC04 | R08–R15 | 18 个合成页：结构化电影；推断电影；面包屑为 Movies & TV、除标题 “X [DVD]” 外没有作品级字段；电视类型；标题 “Season 3”；演唱会类型；标题含 Workout；Double Feature；“(The Criterion Collection)” 单片；Box set 4 碟且有导演、演员与正片片长；CD 首级无视频载体；CD 首级有 VHS 且有导演、演员与正片片长；无面包屑也无视频载体；电视类型同时有导演与正片片长；Electronics 首级、无载体、标题 “Season 2”；标题含 “(Blu-ray 3D / Blu-ray / DVD)” 且有导演、演员与正片片长；演员为 “Artist Not Provided” 且有正片片长；CD 首级、无载体、标题含 “Live in Europe 2003 [DVD]”。 | 依次为 movie/structured、movie/inferred、pending/insufficient_evidence、tv_series/structured、tv_series/inferred、concert_other/structured、concert_other/inferred、collection/inferred、movie/structured、movie/structured、non_movie/structured、movie/structured、pending/no_video_evidence、tv_series/structured、pending/conflicting_evidence、movie/structured、pending/insufficient_evidence、pending/conflicting_evidence；`rule_id` 与夹具预期一致。 |
 | AC05 | R16, R17 | AC04 的结果与 AC01 的待确认行。 | 每个非待确认分类至少一条证据，每条证据都能连接到抽取字段并带快照哈希、最终地址与采集时间；Box set 一例另有合集信号的冲突证据，CD 首级有 VHS 的一例另有首级不一致的冲突证据，电视类型一例另有电影信号的冲突证据；无页面的待确认行证据指向清单状态与尝试日志。 |
 | AC06 | R22 | 夹具清单带 `records_total/valid/quarantined`；运行前后统计任务 1、任务 2 各表的行数与写入计数。 | 按分类汇总的记录数之和加无产品记录数等于夹具读取数；任务 1、任务 2 的表行数与写入计数在运行前后不变。 |
 | AC07 | R24, R25 | 同版本连续运行两次；改一个规则参数生成新规则版本后再运行；比较两版。 | 第二次不新增任何行、审计为 `reused`；新版本只新增分类与证据行，解析与字段行数不变；差异列表恰好是受该参数影响的 ASIN，旧版本分类仍可查询。 |

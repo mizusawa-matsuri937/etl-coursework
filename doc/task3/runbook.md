@@ -38,7 +38,7 @@ COMPOSE_FILE=compose.yaml:compose.e2e.yaml python3 scripts/run_dag_e2e.py --dag-
 COMPOSE_FILE=compose.yaml:compose.e2e.yaml python3 scripts/run_dag_e2e.py --dag-id amazon_products_task3_classify --run-id t3_e2e_ok3 --conf '{"extraction_id":"80954174b73813ac93b211624595c11c07a6212045b9efa44b8299ac68432bc4"}'
 ```
 
-期望：`DAG run t3_e2e_ok3: success`；`outputs/e2e/task3/8095…/t3r1/t3_e2e_ok3/summary.json` 的 `input_groups` 为 dp_page 4、access_restricted 1、not_found 1，六类中 pending 6（假页面只有标题）。
+期望：`DAG run t3_e2e_ok3: success`；`outputs/e2e/task3/8095…/t3r2/t3_e2e_ok3/summary.json` 的 `input_groups` 为 dp_page 4、access_restricted 1、not_found 1，六类中 pending 6（假页面只有标题）。
 
 ```bash
 COMPOSE_FILE=compose.yaml:compose.e2e.yaml python3 scripts/run_dag_e2e.py --dag-id amazon_products_task3_classify --run-id t3_e2e_rerun3 --conf '{"extraction_id":"80954174b73813ac93b211624595c11c07a6212045b9efa44b8299ac68432bc4"}'
@@ -96,7 +96,7 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task3.check
 
 ## 5. 改规则与比较版本
 
-改 `src/etl_task3/rules.py` 的模式或阈值时，同时把 `src/etl_task3/__init__.py` 的 `RULE_VERSION` 升一版（如 `t3r2`），再运行第 3 节。新版本只重算分类、不重解析页面；旧版本保留。比较两版：
+改 `src/etl_task3/rules.py` 的模式或阈值时，同时把 `src/etl_task3/__init__.py` 的 `RULE_VERSION` 升一版，再运行第 3 节（换 run id）。当前版本为 `t3r2`（2026-10-29，正式库运行 `t3_full_r2_1`，35 秒，只重算分类）。新版本只重算分类、不重解析页面；旧版本保留。比较两版：
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task3.classify diff --from t3r1 --to t3r2
@@ -113,7 +113,7 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task3.report re
 在导出的 CSV 里对照 `snapshot_path` 的快照或 `product_url` 填写 `human_category`（`movie`、`non_movie`、`collection`、`tv_series`、`concert_other`、`pending` 之一）和 `note`，不确定填 `pending`。保存后导入（路径为容器内路径，`<姓名或代号>` 换成标注人）：
 
 ```bash
-docker compose --profile crawl run --rm -T crawler python -m etl_task3.report review-import /opt/etl/outputs/task3/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/t3r1/review/review_sample.csv --reviewer <姓名或代号>
+docker compose --profile crawl run --rm -T crawler python -m etl_task3.report review-import /opt/etl/outputs/task3/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/t3r2/review/review_sample.csv --reviewer <姓名或代号>
 ```
 
 导入后输出各类一致数、一致率与不一致实例；再跑一次第 3 节的 DAG（换 run id），报告里会出现“人工抽查”一节。

@@ -19,8 +19,10 @@ BASIS_LEVELS = ("structured", "inferred", "missing")
 VIDEO_ROOT = "Movies & TV"
 FEATURE_MINUTES = (40, 240)
 MIN_BOX_SET_DISCS = 2
-# 首级不是视频类、又没有载体时，这些信号说明页面描述的仍是视频节目，判为冲突而不是非电影
-VIDEO_HINTS = {"series_title", "tv_category", "concert_category", "film_category", "director", "actors"}
+# 首级不是视频类、又没有载体时，这些信号说明页面描述的仍是视频节目，判为冲突而不是非电影。
+# t3r2 加入标题里的载体字样、Film/Movie 字样与标题模式：它们不作电影依据（R09），只阻止误判为非电影
+VIDEO_HINTS = {"series_title", "tv_category", "concert_category", "film_category", "director", "actors",
+               "title_carrier", "film_title", "concert_title", "collection_title"}
 
 _CARRIER = re.compile(r"\b(DVD|Blu-ray|VHS|HD DVD|UMD|LaserDisc|Prime Video)\b", re.I)
 _TV_SYSTEM = re.compile(r"\b(NTSC|PAL)\b")  # 电视制式只出现在视频商品的格式字段里
@@ -45,6 +47,15 @@ _LABEL_COLLECTION = re.compile(r"\(?\b(The\s+)?Criterion\s+Collection\b\)?", re.
 _COLLECTION_TITLE = re.compile(
     r"\b(Double\s+Feature|Triple\s+Feature|Trilogy|Quadrilogy|Anthology|\d+[- ](Movie|Film)s?"
     r"|(Movie|Film)\s+Collection|Collection|Box\s+Set|\d+[- ]Pack)\b|\s/\s", re.I)
+# t3r2：只由载体与画面格式组成的括号组（如 “(Blu-ray 3D / Blu-ray / DVD)”）是版本说明，不是多个片名
+_CARRIER_WORD = (r"(?:Blu-?ray(?:\s+3D)?|3D|4K|Ultra\s*HD|HD|DVD|VHS|Digital(?:\s+Copy)?|UltraViolet|"
+                 r"Combo(?:\s+Pack)?|Widescreen|Full\s*Screen|NTSC|PAL|Region\s*\d)")
+_CARRIER_GROUP = re.compile(rf"[(\[]\s*{_CARRIER_WORD}(?:\s*(?:/|\+|,|&|and)\s*{_CARRIER_WORD})*\s*[)\]]", re.I)
+_TITLE_CARRIER = re.compile(r"\b(DVD|VHS|Blu-?ray)\b", re.I)
+_FILM_TITLE = re.compile(r"\b(Film|Movie)s?\b", re.I)
+# t3r2：占位署名不是作品级证据
+_PLACEHOLDER_CREDIT = re.compile(r"^(artist not provided|various( artists)?|n/?a|not available|unknown|none"
+                                 r"|not specified|-+)$", re.I)
 _FILM_RATING = re.compile(r"^(G|PG|PG-13|R|NC-17|X)(\s|\(|$)")
 _HOURS = re.compile(r"(\d+)\s*hours?", re.I)
 _MINUTES = re.compile(r"(\d+)\s*min", re.I)
@@ -136,7 +147,11 @@ def signals(fields: Iterable[Field]) -> list[Signal]:
             elif low in _FILM_TAGS:
                 add("film_category", "movie", f)
         if f.field_key == "title":
-            plain = _LABEL_COLLECTION.sub(" ", v)
+            plain = _CARRIER_GROUP.sub(" ", _LABEL_COLLECTION.sub(" ", v))
+            if _TITLE_CARRIER.search(v):
+                add("title_carrier", None, f)
+            if _FILM_TITLE.search(plain):
+                add("film_title", None, f)
             if _SERIES_TITLE.search(plain):
                 add("series_title", "tv_series", f)
             if _CONCERT_TITLE.search(plain):
@@ -147,10 +162,11 @@ def signals(fields: Iterable[Field]) -> list[Signal]:
             add("box_set", "collection", f)
         if f.field_key == "number_of_discs" and v.strip().isdigit() and int(v) >= MIN_BOX_SET_DISCS:
             add("multi_disc", "collection", f, int(v))
-        if f.field_key == "director" and v:
-            add("director", "movie", f)
-        if f.field_key == "actors" and v:
-            add("actors", "movie", f)
+        if f.field_key in ("director", "actors") and v:
+            if _PLACEHOLDER_CREDIT.match(v.strip()):
+                add("placeholder_credit", None, f)
+            else:
+                add(f.field_key, "movie", f)
         if f.field_key == "runtime":
             minutes = runtime_minutes(v)
             if minutes is not None:

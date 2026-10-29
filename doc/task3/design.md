@@ -203,6 +203,21 @@
 - **“证据级别”的含义**：`structured` 只说明条件全部来自页面的结构化字段，不等于已核实；作业里的“已核实”在本任务只指人工抽查一致的产品，报告分开写（R16、R19）。
 - 改阈值或模式就升 `RULE_VERSION`（如 `t3r2`），按 R25 重算并比较差异。
 
+## 规则版本 t3r2（2026-10-29）
+
+用户复核 t3r1 通过后，修复浏览抽查表时发现的三类已知问题。模式改动集中在 `rules.py`，`RULE_VERSION` 升为 `t3r2`；解析版本 `t3p1` 不变，所以正式库只重算分类（运行 `t3_full_r2_1`，35 秒）。
+
+| 问题（t3r1） | 修复（t3r2） | 例子 |
+|---|---|---|
+| 标题里的载体列表命中合集的 “ / ” | 匹配合集模式前删去只由载体与画面格式词组成的括号组（Blu-ray、3D、DVD、VHS、Digital Copy、Combo、Widescreen、NTSC、PAL、Region N 等，以 `/ + , & and` 连接） | “Happy Feet Two (Blu-ray 3D / Blu-ray / DVD)” |
+| 占位署名算作导演或演员 | “Various”“Various Artists”“Artist Not Provided”“n/a”“Not Available”“Unknown”“None”“not specified”“-” 记为中性信号 `placeholder_credit`，不算作品级证据 | 全量约 1,600 处 |
+| 非视频首级、无载体的影片判为非电影 | `VIDEO_HINTS` 加入标题里的载体字样 `title_carrier`、Film/Movie 字样 `film_title`、演出与合集标题模式；有这些信号就判冲突待确认（`PX1`）。这些信号只阻止误判为非电影，不作电影依据（R09） | “Fire (A Deepa Mehta Film)”“Morgan Heritage: Live in Europe 2003 [DVD]” |
+
+版本差异（`python -m etl_task3.classify diff --from t3r1 --to t3r2`，结果在 `outputs/task3-run/diff-t3r1-t3r2.json`）：共 212 个产品变化，MV1→MV2 124、MV2→PD1 61、MV1→PD1 18（占位署名）；NM1→PX1 8；CL2→MV1 1。其余 252,847 个不变。
+
+- **仍是非电影的 17 个**：页面首级为 CDs & Vinyl、Electronics 等，且没有任何视频信号，例如 “Dragon's Lair”“Unleashed”。其中一部分可能是 Amazon 把 ASIN 挪作他用，但页面证据只能支持非电影，不另加特例。
+- **开发与评价分开**：t3r2 的三处修改来自 t3r1 抽查表，因此 t3r1 抽查样本对 t3r2 不再是独立的评价集。t3r2 抽查表按 `md5(asin || 't3r2')` 重新抽样，与 t3r1 抽查表重叠 16 个；用 t3r2 抽查结果评价时，应剔除这 16 个或单独说明。
+
 ## 数据流
 
 1. **检查输入**（R01、R03、R29）：应用迁移 `201`；确认抽取存在且有全量清单；用 `task3_input_groups.sql` 计算 8 组的数量，要求之和等于清单行数；记录运行前状态。确定性失败：抽取不存在、清单为空、分组之和不等。

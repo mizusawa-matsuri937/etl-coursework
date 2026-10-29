@@ -1,6 +1,6 @@
 # 任务 3 AC 完成情况（电影页面筛选）
 
-状态：2026-10-29 由 AI 执行：AC00–AC11、AC13 通过；同日用户按本文命令人工复核，全部通过。AC12：用户同日对照抽查表做了人工抽检，口头结论为“已分类的基本没有问题”，但没有逐条填写标注、也没有导入，因此没有一致率数字，保持未勾选。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-10-29 由 AI 执行：AC00–AC11、AC13 通过；同日用户按本文命令人工复核（规则 t3r1），全部通过。之后规则升为 t3r2，受影响的 AC00、AC04、AC11、AC12 已由 AI 重新核对，用户尚未复核这部分。AC12：用户同日对照抽查表做了人工抽检，口头结论为“已分类的基本没有问题”，但没有逐条填写标注、也没有导入，因此没有一致率数字，保持未勾选。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询。标注“（计划）”的命令依赖尚未实现的代码或测试，期望值是预定口径，实现后实际运行核对再改写。
 
@@ -10,11 +10,11 @@
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望：`333 passed`（2026-10-29；任务 1 196、任务 2 89、任务 3 48）。
+期望：`336 passed`（2026-10-29 规则 t3r2；任务 1 196、任务 2 89、任务 3 51。用户复核 t3r1 时为 333）。
 
 ## AC00 计划文件规范
 
-- [x] 2026-10-29 通过（AI 文档检查；实现中修订 R11、R14、R16、AC04 后复查通过）。
+- [x] 2026-10-29 通过（AI 文档检查；实现中修订 R11、R14、R16、AC04 后复查通过；用户复核后按 t3r2 修订 R11、R14、R15、AC04，再次复查通过）。
 
 ```bash
 grep -n "^## " doc/task3/spec.md
@@ -56,13 +56,13 @@ docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task3_
 
 ## AC04 分类规则
 
-- [x] 2026-10-29 通过（单元测试；15 个合成页逐个参数化）。
+- [x] 2026-10-29 通过（单元测试；18 个合成页逐个参数化，后 3 个为 t3r2 修复的已知问题；用户复核的是 t3r1 时的 15 页版本）。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task3_rules.py
 ```
 
-期望：`19 passed`。
+期望：`22 passed`。
 
 ## AC05 分类依据与冲突证据
 
@@ -134,41 +134,47 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC11 正式库全量分类
 
-- [x] 2026-10-29 通过（正式库 `etl_movies`，Airflow 运行 `t3_full_1` 约 5.5 分钟，重跑 `t3_full_2_rerun` 为 `reused`）。dp_page 20,661 个快照哈希全部一致；电影 8,808（结构化 6,072、推断 2,736）、待确认 239,274；上游表除 `schema_migration` 多一行 `201` 外没有任何写入（前后对比在 `outputs/task3-run/upstream-*.txt`）。
+- [x] 2026-10-29 通过。t3r1：Airflow 运行 `t3_full_1` 约 5.5 分钟，重跑 `t3_full_2_rerun` 为 `reused`，用户同日复核通过；dp_page 20,661 个快照哈希全部一致；上游表除 `schema_migration` 多一行 `201` 外没有任何写入（`outputs/task3-run/upstream-*.txt`）。t3r2（当前版本）：运行 `t3_full_r2_1` 35 秒，只重算分类、未重新解析；电影 8,730（结构化 5,931、推断 2,799）、待确认 239,361；与 t3r1 相比 212 个产品变化（见 design“规则版本 t3r2”）。t3r2 结果由 AI 核对，用户尚未复核。
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task3.check
 ```
 
-期望：退出码 0；`"problems": []`，`manifest_rows`、`classification_rows`、`category_sum` 均为 `253059`，`missing_classification`、`classified_without_evidence`、`rows_without_any_evidence`、`snapshot_hash_mismatch`、`snapshot_missing`、`parse_error` 均为 `0`，`reviews_by_category_total` 为 `7911684`、`reviews_without_asin` 为 `12`、`records_read` 为 `7911696`。
+期望（当前版本 t3r2）：退出码 0；`"rule_version": "t3r2"`，`"problems": []`，`manifest_rows`、`classification_rows`、`category_sum` 均为 `253059`，`missing_classification`、`classified_without_evidence`、`rows_without_any_evidence`、`snapshot_hash_mismatch`、`snapshot_missing`、`parse_error` 均为 `0`，`reviews_by_category_total` 为 `7911684`、`reviews_without_asin` 为 `12`、`records_read` 为 `7911696`。加 `--rule-version t3r1` 核对旧版本，同样退出码 0。
 
 ```bash
-docker compose exec -T postgres psql -U postgres -d etl_movies -c "SELECT input_group, category, count(*) FROM task3.product_classification WHERE extraction_id = 'f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8' AND rule_version = 't3r1' GROUP BY 1, 2 ORDER BY 1, 2"
+docker compose exec -T postgres psql -U postgres -d etl_movies -c "SELECT input_group, category, count(*) FROM task3.product_classification WHERE extraction_id = 'f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8' AND rule_version = 't3r2' GROUP BY 1, 2 ORDER BY 1, 2"
 ```
 
-期望：13 行；`dp_page` 下 `collection 861`、`concert_other 3256`、`movie 8808`、`non_movie 25`、`pending 6876`、`tv_series 835`；其余七组都只有 `pending`：`access_restricted 4152`、`automation_title 1493`、`not_collected 223933`、`not_found 2378`、`other_site 167`、`parse_failed 62`、`timeout 213`。
+期望：13 行；`dp_page` 下 `collection 860`、`concert_other 3256`、`movie 8730`、`non_movie 17`、`pending 6963`、`tv_series 835`；其余七组都只有 `pending`：`access_restricted 4152`、`automation_title 1493`、`not_collected 223933`、`not_found 2378`、`other_site 167`、`parse_failed 62`、`timeout 213`。（t3r1 时 dp_page 为 861、3256、8808、25、6876、835。）
 
 ```bash
-docker compose exec -T postgres psql -U postgres -d etl_movies -c "SELECT airflow_run_id, status, parsed, classified FROM task3.classify_run ORDER BY started_at"
+docker compose exec -T postgres psql -U postgres -d etl_movies -c "SELECT airflow_run_id, rule_version, status, parsed, classified FROM task3.classify_run ORDER BY started_at"
 ```
 
-期望：`t3_full_1 | succeeded | 20661 | 253059`，`t3_full_2_rerun | reused | 0 | 0`。
+期望：`t3_full_1 | t3r1 | succeeded | 20661 | 253059`，`t3_full_2_rerun | t3r1 | reused | 0 | 0`，`t3_full_r2_1 | t3r2 | succeeded | 0 | 253059`。
 
 ```bash
-shasum -a 256 outputs/task3/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/t3r1/t3_full_1/classification.csv outputs/task3/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/t3r1/t3_full_2_rerun/classification.csv
+docker compose --profile crawl run --rm -T crawler python -m etl_task3.classify diff --from t3r1 --to t3r2
 ```
 
-期望：两行哈希相同，均为 `42e2bbdd3cf1c5d467fa5caf8a729bcd488fdb03d97139a605ead2c6748e6260`。完整报告（采集状态、分类、字段覆盖率、评论按分类）在同目录的 `report.md`。
+期望：退出码 0，开头为 `"changed": 212`。
+
+```bash
+shasum -a 256 outputs/task3/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/t3r1/t3_full_1/classification.csv outputs/task3/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/t3r1/t3_full_2_rerun/classification.csv outputs/task3/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/t3r2/t3_full_r2_1/classification.csv
+```
+
+期望：前两行（t3r1 两次运行）哈希相同，均为 `42e2bbdd3cf1c5d467fa5caf8a729bcd488fdb03d97139a605ead2c6748e6260`；第三行（t3r2）为 `d9d260fecb352c4518629d2cc53bd964a00f341f2eefed2f23281ed7232eb96e`。完整报告在各目录的 `report.md`。
 
 ## AC12 人工抽查
 
-- [ ] 抽查表已于 2026-10-29 导出（120 行，六类各 20，与开发样本重叠 0）。同日用户人工抽检，口头结论“已分类的基本没有问题”；抽查表未填写 `human_category`、`task3.manual_review` 为 0 行，所以没有可报告的一致率，不勾选。导出导入程序已由集成测试验证（AC10 命令中的第 2 项）。
+- [ ] 2026-10-29 用户对照 t3r1 抽查表（120 行）人工抽检，口头结论“已分类的基本没有问题”，但未逐条填写标注、`task3.manual_review` 为 0 行，没有一致率数字，不勾选。规则升为 t3r2 后已重新导出抽查表（115 行，非电影只有 15 个可抽；与开发样本重叠 0、与 t3r1 抽查表重叠 16）。导出导入程序已由集成测试验证（AC10 命令中的第 2 项）。
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task3.report review-export
 ```
 
-期望：退出码 0；`"rows": 120`，`by_stratum` 为六类各 `20`，`sha256` 为 `655364279afbbd94f88b7eeaf62f0c4b0687f30f785c5115ccd98f4d3bd8385e`（重复导出结果相同）。标注方法与导入命令见 [runbook](runbook.md) 第 6 节。
+期望：退出码 0；`"rows": 115`，`by_stratum` 为 `non_movie` 15、其余五类各 `20`，`sha256` 为 `11aae69304d9c01b2e990fde6488a4ed54bddd315d68639a04d4e4bae80f6d0c`（重复导出结果相同）。标注方法与导入命令见 [runbook](runbook.md) 第 6 节。
 
 ## AC13 迁移、测试与交付
 
@@ -179,4 +185,4 @@ docker compose exec -T postgres psql -U postgres -d etl_movies -c "SELECT versio
 git ls-files | grep -cE '^outputs/|\.html\.gz$|review_sample'
 ```
 
-期望：第一条为 `001`、`101`、`102`、`103`、`201` 五行；第二条输出 `0`。全部测试见本文开头（`333 passed`）。
+期望：第一条为 `001`、`101`、`102`、`103`、`201` 五行；第二条输出 `0`。全部测试见本文开头（`336 passed`）。

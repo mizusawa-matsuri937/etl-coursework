@@ -2,4 +2,4 @@
 
 PARSER_VERSION = "t3p1"      # 证据区域与抽取方式（extract.py）
 LABEL_MAP_VERSION = "t3m1"   # 标签 → 字段键映射（extract.LABEL_MAP）
-RULE_VERSION = "t3r1"        # 分类规则、模式与阈值（rules.py）
+RULE_VERSION = "t3r2"        # 分类规则、模式与阈值（rules.py）；t3r1 → t3r2 见 design“规则版本 t3r2”

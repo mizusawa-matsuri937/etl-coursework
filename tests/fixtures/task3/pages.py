@@ -117,4 +117,12 @@ CASES = [
      "tv_series", "structured", "TV1", None),
     ("electronics_season_no_carrier", page("Ocean Days: Season 2", crumbs=("Electronics", "Accessories")),
      "pending", "missing", "PX1", "conflicting_evidence"),
+    # 以下 3 例是 t3r2 修复的已知问题（t3r1 依次判为 CL2、MV2、NM1）
+    ("carrier_list_title", page("Happy Paws (Blu-ray 3D / Blu-ray / DVD)", crumbs=VIDEO, bullets=FEATURE),
+     "movie", "structured", "MV1", None),
+    ("placeholder_actors", page("Garden Tales", crumbs=VIDEO,
+                                bullets=(("Actors", "Artist Not Provided"), ("Run time", "95 minutes"))),
+     "pending", "missing", "PD1", "insufficient_evidence"),
+    ("cd_root_dvd_title", page("Island Band: Live in Europe 2003 [DVD]", crumbs=("CDs & Vinyl", "Reggae")),
+     "pending", "missing", "PX1", "conflicting_evidence"),
 ]

@@ -31,7 +31,7 @@
   docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task3_rules.py tests/integration/test_task3_classify.py
   ```
 
-  期望：`31 passed`。
+  期望：`34 passed`（t3r2 起；t3r1 时 31）。
 
 - [x] T3-03 分批与幂等、规则版本差异、报告、Airflow DAG。关联 AC07、AC08、AC09、AC10。
   - 文件：`src/etl_task3/{report,pipeline,check}.py`、`sql/task3_classification_export.sql`、`dags/amazon_products_task3_classify.py`、`tests/integration/test_task3_{dag,report}.py`、[runbook](runbook.md)。
@@ -61,4 +61,15 @@
   docker compose --profile crawl run --rm -T crawler python -m etl_task3.report review-export
   ```
 
-  期望：退出码 0，`"rows": 120`，`by_stratum` 六类各 20。
+  期望（t3r2）：退出码 0，`"rows": 115`，`by_stratum` 为 `non_movie` 15、其余五类各 20（t3r1 时 120）。
+
+- [x] T3-06 规则修订 t3r2：修复载体列表误判合集、占位署名算作演员、非视频首级影片判为非电影。关联 AC00、AC04、AC11、AC12。
+  - 文件：`src/etl_task3/{__init__,rules}.py`、`tests/fixtures/task3/pages.py`、spec R11、R14、R15、AC04，design“规则版本 t3r2”。
+  - 完成情况：2026-10-29 通过（AI 验证，用户尚未复核）；正式库 `t3_full_r2_1` 35 秒只重算分类，212 个产品变化，核对通过；336 项测试通过。
+
+  ```bash
+  docker compose --profile crawl run --rm -T crawler python -m etl_task3.classify diff --from t3r1 --to t3r2
+  ```
+
+  期望：退出码 0，开头为 `"changed": 212`。
+
