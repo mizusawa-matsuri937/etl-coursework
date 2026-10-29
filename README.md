@@ -28,7 +28,7 @@ ETL作业模板/
 └── doc/
     ├── request-template.md   # 公共请求模板
     ├── handoffs/             # 任务间交接文档（新对话先读最新一份，见 CLAUDE.md）
-    ├── task4/                # 任务 4（定义并识别同一电影）：spec、design、tasks、checklist 已建空文件，待编写
+    ├── task4/                # 任务 4（定义并识别同一电影）：spec（R01–R42、AC00–AC17）、design、tasks、checklist 于 2026-10-29 编写；实现未开始
     ├── task3/                # 任务 3（电影页面筛选）：spec、design、tasks、checklist、runbook；T3-00 至 T3-06 于 2026-10-29 完成；当前规则 t3r2
     ├── task2/                # 任务 2（ASIN 采集清单与产品页面爬虫）：spec、design、tasks、checklist、runbook；T2-00 至 T2-07 已完成
     └── task1/                # 任务 1 第一轮计划
@@ -123,5 +123,6 @@ docker compose --profile test run --rm etl-test pytest -q tests   # 单元 + 集
 | 2026-10-29 | 用户同意假设按建议执行；完成 T3-01 至 T3-05：字段抽取、规则分类与证据、分批装载、DAG `amazon_products_task3_classify`（真实 scheduler 在 etl_test 跑通成功、重跑、暂时错误、失败分支）；正式库全量 `t3_full_1` 约 5.5 分钟，分类 253,059 行（电影 8,808、演唱会或其他 3,256、合集 861、剧集 835、非电影 25、待确认 239,274），重跑 reused；333 项测试通过；抽查表已导出；用户复核 checklist 全部通过、人工抽检口头确认已分类的基本无问题；提交 `939562d` |
 | 2026-10-29 | T3-06：规则升为 t3r2，修复载体列表误判合集、占位署名算作演员、非视频首级影片判为非电影；正式库 `t3_full_r2_1` 只重算分类，212 个产品变化（电影 8,730、待确认 239,361）；336 项测试通过 |
 | 2026-10-29 | 推送分支 `task3-movie-filter` 并开 PR #3；PR #3 合并到 `main`（`c547c27`），任务 3 完成（AC12 无逐条标注，未勾选） |
+| 2026-10-29 | 在分支 `task4-movie-identity` 编写任务 4（定义并识别同一电影）的 spec（R01–R42、AC00–AC17）、design、tasks、checklist；用户确认引入 IMDb、合并范围（电影 + 合集拆分，剧集只建商品层）、人物只做姓名比较、评价样本 120 对，其余假设同意按建议执行；实现未开始 |
 
 本目录已初始化独立 Git 仓库，当前分支为 `main`，跟踪 `origin/main`。GitHub 公开仓库为 [mizusawa-matsuri937/etl-coursework](https://github.com/mizusawa-matsuri937/etl-coursework)。任务 1 经 PR #1 合并到 `main`；任务 2 经 [PR #2](https://github.com/mizusawa-matsuri937/etl-coursework/pull/2) 于 2026-10-29 合并到 `main`（合并提交 `9594985`）；任务 3 经 [PR #3](https://github.com/mizusawa-matsuri937/etl-coursework/pull/3) 于 2026-10-29 合并到 `main`（合并提交 `c547c27`）。没有阶段标签。
