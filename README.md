@@ -27,6 +27,7 @@ ETL作业模板/
 └── doc/
     ├── request-template.md   # 公共请求模板
     ├── handoffs/             # 任务间交接文档（新对话先读最新一份，见 CLAUDE.md）
+    ├── task3/                # 任务 3（电影页面筛选）：spec、design、tasks、checklist 已建空文件，待编写
     ├── task2/                # 任务 2（ASIN 采集清单与产品页面爬虫）：spec、design、tasks、checklist、runbook；T2-00 至 T2-07 已完成
     └── task1/                # 任务 1 第一轮计划
         ├── spec.md           # 目标、范围、规则、AC测试、假设
