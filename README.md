@@ -1,6 +1,6 @@
 # ETL 作业项目
 
-当前状态：任务 1 计划已完成，T1-01（容器环境）与 T1-02（解析与转换）、T1-03（数据库约束、批次装载与恢复）、T1-04（统计、报告与 Airflow 流程）于 2026-10-26 完成，经单元、集成测试和真实 scheduler 样本运行验证；T1-05 于 2026-10-26 完成资源试跑、正式全量（7,911,696 条，经真实 Airflow 写入业务库）和同输入重跑，结果见 [任务 1 报告](doc/task1/task1-report.md)；T1-06（复现交付）于同日完成：独立项目、容器无外网下按 runbook 复现固定样本与一次恢复。任务 2 第一部分（ASIN 采集清单，T2-01 至 T2-03）于 2026-10-28 完成：正式库 `task2.product_manifest` 共 253,059 行、全部 `not_collected`，见 [任务 2 checklist](doc/task2/checklist.md)；第二部分爬虫（T2-04、T2-05）于 2026-10-29 完成并由用户叫停：已处理 29,126 个 ASIN，success 22,321，其余 223,933 保持 `not_collected`；2026-10-29 补完接入 Airflow（T2-06，DAG `amazon_products_task2_crawl`）与跳转链、页面模板证据（T2-07）；2026-10-29 用户按 checklist 人工复核通过。
+当前状态：任务 1 计划已完成，T1-01（容器环境）与 T1-02（解析与转换）、T1-03（数据库约束、批次装载与恢复）、T1-04（统计、报告与 Airflow 流程）于 2026-10-26 完成，经单元、集成测试和真实 scheduler 样本运行验证；T1-05 于 2026-10-26 完成资源试跑、正式全量（7,911,696 条，经真实 Airflow 写入业务库）和同输入重跑，结果见 [任务 1 报告](doc/task1/task1-report.md)；T1-06（复现交付）于同日完成：独立项目、容器无外网下按 runbook 复现固定样本与一次恢复。任务 2 第一部分（ASIN 采集清单，T2-01 至 T2-03）于 2026-10-28 完成：正式库 `task2.product_manifest` 共 253,059 行、全部 `not_collected`，见 [任务 2 checklist](doc/task2/checklist.md)；第二部分爬虫（T2-04、T2-05）于 2026-10-29 完成并由用户叫停：已处理 29,126 个 ASIN，success 22,321，其余 223,933 保持 `not_collected`；2026-10-29 补完接入 Airflow（T2-06，DAG `amazon_products_task2_crawl`）与跳转链、页面模板证据（T2-07）；2026-10-29 用户按 checklist 人工复核通过。任务 3（电影页面筛选，T3-00 至 T3-05）于 2026-10-29 在分支 `task3-movie-filter` 实现并经 Airflow 全量运行：253,059 个产品各有分类，电影 8,808、待确认 239,274，见 [任务 3 checklist](doc/task3/checklist.md)；同日用户按 checklist 复核通过，并人工抽检抽查表（口头确认已分类的基本无问题，未逐条导入标注）。
 
 任务 1 的目标是全量流式抽取 Amazon 评论，分批装载 PostgreSQL，保留原始证据与异常，并通过 Airflow 完成数量核对和运行报告。
 
@@ -17,17 +17,18 @@ ETL作业模板/
 ├── docker/init-databases.sh  # 创建 etl_movies / airflow_meta / etl_test 三个隔离库
 ├── src/etl_task1/            # Python 包：config、source、identity、parser、transform、quality、records、evidence、db、checkpoint、loader、validation、reporting、metrics、pipeline
 ├── src/etl_task2/            # 任务 2 采集清单：urls（候选链接）、manifest（表结构、前置检查、构建）、pipeline（DAG 步骤）
-├── tests/unit/ integration/  # 单元测试 124 项；集成测试 120 项（连接 etl_test 库）；合计 244 项（任务 1 196＋任务 2 48）
+├── src/etl_task3/            # 任务 3 电影页面筛选：extract（证据区域字段抽取）、rules（分类规则）、classify（分组、分批装载、核对、版本差异）、report（统计、导出、人工抽查）、pipeline（DAG 步骤）、check（只读核对）
+├── tests/unit/ integration/  # 合计 333 项（2026-10-29）：任务 1 196、任务 2 89、任务 3 48；集成测试连接 etl_test 库
 ├── tests/fixtures/           # 10 条固定样本、生成脚本与预期值
 ├── compose.e2e.yaml          # 端到端验证覆盖：Airflow 写入 etl_test，不污染业务库
 ├── compose.offline.yaml      # 离线复现覆盖：容器网络 internal，无外网
-├── sql/                      # 表结构、完整性核对、数量核对、质量分布、产品汇总；101_task2_schema、task2_manifest_source/checks/export（任务 2 清单）
-├── dags/                     # amazon_reviews_task1.py、amazon_products_task2_manifest.py、amazon_products_task2_crawl.py
+├── sql/                      # 表结构、完整性核对、数量核对、质量分布、产品汇总；101_task2_schema、task2_manifest_source/checks/export（任务 2 清单）；102/103（任务 2 爬虫）；201_task3_schema、task3_input_groups、task3_classification_export（任务 3）
+├── dags/                     # amazon_reviews_task1.py、amazon_products_task2_manifest.py、amazon_products_task2_crawl.py、amazon_products_task3_classify.py
 ├── scripts/                  # run_dag_e2e.py 经真实 scheduler 触发 DAG 并等待；sample_host_stats.sh 宿主侧资源采样；gen_schema_appendix.py 从数据库生成字段字典附录；check_task2_manifest.py 逐行核对任务 2 清单与任务 1 产品汇总；crawl_mihomo.py 生成爬虫用的 mihomo 多端口配置
 └── doc/
     ├── request-template.md   # 公共请求模板
     ├── handoffs/             # 任务间交接文档（新对话先读最新一份，见 CLAUDE.md）
-    ├── task3/                # 任务 3（电影页面筛选）：spec、design、tasks、checklist 已建空文件，待编写
+    ├── task3/                # 任务 3（电影页面筛选）：spec、design、tasks、checklist、runbook；T3-00 至 T3-05 于 2026-10-29 完成，待用户审核
     ├── task2/                # 任务 2（ASIN 采集清单与产品页面爬虫）：spec、design、tasks、checklist、runbook；T2-00 至 T2-07 已完成
     └── task1/                # 任务 1 第一轮计划
         ├── spec.md           # 目标、范围、规则、AC测试、假设
@@ -39,7 +40,7 @@ ETL作业模板/
         └── task1-report.md   # 资源试跑、全量运行与差异核对报告
 ```
 
-以上为文档；源码在 `src/etl_task1/`、`src/etl_task2/`（爬虫在 `src/etl_task2/crawl/`），Airflow DAG 在 `dags/`，SQL 在 `sql/`，测试在 `tests/`，Docker 配置为 `compose*.yaml` 与 `Dockerfile`，脚本在 `scripts/`。项目沿用“星期三项目开发”的协作结构。
+以上为文档；源码在 `src/etl_task1/`、`src/etl_task2/`（爬虫在 `src/etl_task2/crawl/`）、`src/etl_task3/`，Airflow DAG 在 `dags/`，SQL 在 `sql/`，测试在 `tests/`，Docker 配置为 `compose*.yaml` 与 `Dockerfile`，脚本在 `scripts/`。项目沿用“星期三项目开发”的协作结构。
 
 ## 已确认选择
 
@@ -117,5 +118,7 @@ docker compose --profile test run --rm etl-test pytest -q tests   # 单元 + 集
 | 2026-10-29 | 完成 T2-06、T2-07：爬虫 DAG `amazon_products_task2_crawl`（真实 scheduler 在 etl_test 跑通成功、重跑与失败分支）；迁移 103 记录跳转链与页面模板，正式库从快照回填 28,913 个请求的模板（成功页两种模板 20,828 / 1,493）；285 项测试通过；提交到本地分支 `task2-manifest`，未推送 |
 | 2026-10-29 | 用户按 checklist 人工复核任务 2 第二部分（AC11–AC21）全部通过；推送分支 `task2-manifest` 并开 PR #2 |
 | 2026-10-29 | PR #2 合并到 `main`（`9594985`），任务 2 完成 |
+| 2026-10-29 | 在分支 `task3-movie-filter` 编写任务 3（电影页面筛选）的 spec（R01–R30、AC00–AC13）、design、tasks、checklist；规划时只读探查全部 20,661 个快照 |
+| 2026-10-29 | 用户同意假设按建议执行；完成 T3-01 至 T3-05：字段抽取、规则分类与证据、分批装载、DAG `amazon_products_task3_classify`（真实 scheduler 在 etl_test 跑通成功、重跑、暂时错误、失败分支）；正式库全量 `t3_full_1` 约 5.5 分钟，分类 253,059 行（电影 8,808、演唱会或其他 3,256、合集 861、剧集 835、非电影 25、待确认 239,274），重跑 reused；333 项测试通过；抽查表已导出；用户复核 checklist 全部通过、人工抽检口头确认已分类的基本无问题 |
 
 本目录已初始化独立 Git 仓库，当前分支为 `main`，跟踪 `origin/main`。GitHub 公开仓库为 [mizusawa-matsuri937/etl-coursework](https://github.com/mizusawa-matsuri937/etl-coursework)。任务 1 经 PR #1 合并到 `main`；任务 2 经 [PR #2](https://github.com/mizusawa-matsuri937/etl-coursework/pull/2) 于 2026-10-29 合并到 `main`（合并提交 `9594985`）。没有阶段标签。
