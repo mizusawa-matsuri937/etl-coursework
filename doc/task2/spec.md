@@ -1,21 +1,24 @@
-# 任务 2 规格（第一部分：ASIN 采集清单）
+# 任务 2 规格（ASIN 采集清单与产品页面爬虫）
 
-状态：第一轮计划，2026-10-28 编写；尚未实施。本轮只覆盖任务 2 的第一部分——提取全部不同 ASIN、生成产品采集清单并构造候选链接。第二部分（爬虫）由用户自行完成，其规则与 AC 届时在本文件续接编号追加。设计见 [design](design.md)，执行顺序见 [tasks](tasks.md)，完成情况见 [checklist](checklist.md)。
+状态：第一部分（采集清单，R01–R15、AC00–AC10）2026-10-28 编写并完成。第二部分（爬虫，R16–R31、AC11–AC18）2026-10-29 补写：用户 2026-10-28 因时间紧改为由 Claude 实现、用户复核，代码先于本节规则完成，本节按实际实现与验证结果记录。设计见 [design](design.md)，执行顺序见 [tasks](tasks.md)，完成情况见 [checklist](checklist.md)。
 
 ## 目标
 
 为任务 1 全量抽取中的全部不同 ASIN 建立一份可重复生成、可核对、可由爬虫回写状态的产品采集清单，每个 ASIN 一行并带确定的候选链接，初始状态均为未采集。
 
+第二部分：用限速、多出口、可续跑的爬虫请求清单中的产品页面，为每个已处理的 ASIN 写回互斥状态和证据（快照、哈希、逐次请求日志）；在效率优先的前提下尽快产出可供后续任务使用的页面，未处理的保持未采集。
+
 ## 范围
 
 - 包含：清单表与约束、从任务 1 抽取生成清单、候选链接构造、来源统计与评论时间、幂等与失败恢复、Airflow 编排、核对与导出、在正式库完成一次全量构建。
-- 不包含（爬虫部分，由用户完成）：发起任何网络请求、robots.txt 处理、请求间隔与并发、缓存、重试、页面快照保存、成功/验证页/错误页判定、页面解析、重定向与模板变化证据。也不包含任务 3 及以后的电影分类、实体合并与补全。
-- 约束：不修改任务 1 的 spec、表结构、数据与测试；沿用 Python + PostgreSQL + Airflow + Docker Compose 现有栈；只读任务 1 的数据库结果，不再读取 `movies.txt.gz`。
-- 依据：[作业说明](../../../作业/数据存储与管理_ETL作业说明.docx) 的第三部分（为全部产品建立采集清单、每个产品均须有处理状态）、任务 2（清单字段与状态）、第十部分（互斥最终状态之和等于不同 ASIN 总数）；任务 1 的 [spec](../task1/spec.md) R22 observed 口径与 [交接文档](../handoffs/2026-10-26-task1-to-task2.md)。
+- 第二部分包含：从清单取待采集行、令牌桶限速与自适应调速、多出口（代理）轮换、cookie 会话、有上限的重试、状态判定（含 HTTP 200 验证页不算成功）、快照与哈希、逐次请求日志、运行审计、断点续跑与补爬、只读核对脚本、mihomo 多端口配置脚本。
+- 不包含：从页面解析电影字段（任务 3 起）；浏览器渲染（Chromium）；破解验证码或自动点击 checkpoint 表单；第三方或离线替代数据；本轮未把爬虫接入 Airflow DAG（见假设 H07）。任务 3 及以后的电影分类、实体合并与补全不在本任务。
+- 约束：不修改任务 1 的 spec、表结构、数据与测试；沿用 Python + PostgreSQL + Airflow + Docker Compose 现有栈；只读任务 1 的数据库结果，不再读取 `movies.txt.gz`。爬虫不改 R01–R15 定义的清单列语义与六种状态；订阅链接、代理口令只放 `.env`。
+- 依据：[作业说明](../../../作业/数据存储与管理_ETL作业说明.docx) 的第三部分（为全部产品建立采集清单、每个产品均须有处理状态；受站点限制时应自行调整爬虫）、任务 2（清单字段与状态；断点续跑、缓存、限速、有上限的重试；HTTP 200 验证页不得记成功）、第十部分（互斥最终状态之和等于不同 ASIN 总数）；任务 1 的 [spec](../task1/spec.md) R22 observed 口径与 [交接文档](../handoffs/2026-10-26-task1-to-task2.md)。
 
 ## 规则
 
-“作业要求”来自任务书，“用户选择”来自 2026-10-28 的对话，“工程默认”是本轮实现基线。爬虫阶段的规则从 R16 起续接。
+“作业要求”来自任务书，“用户选择”来自 2026-10-28 的对话，“工程默认”是本轮实现基线。R01–R15 为第一部分（清单），R16–R31 为第二部分（爬虫）。
 
 - R01 [作业要求及工程默认]：清单输入限定为任务 1 的一个抽取，所有读取都带 `extraction_id` 条件。正式构建只接受 `scope=full`、`status=complete`、读到 EOF 且 gzip 已验证的抽取；样本抽取只能在测试库以显式参数构建，构建记录标明 scope。
 - R02 [作业要求及用户选择]：清单纳入该抽取 observed 口径（任务 1 R22）下的全部不同 ASIN，含只出现在隔离记录中的 ASIN。每个 ASIN 恰好一行，行数等于同一抽取的 observed 产品数。
@@ -32,16 +35,32 @@
 - R13 [作业要求及工程默认]：一次构建在单个事务内提交，失败时清单不出现部分结果，并留下失败审计。Airflow 实际执行“检查抽取 → 构建 → 核对 → 导出 → 收尾与门禁”；确定性错误不重试，暂时错误最多重试 2 次，收尾成功不掩盖上游失败。
 - R14 [作业要求及工程默认]：每次构建导出清单 CSV 与 `summary.json`，记录行数、状态分布、`in_valid_records` 分布、`url_issue` 数和文件哈希。导出不含评论正文，导出文件不提交到仓库。
 - R15 [工程默认]：清单放在业务库 `etl_movies` 的独立 schema `task2`；测试与端到端运行只写 `etl_test`。不修改任务 1 的表、规则与数据，任务 1 测试保持通过。
+- R16 [作业要求及用户选择]：爬虫只处理一个抽取的清单，默认取最近一次全量清单构建的抽取；只取 `not_collected` 行，以及用 `--retry-status` 显式指定的 `access_restricted`、`timeout`、`parse_failed` 行；`original_url` 为空的行不请求。
+- R17 [作业要求]：爬虫只更新清单的爬虫列（R07 中的采集字段与 `status_reason`），不改构建列；最终跳转地址写 `final_url`，不覆盖 `original_url`。
+- R18 [作业要求]：`success` 只给 HTTP 200、含产品标题元素（`id="productTitle"` 或 `data-automation-id="title"`），且最终地址或页面含目标 ASIN 的响应；有标题但 ASIN 对不上记 `parse_failed`，原因 `asin_mismatch`。
+- R19 [作业要求]：跳转到 `/checkpoint/` 的页面、验证码页、HTTP 403/429/5xx 记 `access_restricted`，原因分别为 `checkpoint_redirect`、`captcha`、`http_<码>`；HTTP 200 的这类页面同样不算成功。
+- R20 [作业要求]：HTTP 404，或 HTTP 200 含“Page Not Found”类文字且无产品标题，记 `not_found`；其他非 200 或无产品标题的 200 页面记 `parse_failed`；请求异常（超时、连接、TLS、代理错误）记 `timeout`，原因保留异常类型与消息。
+- R21 [作业要求]：每次请求在 `task2.fetch_attempt` 记一行：出口标签、请求与最终 URL、HTTP 状态、判定与原因、响应字节数、哈希、开始时间与耗时；`attempt_no` 在同一 ASIN 内跨运行累计，清单 `attempt_count` 等于该 ASIN 的日志行数。
+- R22 [作业要求]：每个已处理 ASIN 保存最后一次响应体的 gzip 快照（`outputs/task2/snapshots/<ASIN 末两位>/<ASIN>.html.gz`，先写临时文件再改名），`content_hash` 为未压缩原始字节的 SHA-256；被拦截的页面同样保存作证据，没有响应体时快照与哈希为空。
+- R23 [作业要求]：一个 ASIN 的尝试日志与清单更新在同一事务提交；中断后未处理的 ASIN 保持原状态，重跑同一命令只处理剩余行，已处理行不再请求；同一抽取同一时间只允许一个爬虫运行。
+- R24 [作业要求及用户选择]：重试有上限：每个 ASIN 每次运行最多 `--max-attempts` 次（默认 1，用户选择“checkpoint 直接算拦截”），被拦截或出错时换出口重试；补爬须显式指定 `--retry-status`。
+- R25 [作业要求]：限速：每个出口一个令牌桶（`--rate` 每秒、`--burst` 突发），可另设全局桶 `--global-rate`；每次请求前随机等待 0–`--jitter` 秒。
+- R26 [工程默认]：自适应调速：出口的窗口拦截率超过 `--max-block-ratio`，或连续被拦截 `--ban-streak` 次，即速率减半并冷却（`--cooldown` 起连续翻倍，上限 `--max-cooldown`）；拦截率低于上限的 80% 时逐步提速，不超过 `--rate`；全部出口冷却时等待，不消耗 ASIN。
+- R27 [用户选择]：出口来自 `CRAWL_PROXY_URLS`（逗号分隔，用户选用 mihomo 每个端口一个机场节点），其次 `CRAWL_PROXY_FILE`、`CRAWL_PROXY_URL`，都没有则直连；日志与数据库只记 `host:port` 标签，不记账号口令；订阅链接只放 `.env`。
+- R28 [作业要求及工程默认]：缓存：`success`、`not_found`、`parse_failed` 行默认不再请求；快照留在本地作为原始层，后续解析从快照读取。不另设 HTTP 缓存。
+- R29 [用户选择]：效率优先：不点击 checkpoint 表单、不破解验证码，直接记 `access_restricted`；不要求爬完全部 ASIN，未处理的保持 `not_collected`，统计分母始终为清单全部行数。
+- R30 [工程默认]：每次运行在 `task2.crawl_run` 记一行（参数、起止时间、状态、各判定计数）；收到 SIGTERM/SIGINT 或到达 `--deadline` 时收尾在途请求后退出，状态记 `interrupted`。
+- R31 [工程默认]：爬虫表结构为迁移 `102`，放在 `task2` schema；测试不访问外网（注入假请求、本地 HTTP 服务），只写 `etl_test`；任务 1 与第一部分测试保持通过。
 
 ## AC测试
 
-以下为验收定义，实际完成情况只记入 checklist。AC00 是计划文件检查，AC01–AC10 为实施验收。
+以下为验收定义，实际完成情况只记入 checklist。AC00 是计划文件检查，AC01–AC10 为第一部分实施验收，AC11–AC18 为第二部分（爬虫）验收。爬虫测试用注入的假请求或本地 HTTP 服务，不访问外网。
 
 固定样本复用任务 1 的 10 条夹具（`tests/fixtures/`，预期见任务 1 spec 的“固定样本”）：observed 产品 6 个（`AAAAAAAAAA`–`FFFFFFFFFF`），valid 产品 4 个；`CCCCCCCCCC`、`DDDDDDDDDD` 只出现在隔离记录中；记录 7 缺少产品字段。每个案例独立初始化测试库；正式全量核对不使用样本数值。
 
 | AC | Rule | Input | Expected result |
 |---|---|---|---|
-| AC00 | 计划文件规范 | 作业任务 2 原文、2026-10-28 用户选择、CLAUDE.md 规范。 | spec 五个板块顺序正确；R01–R15 均有任务与 AC；爬虫内容明确排除；未提前勾选实施验收。 |
+| AC00 | 计划文件规范 | 作业任务 2 原文、2026-10-28 用户选择、CLAUDE.md 规范。 | spec 五个板块顺序正确；R01–R31 均有任务与 AC；spec 与 checklist 的 AC 编号一一对应；未提前勾选实施验收。 |
 | AC01 | R01 | 不存在的抽取 ID；`status=failed` 的抽取；未读到 EOF 或未通过 gzip 验证的全量抽取；未显式允许的样本抽取。 | 均在构建前失败并给出原因；清单不新增任何行；失败审计可查询。 |
 | AC02 | R02, R03, R04, R11 | 固定样本（整份夹具按 `scope=full` 装载）装入测试库后构建清单。 | 清单 6 行；`in_valid_records` 为真 4 行、为假 2 行（`CCCCCCCCCC`、`DDDDDDDDDD`）；记录 7 不产生行；ASIN 原样；来源字段与 `sql/task1_distinct_products.sql` 的结果逐列相等。 |
 | AC03 | R05, R06 | `B000000743`、`0001489305`，以及人工构造的小写值、含空格值、9 位值、含 `/` 的值，各处理两次。 | 前两者得到 `https://www.amazon.com/dp/<ASIN>`；其余 `original_url` 为 NULL、`url_issue` 非空、ASIN 不变；两次结果完全相同。 |
@@ -52,13 +71,26 @@
 | AC08 | R14 | 固定样本构建后导出。 | CSV 6 行，含 R07 全部字段与来源字段；`summary.json` 的行数、状态分布、`in_valid_records` 分布、`url_issue` 数和文件哈希与库中一致；导出不含评论正文。 |
 | AC09 | R01, R02, R03, R08, R11, R14 | 正式库 `etl_movies`、任务 1 全量抽取 `f1e8b845…`，经 Airflow 正式构建。 | 清单 253,059 行；`in_valid_records` 为真 252,603、为假 456；全部 `not_collected`，状态分布之和为 253,059；ASIN 集合与来源字段和 `distinct_products.csv` 逐行一致；`url_issue` 数如实报告。 |
 | AC10 | R15 | 实现、SQL、测试、runbook 与 README。 | task2 schema 独立；任务 1 表与测试未改且全部通过；文档中的命令可执行；无导出数据、口令或个人路径进入仓库。 |
+| AC11 | R18, R19, R20 | 8 个合成响应：含目标 ASIN 的产品页；跳到 `/checkpoint/` 的 200 页；含 `validateCaptcha` 的 200 页；503；429；404 “Page Not Found”；无标题的 200 页；标题存在但 ASIN 为另一值的页。 | 依次判为 `success`/`product_page`、`access_restricted`/`checkpoint_redirect`、`access_restricted`/`captcha`、`access_restricted`/`http_503`、`access_restricted`/`http_429`、`not_found`/`http_404`、`parse_failed`/`no_product_title`、`parse_failed`/`asin_mismatch`。 |
+| AC12 | R25, R26 | 假时钟下：令牌桶连取与补充；单出口窗口 70% 拦截两次后再全成功；30% 分散拦截；低速出口 60 s 内只有 11 次响应；连续 4 次拦截；全部出口冷却时取出口；停止信号已设时取出口。 | 桶空时需等 0.5 s 且不超过 burst；速率 1→0.5→0.25、冷却 60→120 s，恢复后 0.375；30% 不罚；按时间评估并提速到 0.2；立即冷却并轮换到另一出口；等到冷却结束才返回；抛出停止异常。 |
+| AC13 | R16, R17, R21, R22, R24 | 固定样本清单 6 个 ASIN，假请求依次返回：产品页；先 checkpoint 后产品页；两次 checkpoint；404；两次超时；首页；`max_attempts=2`。 | 状态/尝试次数为 A success/1、B success/2、C access_restricted/2、D not_found/1、E timeout/2、F parse_failed/1；B 两次用不同出口；共 9 行尝试日志；成功行快照解压后的 SHA-256 等于 `content_hash`；C 的 200 checkpoint 页保留快照、原因 `checkpoint_redirect`；E 无快照。 |
+| AC14 | R23, R24, R30 | 同一样本：先 `limit=2` 再无限制重跑，再跑一次；用 `--retry-status access_restricted` 补爬 C；0.3 s 截止；出口冷却 1 小时时 0.5 s 截止；乱序加抖动分两次跑。 | 续跑分别处理 2、4、0 个，总尝试仍为 9；C 变为 success、尝试 3 次；截止时运行为 `interrupted`，未处理行保持 `not_collected`，冷却等待不阻塞退出；乱序两次合计覆盖 6 行各一次。 |
+| AC15 | R22, R27 | 本地 HTTP 服务：真实 Scrapling 请求产品页与 404；带会话请求两次回显 cookie，连续 2 次拦截后再请求。 | 产品页 200、判为 success，404 页状态 404；前两次 cookie 相同，换会话后 cookie 不同，共建 2 个会话，旧会话已关闭。 |
+| AC16 | R27 | `CRAWL_PROXY_URLS` 含账号口令和重复地址；只设 `CRAWL_PROXY_URL`；都不设。检查仓库是否含订阅链接或 `outputs/`。 | 标签为 `host:port`、重复加 `#2`、不含口令；依次退回单代理与 `direct`；仓库没有 `.env`、订阅链接与 `outputs/` 文件。 |
+| AC17 | R16–R24, R28, R29 | 正式库 `etl_movies`、抽取 `f1e8b845…`，在用户要求停止时的实际爬取结果，用只读核对脚本检查。 | 状态之和等于 253,059；`success` 行证据齐全；已处理行尝试次数大于 0、未采集行为 0，且与日志行数一致；成功行最终地址都含目标 ASIN；全部快照存在且哈希一致；实际数量如实报告。 |
+| AC18 | R31 | `schema_migration` 版本、全部测试、`git status`。 | 版本为 `001`、`101`、`102`；全部测试通过（任务 1 与第一部分不减少）；爬虫代码与文档不含口令或订阅链接。 |
 
 ## 假设
 
 | 编号 | 当前选择或假设 | 状态与理由 | 相关规则 |
 |---|---|---|---|
 | H01 | 纳入全部 observed ASIN；每个 ASIN 一条 `/dp/` 链接；清单存 PostgreSQL 并由 Airflow 生成；状态固定六种 | 用户 2026-10-28 已确认 | R02、R03、R05、R08、R13、R15 |
-| H02 | 爬虫（robots、限速、缓存、重试、快照、成功判定）由用户自行完成，规则在本文件续接 R16 起追加 | 用户已确认；本轮不规划其细节 | 范围、R09 |
+| H02 | 爬虫原定由用户自行完成；2026-10-28 用户因时间紧改为由 Claude（Claude Code）实现、用户复核，并要求效率优先、不追求成功率 | 用户已确认；AI 辅助的用途与验证方式见 design“爬虫”一节 | R16–R31 |
 | H03 | 目标域名为 `www.amazon.com`（作业与 SNAP 页面的示范形式） | 工程默认；页面能否访问、是否重定向待爬虫阶段验证 | R05 |
 | H04 | 清单主键为 `(extraction_id, asin)`，复用任务 1 的栈、配置与工具函数 | 工程默认；理由见 design | R01、R12、R15 |
 | H05 | 全部 ASIN 符合 R06 格式；全量构建耗时为分钟级 | 规划时对 `distinct_products.csv` 只读检查无不合规值；2026-10-28 正式构建实测 `url_issue` 0、整次约 45 s，见 checklist AC09 | R06、R13 |
+| H06 | 出口用 mihomo 多端口（每端口一个机场节点，15 个）、cookie 会话、每出口 0.4/s；checkpoint 直接记拦截，被拦截行留待补爬 | 用户 2026-10-28 已确认；参数来自实测，见 design | R24–R27、R29 |
+| H07 | 爬虫以命令行在 `crawler` 容器运行，尚未由 Airflow DAG 调用 | 待办：作业要求爬虫由 ETL 作业调用，后续需补一个调用爬虫的 DAG 任务 | R30 |
+| H08 | 重定向证据只记每次请求的最终地址与判定原因，不保存完整跳转链；页面模板变化仅以两种标题选择器和 `parse_failed` 计数体现 | 待验证：作业要求保留重定向与模板变化证据，是否足够需复核 | R18、R21 |
+| H09 | 爬虫不读取 robots.txt；是否满足作业“在允许访问的范围内采集” | 待用户确认 | R16 |
+| H10 | Shadowrocket 开启时机场流量可能被计两次；跑一晚约用 25–30 GB 流量 | 未验证，按快照大小推算 | R27 |

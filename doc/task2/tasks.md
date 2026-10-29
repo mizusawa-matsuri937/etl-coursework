@@ -1,11 +1,11 @@
-# 任务 2 开发任务（第一部分：ASIN 采集清单）
+# 任务 2 开发任务（ASIN 采集清单与产品页面爬虫）
 
-状态：T2-00 至 T2-03 全部完成（2026-10-28），已提交到本地分支 `task2-manifest`。爬虫部分由用户完成，届时从 T2-04 续接。
+状态：第一部分 T2-00 至 T2-03 完成（2026-10-28，已提交到本地分支 `task2-manifest`）。第二部分 T2-04、T2-05 完成（2026-10-28 至 29，由 Claude 实现，用户尚未复核，尚未提交）；T2-06（接入 Airflow）未开始。
 
 命令在项目根目录直接复制运行。每项 AC 的详细复核命令见 [checklist](checklist.md)，这里只给阶段级检查。
 
 - [x] T2-00 计划：spec、design、tasks、checklist。关联 AC00。
-  - 完成情况：文档检查通过。
+  - 完成情况：第一部分文档检查通过；2026-10-29 补写爬虫规则 R16–R31、AC11–AC18 后复查通过。
 
   ```bash
   grep -n "^## " doc/task2/spec.md
@@ -42,3 +42,25 @@
   ```
 
   期望：退出码 0，`manifest_rows: 253059`，`asin_sequence_equal: true`，`column_mismatches: 0`。
+
+- [x] T2-04 爬虫：限速、多出口、会话、状态判定、快照与写回、续跑。关联 AC11–AC16、AC18。
+  - 文件：`src/etl_task2/crawl/crawler.py`、`sql/102_task2_crawl.sql`、`tests/unit/test_task2_crawl.py`、`tests/integration/test_task2_crawl.py`、`compose.yaml`（`crawler` 服务）、`.env.example`。
+  - 完成情况：2026-10-29 测试 24 项通过；全部测试 268 项通过。
+
+  ```bash
+  docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task2_crawl.py tests/integration/test_task2_crawl.py
+  ```
+
+  期望：`24 passed`。
+
+- [x] T2-05 多出口与正式爬取。关联 AC17。
+  - 文件：`scripts/crawl_mihomo.py`、`src/etl_task2/crawl/check.py`、[runbook](runbook.md) 第 6 节。
+  - 完成情况：用户要求停止时（2026-10-29），已处理 29,126 个 ASIN，其中 success 22,321 个，其余 223,933 个保持 `not_collected`；只读核对全部通过，28,913 个快照哈希一致。
+
+  ```bash
+  docker compose --profile crawl run --rm -T crawler python -m etl_task2.crawl.check
+  ```
+
+  期望：退出码 0，`status_sum_equals_rows: true`，`snapshot_hash_mismatch: 0`（约 1 分钟）。
+
+- [ ] T2-06 计划：把爬虫接入 Airflow DAG（作业要求“由 ETL 作业调用”，见 spec H07）。尚未规划和实现。

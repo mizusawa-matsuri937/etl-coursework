@@ -1,6 +1,6 @@
-# 任务 2 AC 完成情况（第一部分：ASIN 采集清单）
+# 任务 2 AC 完成情况（ASIN 采集清单与产品页面爬虫）
 
-状态：2026-10-28 AC00–AC10 均已由 AI 执行并通过；2026-10-28 用户按本文命令人工复核，测试全部通过。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：第一部分 AC00–AC10 于 2026-10-28 由 AI 执行并通过，同日用户按本文命令人工复核，测试全部通过。第二部分 AC11–AC18 于 2026-10-29 由 AI 执行并通过，用户尚未复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都可在项目根目录直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库，可随时重跑；容器启动日志之后的最后一行就是结果。
 
@@ -10,11 +10,11 @@
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望：`244 passed`。
+期望：`268 passed`（2026-10-29；第一部分复核时为 244，第二部分新增爬虫测试 24 项）。
 
 ## AC00 计划文件规范
 
-- [x] 2026-10-28 通过（AI 文档检查）。
+- [x] 2026-10-28 通过（AI 文档检查）；2026-10-29 补写 R16–R31、AC11–AC18 后复查通过。
 
 ```bash
 grep -n "^## " doc/task2/spec.md
@@ -149,6 +149,106 @@ git ls-files | grep -c '^outputs/'
 git grep -nE '/Users/[a-z]|PASSWORD=[A-Za-z0-9]' -- . ':!*.example'
 ```
 
-期望：第一条为 `001`、`101` 两行；第二条输出 `0`；第三条无输出。再跑一次 `docker compose --profile test run --rm etl-test pytest -q tests`，期望 `244 passed`（任务 1 的 196 项仍全部通过）。
+期望：第一条为 `001`、`101` 两行；第二条输出 `0`；第三条无输出。再跑一次 `docker compose --profile test run --rm etl-test pytest -q tests`，期望 `244 passed`（任务 1 的 196 项仍全部通过）。2026-10-29 起第二部分已加入迁移 `102` 和 24 项测试，第一条现为三行、全部测试为 268 项，见 AC18。
 
-当前汇总：AC00–AC10 共 11 项，AI 执行通过 11 项；用户人工复核通过 11 项（2026-10-28，按本文命令运行测试）。
+## AC11 状态判定
+
+- [x] 2026-10-29 通过（单元测试，8 个合成响应）。
+
+```bash
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task2_crawl.py -k classify
+```
+
+期望：`8 passed`。
+
+## AC12 令牌桶与自适应调速
+
+- [x] 2026-10-29 通过（单元测试，假时钟）。
+
+```bash
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task2_crawl.py -k "token_bucket or pool or ban_streak or slow_exit or scattered or window_over or acquire_stops"
+```
+
+期望：`7 passed`。
+
+## AC13 写回、尝试日志与证据
+
+- [x] 2026-10-29 通过（集成测试，固定样本 6 个 ASIN、假请求）。
+
+```bash
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task2_crawl.py -k writes_statuses
+```
+
+期望：`1 passed`。
+
+## AC14 续跑、补爬与截止
+
+- [x] 2026-10-29 通过（集成测试）。
+
+```bash
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task2_crawl.py -k "resume or retry_status or deadline or shuffled"
+```
+
+期望：`5 passed`。
+
+## AC15 真实请求与 cookie 会话
+
+- [x] 2026-10-29 通过（本地 HTTP 服务，真实 Scrapling 请求；含换会话后旧会话已关闭的断言）。
+
+```bash
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task2_crawl.py -k "scrapling_fetch or session_fetcher"
+```
+
+期望：`2 passed`。
+
+## AC16 出口配置与口令不入库
+
+- [x] 2026-10-29 通过（单元测试＋仓库检查）。
+
+```bash
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task2_crawl.py -k load_exits
+```
+
+期望：`1 passed`。
+
+```bash
+git check-ignore .env outputs/task2/mihomo/config.yaml
+```
+
+期望：输出 `.env` 和 `outputs/task2/mihomo/config.yaml` 两行（都被忽略）。
+
+```bash
+git grep --untracked -l -F "$(sed -n 's/^CRAWL_SUBSCRIPTION_URL=//p' .env)"
+```
+
+期望：无输出，退出码 1（订阅链接不在任何已跟踪或未跟踪的仓库文件里；只输出文件名，不显示链接）。
+
+## AC17 正式库爬取结果
+
+- [x] 2026-10-29 通过（只读核对脚本，用户要求停止后执行）。处理 29,126 个 ASIN：success 22,321、access_restricted 4,152、not_found 2,378、timeout 213、parse_failed 62；not_collected 223,933；28,913 个快照哈希全部一致。
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task2.crawl.check
+```
+
+期望：退出码 0；`manifest_rows: 253059`，`status_sum_equals_rows: true`，`status` 为上面的六个数，`fetch_attempts: 29144`，`snapshots_checked: 28913`；`success_missing_evidence`、`processed_without_attempt`、`not_collected_with_attempt`、`attempt_count_mismatch`、`success_final_url_without_asin`、`snapshot_missing`、`snapshot_hash_mismatch` 均为 0。约 1 分钟。
+
+```bash
+docker compose exec -T postgres psql -U postgres -d etl_movies -c "SELECT status, count(*) FROM task2.crawl_run GROUP BY 1 ORDER BY 1"
+```
+
+期望：`interrupted | 7`、`running | 1`、`succeeded | 2`。`running` 那行是 2026-10-28 因句柄泄漏卡住、被强制停止的运行（`28d7bcd0…`），其结果已逐 ASIN 写入清单，以清单为准。
+
+## AC18 迁移、全部测试与交付
+
+- [x] 2026-10-29 通过。
+
+```bash
+docker compose exec -T postgres psql -U postgres -d etl_movies -c "SELECT version FROM schema_migration ORDER BY 1"
+git grep --untracked -nE '/Users/[a-z]|PASSWORD=[A-Za-z0-9]' -- . ':!*.example'
+docker compose --profile test run --rm etl-test pytest -q tests
+```
+
+期望：第一条为 `001`、`101`、`102` 三行；第二条无输出；第三条 `268 passed`。
+
+当前汇总：AC00–AC18 共 19 项。第一部分 AC00–AC10：AI 执行通过 11 项，用户人工复核通过 11 项（2026-10-28）。第二部分 AC11–AC18：AI 执行通过 8 项，用户尚未复核。
