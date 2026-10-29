@@ -12,6 +12,7 @@ import pytest
 from etl_task1.config import Settings, load_settings
 from etl_task1.db import apply_schema, connect
 from etl_task1.source import verify_source
+from etl_task2.manifest import apply_task2_schema
 
 import build_fixtures as bf
 
@@ -32,9 +33,11 @@ def base_settings() -> Settings:
 @pytest.fixture(scope="session", autouse=True)
 def schema(base_settings):
     with connect(base_settings) as conn:
+        conn.execute("DROP SCHEMA IF EXISTS task2 CASCADE")  # 任务 2 清单表引用 public.extraction，一并重建
         conn.execute("DROP SCHEMA public CASCADE")
         conn.execute("CREATE SCHEMA public")
         assert apply_schema(conn) is True
+        assert apply_task2_schema(conn) is True
     yield
 
 

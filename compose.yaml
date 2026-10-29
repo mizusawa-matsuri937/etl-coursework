@@ -28,6 +28,9 @@ x-airflow-env: &airflow-env
   AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD:?在 .env 中设置 AIRFLOW_DB_PASSWORD}@postgres:5432/airflow_meta
   # 本地单用户开发：端口只绑定 127.0.0.1，免登录；不得用于对外暴露的部署。
   AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
+  # 任务 2 爬虫 DAG 的出口代理（与 crawler 服务相同，只在 .env 中填写）
+  CRAWL_PROXY_URL: ${CRAWL_PROXY_URL:-}
+  CRAWL_PROXY_URLS: ${CRAWL_PROXY_URLS:-}
 
 x-etl-mounts: &etl-mounts
   - ./src:/opt/etl/src:ro
@@ -43,6 +46,10 @@ x-airflow-service: &airflow-service
   environment:
     <<: [*airflow-env, *etl-env]
   volumes: *etl-mounts
+  extra_hosts:
+    - "host.docker.internal:host-gateway"  # 爬虫 DAG 经宿主上的 mihomo 端口出网
+  ulimits:
+    nofile: 65536  # 爬虫多出口并发、会话轮换时连接句柄较多
   depends_on:
     airflow-init:
       condition: service_completed_successfully
@@ -120,6 +127,30 @@ services:
       - ./outputs:/opt/etl/outputs  # 资源试跑结果写入 outputs/resource-trial
       - ${SOURCE_HOST_DIR:?}/${SOURCE_GZIP_NAME:-movies.txt.gz}:/data/source/${SOURCE_GZIP_NAME:-movies.txt.gz}:ro
       - ${SOURCE_HOST_DIR:?}/${SOURCE_MANIFEST_NAME:-movies.txt.gz.download.json}:/data/source/${SOURCE_MANIFEST_NAME:-movies.txt.gz.download.json}:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # 任务 2 爬虫运行环境：仅在 --profile crawl 下运行，连接业务库 etl_movies，挂载 src/sql/outputs。
+  # 例：docker compose --profile crawl run --rm crawler python -c "from scrapling.fetchers import FetcherSession"
+  crawler:
+    <<: *etl-image
+    profiles: ["crawl"]
+    entrypoint: []
+    working_dir: /opt/etl
+    environment:
+      <<: *etl-env
+      ETL_ENV: prod
+      CRAWL_PROXY_URL: ${CRAWL_PROXY_URL:-}  # 可选：出网代理地址，只在 .env 中填写，不入库
+      CRAWL_PROXY_URLS: ${CRAWL_PROXY_URLS:-}  # 可选：多个出口，逗号分隔；设置后优先于 CRAWL_PROXY_URL
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Colima 下指向宿主，可连宿主本机代理端口
+    ulimits:
+      nofile: 65536  # 默认 1024；多出口并发、会话轮换时连接句柄较多
+    volumes:
+      - ./src:/opt/etl/src:ro
+      - ./sql:/opt/etl/sql:ro
+      - ./outputs:/opt/etl/outputs
     depends_on:
       postgres:
         condition: service_healthy
