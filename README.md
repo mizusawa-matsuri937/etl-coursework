@@ -1,6 +1,6 @@
 # ETL 作业项目
 
-当前状态：任务 1 计划已完成，T1-01（容器环境）与 T1-02（解析与转换）、T1-03（数据库约束、批次装载与恢复）、T1-04（统计、报告与 Airflow 流程）于 2026-10-26 完成，经单元、集成测试和真实 scheduler 样本运行验证；T1-05 于 2026-10-26 完成资源试跑、正式全量（7,911,696 条，经真实 Airflow 写入业务库）和同输入重跑，结果见 [任务 1 报告](doc/task1/task1-report.md)；T1-06（复现交付）于同日完成：独立项目、容器无外网下按 runbook 复现固定样本与一次恢复。任务 2 第一部分（ASIN 采集清单，T2-01 至 T2-03）于 2026-10-28 完成：正式库 `task2.product_manifest` 共 253,059 行、全部 `not_collected`，见 [任务 2 checklist](doc/task2/checklist.md)；第二部分爬虫（T2-04、T2-05）于 2026-10-29 完成并由用户叫停：已处理 29,126 个 ASIN，success 22,321，其余 223,933 保持 `not_collected`；2026-10-29 补完接入 Airflow（T2-06，DAG `amazon_products_task2_crawl`）与跳转链、页面模板证据（T2-07），用户尚未复核。
+当前状态：任务 1 计划已完成，T1-01（容器环境）与 T1-02（解析与转换）、T1-03（数据库约束、批次装载与恢复）、T1-04（统计、报告与 Airflow 流程）于 2026-10-26 完成，经单元、集成测试和真实 scheduler 样本运行验证；T1-05 于 2026-10-26 完成资源试跑、正式全量（7,911,696 条，经真实 Airflow 写入业务库）和同输入重跑，结果见 [任务 1 报告](doc/task1/task1-report.md)；T1-06（复现交付）于同日完成：独立项目、容器无外网下按 runbook 复现固定样本与一次恢复。任务 2 第一部分（ASIN 采集清单，T2-01 至 T2-03）于 2026-10-28 完成：正式库 `task2.product_manifest` 共 253,059 行、全部 `not_collected`，见 [任务 2 checklist](doc/task2/checklist.md)；第二部分爬虫（T2-04、T2-05）于 2026-10-29 完成并由用户叫停：已处理 29,126 个 ASIN，success 22,321，其余 223,933 保持 `not_collected`；2026-10-29 补完接入 Airflow（T2-06，DAG `amazon_products_task2_crawl`）与跳转链、页面模板证据（T2-07）；2026-10-29 用户按 checklist 人工复核通过。
 
 任务 1 的目标是全量流式抽取 Amazon 评论，分批装载 PostgreSQL，保留原始证据与异常，并通过 Airflow 完成数量核对和运行报告。
 

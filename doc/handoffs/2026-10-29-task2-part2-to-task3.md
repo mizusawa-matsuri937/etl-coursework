@@ -101,7 +101,7 @@ docker compose --profile test run --rm etl-test pytest -q tests
   - 新增：`src/etl_task2/crawl/`（`crawler.py`、`check.py`）、`sql/102_task2_crawl.sql`、`scripts/crawl_mihomo.py`、两个测试文件、本交接文档。
   - 修改：`compose.yaml`、`.env.example`、`pyproject.toml`、`requirements.lock`、`README.md`、`CLAUDE.md`、`doc/task2/` 下的五份文档。
   - 推送与合并须由用户要求。
-- **用户复核**：AC11–AC21 由 AI 执行通过，用户尚未按 `doc/task2/checklist.md` 复核。
+- **用户复核**：AC11–AC21 由 AI 执行通过；2026-10-29 用户按 `doc/task2/checklist.md` 人工复核，全部通过。
 - **与作业要求的差距**（spec 假设 H07–H09）：
   - 正式库没有经 DAG 发过真实请求（用户决定不执行，现有结果即为任务 2 的交付）。
   - `103` 之前的请求没有跳转链。

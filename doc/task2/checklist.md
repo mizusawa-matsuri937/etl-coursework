@@ -1,6 +1,6 @@
 # 任务 2 AC 完成情况（ASIN 采集清单与产品页面爬虫）
 
-状态：第一部分 AC00–AC10 于 2026-10-28 由 AI 执行并通过，同日用户按本文命令人工复核，测试全部通过。第二部分 AC11–AC21 于 2026-10-29 由 AI 执行并通过，用户尚未复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：第一部分 AC00–AC10 于 2026-10-28 由 AI 执行并通过，同日用户按本文命令人工复核，测试全部通过。第二部分 AC11–AC21 于 2026-10-29 由 AI 执行并通过，同日用户按本文命令人工复核，全部通过。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都可在项目根目录直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库，可随时重跑；容器启动日志之后的最后一行就是结果。
 
@@ -295,4 +295,4 @@ docker compose exec -T postgres psql -U postgres -d etl_movies -c "SELECT split_
 
 期望：`www.amazon.com` 的 success 22154、access_restricted 4165、not_found 2377、parse_failed 62；`www.amazon.co.jp | success | 160`；`www.amazon.sg` 的 success 7、not_found 1。
 
-当前汇总：AC00–AC21 共 22 项。第一部分 AC00–AC10：AI 执行通过 11 项，用户人工复核通过 11 项（2026-10-28）。第二部分 AC11–AC21：AI 执行通过 11 项，用户尚未复核。
+当前汇总：AC00–AC21 共 22 项。第一部分 AC00–AC10：AI 执行通过 11 项，用户人工复核通过 11 项（2026-10-28）。第二部分 AC11–AC21：AI 执行通过 11 项，用户人工复核通过 11 项（2026-10-29）。
