@@ -115,5 +115,6 @@ docker compose --profile test run --rm etl-test pytest -q tests   # 单元 + 集
 | 2026-10-29 | 完成 T2-04、T2-05：爬虫（令牌桶、mihomo 15 个出口、cookie 会话、状态判定、快照与尝试日志、续跑）；修复会话句柄泄漏；用户叫停时已处理 29,126 个 ASIN（success 22,321，其余 223,933 未采集），只读核对通过；268 项测试通过；补写 spec R16–R31、AC11–AC18；尚未接入 Airflow；提交到本地分支 `task2-manifest`（`272eb11`），未推送 |
 | 2026-10-29 | 完成 T2-06、T2-07：爬虫 DAG `amazon_products_task2_crawl`（真实 scheduler 在 etl_test 跑通成功、重跑与失败分支）；迁移 103 记录跳转链与页面模板，正式库从快照回填 28,913 个请求的模板（成功页两种模板 20,828 / 1,493）；285 项测试通过；提交到本地分支 `task2-manifest`，未推送 |
 | 2026-10-29 | 用户按 checklist 人工复核任务 2 第二部分（AC11–AC21）全部通过；推送分支 `task2-manifest` 并开 PR #2 |
+| 2026-10-29 | PR #2 合并到 `main`（`9594985`），任务 2 完成 |
 
-本目录已初始化独立 Git 仓库，当前分支为 `main`，跟踪 `origin/main`。GitHub 公开仓库为 [mizusawa-matsuri937/etl-coursework](https://github.com/mizusawa-matsuri937/etl-coursework)。任务 1 经 PR #1 合并到 `main`；任务 2 在分支 `task2-manifest`，经 [PR #2](https://github.com/mizusawa-matsuri937/etl-coursework/pull/2) 提交评审，尚未合并。没有阶段标签。
+本目录已初始化独立 Git 仓库，当前分支为 `main`，跟踪 `origin/main`。GitHub 公开仓库为 [mizusawa-matsuri937/etl-coursework](https://github.com/mizusawa-matsuri937/etl-coursework)。任务 1 经 PR #1 合并到 `main`；任务 2 经 [PR #2](https://github.com/mizusawa-matsuri937/etl-coursework/pull/2) 于 2026-10-29 合并到 `main`（合并提交 `9594985`）。没有阶段标签。

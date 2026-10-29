@@ -1,6 +1,6 @@
 # 交接：任务 2 第二部分（爬虫）→ 任务 3（电影页面筛选）
 
-日期：2026-10-29。写给接手后续任务的人（用户本人，或协助的 agent）。任务 2 第二部分（爬虫）的代码和文档都已完成，用户已叫停全量爬取；爬虫与文档已提交到本地分支 `task2-manifest`（提交 `272eb11`），之后同日补的 Airflow 接入与跳转链、模板证据（T2-06、T2-07）在其后的提交 `feat: 任务 2 爬虫接入 Airflow…` 中。2026-10-29 分支已推送并开 [PR #2](https://github.com/mizusawa-matsuri937/etl-coursework/pull/2)，尚未合并到 `main`。规则、设计与证据以 `doc/task2/` 为准，这里只写接手所需的事实。
+日期：2026-10-29。写给接手后续任务的人（用户本人，或协助的 agent）。任务 2 第二部分（爬虫）的代码和文档都已完成，用户已叫停全量爬取；爬虫与文档已提交到本地分支 `task2-manifest`（提交 `272eb11`），之后同日补的 Airflow 接入与跳转链、模板证据（T2-06、T2-07）在其后的提交 `feat: 任务 2 爬虫接入 Airflow…` 中。2026-10-29 经 [PR #2](https://github.com/mizusawa-matsuri937/etl-coursework/pull/2) 合并到 `main`（合并提交 `9594985`）。规则、设计与证据以 `doc/task2/` 为准，这里只写接手所需的事实。
 
 ## 1. 先做什么
 
@@ -96,7 +96,7 @@ docker compose --profile test run --rm etl-test pytest -q tests
 
 ## 8. 遗留事项
 
-- **提交状态**：爬虫与文档已于 2026-10-29 提交到本地分支 `task2-manifest`（`272eb11`、`24a90ef`）；T2-06、T2-07 在随后的提交 `feat: 任务 2 爬虫接入 Airflow…` 中。用户复核通过后，分支于 2026-10-29 推送到 `origin/task2-manifest` 并开 [PR #2](https://github.com/mizusawa-matsuri937/etl-coursework/pull/2)（base `main`），尚未合并；合并由用户决定。
+- **提交状态**：爬虫与文档已于 2026-10-29 提交到本地分支 `task2-manifest`（`272eb11`、`24a90ef`）；T2-06、T2-07 在随后的提交 `feat: 任务 2 爬虫接入 Airflow…` 中。用户复核通过后，分支于 2026-10-29 推送到 `origin/task2-manifest` 并开 [PR #2](https://github.com/mizusawa-matsuri937/etl-coursework/pull/2)（base `main`），同日由用户要求合并到 `main`（合并提交 `9594985`）。
   - T2-06、T2-07 新增：`sql/103_task2_crawl_evidence.sql`、`src/etl_task2/crawl/{backfill,pipeline}.py`、`dags/amazon_products_task2_crawl.py`、`tests/integration/test_task2_crawl_dag.py`；修改了爬虫、核对、测试、`compose.yaml`（Airflow 服务）与文档。
   - 新增：`src/etl_task2/crawl/`（`crawler.py`、`check.py`）、`sql/102_task2_crawl.sql`、`scripts/crawl_mihomo.py`、两个测试文件、本交接文档。
   - 修改：`compose.yaml`、`.env.example`、`pyproject.toml`、`requirements.lock`、`README.md`、`CLAUDE.md`、`doc/task2/` 下的五份文档。
