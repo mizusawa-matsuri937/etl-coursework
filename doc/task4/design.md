@@ -1,6 +1,6 @@
 # 任务 4 设计思路（定义并识别同一电影）
 
-状态：2026-10-29 编写计划，实现未开始。需求、可观察行为与 AC 以 [spec](spec.md) 为准；本文说明打算怎么实现、为什么这样选。文中的权重、阈值与资源数字都是**计划默认值或估计**，不是实测；实测结果在实施后补入，并与默认值分开写。
+状态：2026-10-29 编写计划并实现 T4-01 至 T4-08 的程序与正式库运行；实现中的修订集中记在文末“实现中的修订”，开发池上的规则调整记在“规则调整记录”，实测资源写在“资源预算”。需求、可观察行为与 AC 以 [spec](spec.md) 为准；本文说明怎么实现、为什么这样选。权重、阈值的**默认值是规划值**，T4-07 之后正式使用的是 t4r2；资源数字里“估计”与“实测”分开写。AC15 需要用户标注，尚未完成。
 
 ## 整体思路
 
@@ -73,7 +73,7 @@
    - 最后读 `name.basics`，只保留集合内的人。
    - 每个文件分批 `COPY`，每行带 `line_no`。
 3. 核对：每个文件的读取行数、保留行数、过滤原因计数写入 `imdb.source_file`；保留行的外键（别名、导演、演员 → 作品；导演、演员 → 人）全部有效。
-4. 幂等：快照以 `snapshot_id` 唯一；已装载成功的快照再次运行只记 `reused`（R38）。装载中断时，该快照的行在一个事务里全部回滚，或按文件分阶段提交、以文件为恢复单位。实现时按实测数据量选其一，选择写回本节。
+4. 幂等：快照以 `snapshot_id` 唯一；已装载成功的快照再次运行只记 `reused`（R38）。装载中断时，该快照的行在一个事务里全部回滚，或按文件分阶段提交、以文件为恢复单位。**选择（2026-10-29）：五个文件一个事务。** 先在单独的小事务里登记快照为 `loading`（失败遗留的行此时清掉），再在一个事务里写全部表与 `source_file` 并改为 `loaded`；失败时整体回滚并把快照标 `failed`。理由：失败后的状态只有“有或没有”，恢复就是重跑；代价是失败后要从头重读，按估计 15–40 分钟可以接受。是否改成按文件提交，等 T4-07 实测装载时间再定。
 
 **为什么不只装与商品标题相关的作品**：那样装载最小，但标准化规则一改，标题键就变了，必须重装 IMDb。按作品类型全量装，改规则只需重算 `task4.imdb_title_key`。代价是库里多出约几 GB，估计见“资源预算”。
 
@@ -87,11 +87,15 @@
 | `src/etl_task4/imdb.py` | 校验、流式过滤与装载、核对 |
 | `src/etl_task4/normalize.py` | 纯函数：标题键、说明分类与标题年份、姓名键、片长、合集成员拆分；`NORM_VERSION` 与词表集中在此 |
 | `src/etl_task4/editions.py` | 商品版本、字段断言与源记录的写入 |
-| `src/etl_task4/match.py` | 纯函数：候选特征、得分、硬冲突与三档判定；`RULE_VERSION`、权重与阈值集中在此 |
+| `src/etl_task4/match.py` | 纯函数：候选特征、得分、硬冲突与三档判定；`RULE_VERSION`、权重与阈值集中在 `RuleSet` |
+| `src/etl_task4/candidates.py` | IMDb 标题键、页面与 IMDb 事实取数、候选生成（G1–G4）与判定落库，分批、同事务标记实体 |
+| `src/etl_task4/run.py` | 迁移 302 的应用、输入键、运行审计、抽取锁、批次与实体阶段标记 |
+| `src/etl_task4/runner.py` | 一次匹配运行的编排：输入检查、锁、复用判断、各阶段顺序、运行审计 |
+| `src/etl_task4/review.py` | 人工决策 CSV 的校验与导入，导入后重算映射 |
 | `src/etl_task4/cluster.py` | 作品簇、一致性检查、`movie_id` 登记、映射版本与事件、人工决策叠加、版本差异 |
 | `src/etl_task4/report.py` | 统计、`summary.json`、`report.md`、CSV 与实例导出 |
 | `src/etl_task4/evaluate.py` | 开发池冻结、评价表与簇抽查表导出、标注导入、指标计算 |
-| `src/etl_task4/pipeline.py`、`dags/imdb_reference_task4_load.py`、`dags/amazon_movies_task4_match.py` | DAG 步骤函数与编排 |
+| `src/etl_task4/pipeline.py`、`dags/imdb_reference_task4_load.py`、`dags/amazon_movies_task4_match.py` | DAG 步骤函数与编排（装载 DAG 已实现，匹配 DAG 在 T4-05） |
 | `src/etl_task4/check.py` | 正式库只读核对命令（AC14） |
 | `tests/fixtures/task4/` | 合成页面字段、合成 IMDb 小文件与预期值说明 |
 
@@ -119,6 +123,7 @@
 - `imdb.snapshot`：`snapshot_id` 主键，`base_url`、`downloaded_at`、`status`（`loading`/`loaded`/`failed`）、`loaded_at`、`loader_version`。
 - `imdb.source_file`：主键（`snapshot_id`, `file_name`）；`url`、`size_bytes`、`sha256`、`last_modified`、`rows_read`、`rows_kept`、`filter_counts`（jsonb）。
 - `imdb.title`：主键（`snapshot_id`, `tconst`）；`title_type`、`primary_title`、`original_title`、`is_adult`、`start_year`、`end_year`、`runtime_minutes`、`genres text[]`、`line_no`。
+- `imdb.title_other`：主键（`snapshot_id`, `tconst`）；`title_type`、`primary_title`、`original_title`、`start_year`、`line_no`；R15 用，见文末“实现中的修订”。
 - `imdb.title_aka`：主键（`snapshot_id`, `tconst`, `ordering`）；`title`、`region`、`language`、`types`、`attributes`、`is_original`、`line_no`。
 - `imdb.title_director`：主键（`snapshot_id`, `tconst`, `ordinal`）；`nconst`、`line_no`（来自 `title.crew` 的逗号串，`ordinal` 为串内序号）。
 - `imdb.title_principal`：主键（`snapshot_id`, `tconst`, `ordering`）；`nconst`、`category`、`job`、`characters`、`line_no`。
@@ -265,7 +270,7 @@
 - **上限**：每个商品的 IMDb 候选上限 50 个（常见短标题如 “Hamlet” 可能有几十个同名作品）。超过时先按 `startYear` 与标题年份的接近程度排序，再按 IMDb 作品类型（`movie` 优先）、`tconst` 排序截断。截断写入 `candidate_overflow` 和质量问题，被截断的商品最高只能判为复核。G3 的块大于 30 个商品时同样记溢出，块内只生成复核候选。
 - **分块与召回的取舍**：只用精确标题键分块，候选少、可解释；代价是标题写法差异大的商品对（例如 “Dr. Strangelove” 与它的全称）不会成为候选。评价样本专设“标题相近但未被分块”一层（S5），用来估计这部分漏合并。
 
-## 特征、得分与判定（`RULE_VERSION = t4r1`，默认值待开发池调整）
+## 特征、得分与判定（规划默认值 `t4r1`；正式使用 `t4r2`，见“规则调整记录”）
 
 **商品对 IMDb 作品的特征与默认分值**：
 
@@ -321,6 +326,38 @@
 - 没有自动关联的成员不建作品，状态写入 `reason`（`member_review`/`member_unmatched`）。
 
 **无标题年份、无 IMDb 的同名商品对**：只能是 `review` 或 `reject`，这正是 R22 的要求。估计这会是复核队列的大头，待复核率会偏高，如实报告。
+
+## 规则调整记录（T4-07，t4r1 → t4r2）
+
+**做法**：t4r1 用上文的默认值全量跑完（映射版本 `map0001`）后，立即冻结开发池（`evaluate freeze`：全部 9,835 个参与匹配的标题键按 `md5` 排序，前 20%，即 1,967 个键、2,105 个实体），之后只看开发池内实体的判定结果。这里是 AI 观察判定结果，**没有产生任何标注，也不算评价**；评价表在规则冻结后才导出。
+
+**在开发池里观察到的**（t4r1，IMDb 候选）：
+
+| 观察 | 数量（开发池内） | 判断 |
+|---|---|---|
+| 自动合并，得分 6–7 的抽样 30 个 | 30 | 未发现明显错误：标题、导演、片长、演员相符（例如“Chicago (Fullscreen Edition)”对 2002 年版、“House on Haunted Hill”对 1959 年版）；这是 AI 的目测，不是标注 |
+| 标题 + 导演严格重叠（5 分），片长缺失或差异大，没有演员重叠 | G1 候选 25 个停在复核 | 抽样 20 个，几乎都像同一作品（Halo Legends、Pollyanna、Devdas 等）；原因只是片长差异或缺失 |
+| 标题 + 片长接近、页面没有任何人物（3 分） | 172，复核 | 多数明显是同一作品（Chariots of Fire、Swamp Thing），但 R22 要求导演或演员重叠，不能放宽，保持复核 |
+| 导演完全不重叠（硬冲突）却有演员重叠 | 59，拒绝 | 抽样 25 个，绝大多数是姓名写法问题：编码损坏的非 ASCII 字符（`Fran�ois Girard`）、拼写差异（`Johhnie To`）、中间名（`John Mallory Asher` 对 `John Asher`）、姓名顺序（`Yuen, Woo-Ping`）；少数是真正的翻拍或续集。这属于姓名标准化，不是权重问题，不在本轮调整范围（见已知局限） |
+
+**调整**：只改一个权重，使上表第二行的一类达到自动阈值：导演姓名键严格重叠的权重 3 → 4（`w_director_strict`），满分相应 11 → 12（`max_score`，只影响置信度换算）。自动阈值 6、复核阈值 3、领先差 2、其余权重、R22 和 R14 的硬冲突都不变。这样“标题（2）+ 导演严格重叠（4）”= 6 自动合并，仍然必须有 IMDb 年份、仍然必须领先第二名至少 2 分（同名作品并列仍进复核），“别名（1）+ 导演（4）”= 5 仍是复核。
+
+**不采用的方案**：把自动阈值降到 5。它会同时放行“标题 + 1 位演员 + 片长接近”（5 分），而一位演员重叠不足以区分同名翻拍；调权重只放行导演证据这一类，范围更窄。
+
+**调整前后**（全量与开发池，`map0001` → `map0002`；同一 IMDb 快照与标准化版本，只重算判定）：
+
+| 指标 | t4r1（map0001） | t4r2（map0002） |
+|---|---|---|
+| 判定档 auto / review / reject（全部候选） | 4,848 / 1,818 / 28,546 | 5,037 / 1,629 / 28,546 |
+| 作品数（电影类商品 8,730 个） | 8,481 | 8,472 |
+| 多商品作品 / 其中商品数 | 232 / 481 | 240 / 498 |
+| 待复核商品（占比） | 1,013（11.60%） | 899（10.30%） |
+| IMDb 关联商品（占比） | 4,430（50.74%） | 4,544（52.05%） |
+| 簇内一致性检查移出 | 0 | 1（Halo Legends 两个版本，导演列表不同，见已知局限） |
+| 开发池内 auto / review / reject（IMDb 候选） | 872 / 352 / 5,055 | 912 / 312 / 5,055 |
+| 开发池内待复核商品 | 197 | 169 |
+
+映射版本之间有 114 个商品的 `movie_id` 变化：107 个 `move`、7 个 `merge`，全部是 `review → auto`（得分 5 → 6），没有任何 `auto` 变成别的档。拒绝档数量不变，因为权重提高只增加分数。`t4r1` 保留在 `RULESETS` 里作为对照，不再用于正式输出。评价表导出时用的是 `map0002`（t4r2），导出后规则版本冻结；如果再改规则，必须在报告里说明“评价集已被看过，不再独立”。
 
 ## 聚类与一致性（R24–R26）
 
@@ -441,7 +478,9 @@
 - `python -m etl_task4.evaluate export|import|metrics`
 - `python -m etl_task4.evaluate clusters-export|clusters-import`
 
-## 资源预算（估计，待实测）
+## 资源预算（估计与实测）
+
+**估计**（规划时，2026-10-29）：
 
 | 项目 | 估计 | 依据 |
 |---|---|---|
@@ -451,7 +490,26 @@
 | 装载内存 | < 1 GB | `tconst`、`nconst` 整数集合与批缓冲 |
 | 匹配全量（8,730 商品 + 合集成员） | 10 分钟以内 | 候选估计数万对，特征计算在内存中按批完成 |
 
-实测数字写回本节，与估计分开。
+**实测**（2026-10-29，本机 Colima 4 核 8 GB，经真实 Airflow scheduler 在正式库 `etl_movies` 运行；估计与实测的差异不是规划目标）：
+
+| 项目 | 实测 | 说明 |
+|---|---|---|
+| IMDb 压缩文件 | 1,933,753,541 字节（五个文件 229 + 520 + 84 + 789 + 312 MB） | 见 `download.json`；下载约 9 分钟 |
+| 文件校验（SHA-256） | 约 4 秒 | `check_files` 步骤 |
+| IMDb 装载（单事务） | 287 秒（约 4.8 分钟） | 读 `basics` 12.9M、`akas` 60.0M、`crew` 12.9M、`principals` 102.6M、`name.basics` 15.8M 行；保留 1,250,408 部作品（`movie` 760,792、`video` 332,834、`tvMovie` 156,782）、别名 6,336,339、导演 1,171,260、主要演职员 7,244,854、人名 2,050,319；`title_other` 1,620,363 |
+| IMDb 装载后库内 | schema `imdb` 4,350 MB | 超出估计上界；`title_principal` 与 `title_aka` 各约 1.0–1.2 GB |
+| 装载内存 | scheduler 容器采样一次 595 MiB（装载中途） | 单点采样，不是峰值记录 |
+| 标准化（9,590 个商品与合集） | 26 秒（20 批） | 匹配 DAG 的 `normalize` 步骤 |
+| IMDb 标题键（1,250,408 部电影类作品 + 1,620,363 部 `title_other` 作品 = 2,870,771 部，共 12,077,881 个键） | 约 4.5 分钟（576 批） | Python 里算键，是全量匹配里最慢的一步；`task4.imdb_title_key` 占 2,744 MB |
+| 候选与判定（t4r1，含上一项） | 317 秒 | 9,721 个实体 → 34,625 个 IMDb 候选，另有 587 个商品对候选 |
+| 只改规则版本的重算（t4r2） | 48 秒 | 复用断言、标题键与候选，只新增决策 |
+| 聚类与映射 | 1.1 秒 | 一个事务 |
+| 只读核对（`verify`） | 0.7–21 秒 | 随规则版本的决策量变化 |
+| 全量匹配总耗时（t4r1，首次） | 346 秒（约 5.8 分钟） | `task4.run` 的起止时间 |
+| schema `task4` 总大小 | 3,149 MB | 其中 `imdb_title_key` 2,744 MB、`merge_decision` 142 MB |
+| 磁盘 | `etl_movies` 总计 25 GB（含任务 1–3） | 宿主机剩余 168 GB |
+
+两个估计偏低：IMDb 库内大小（实测 4.35 GB，估计 2–4 GB）与匹配耗时中的标题键部分（`imdb_title_key` 比估计更大，因为别名所在作品和 `title_other` 里的 162 万个作品也生成标题键）。装载时间估计偏高（实测 4.8 分钟）。换规则版本不重算标题键，所以调参成本只有 1 分钟左右。
 
 ## 异常与恢复
 
@@ -477,9 +535,55 @@
 - **待复核率高**：没有标题年份、没有 IMDb 关联的同名商品对都会进入复核，用户不一定处理（H09）。报告如实给出待复核率，不为降低它而放宽 R22。
 - **评价样本有偏**：分层抽样刻意多取难例，指标不代表全量准确率。
 
+- **正式运行的实测局限**（t4r2，`map0002`）：
+  - IMDb 关联率 52.05%（4,544 / 8,730 个电影类商品）；关联不上的 4,186 个成为 `page_only`，其中很多是 VHS、教学片、地区发行，在 IMDb 里找不到或写法差异大。合并率只有 2.96%（8,730 个电影类商品合并掉 258 个）：多数电影类商品只有一个版本，同名多版本里又有一部分被姓名键的硬冲突或复核拦下。
+  - 姓名键太严：硬冲突 `director_disjoint` 有 19,112 个判定，其中相当一部分来自姓名写法（编码损坏的字符、拼写、中间名、姓名顺序）而不是真正不同的导演。这会造成漏合并，例如页面写 `Chris Matthew Miller`、IMDb 写 `Chris Miller`，或页面把 `Francois` 的变音字符存成了替换字符；`examples.md` 里的易混淆未合并实例都是硬冲突拒绝的，其中是否有名字写法造成的漏合并，要看评价层 S4 的标注。任务 5 有了 `person_id` 后可升规则版本；评价层 S4 会暴露这类漏合并。
+  - 一致性检查移出的唯一一例是 Halo Legends 两个版本：页面的导演列表不同（选集片），按 R14 判为冲突，记入 `cluster_check`，等待人工。
+  - 合集 860 个中 488 个拆不出成员（`collection_unsplit`），拆出的 991 个成员只有 230 个关联到作品；没有 `edition` 商品的作品 187 部。
+  - 候选溢出 75 个实体（截断 1,641 个候选），这些商品最高只能判复核；非电影类型命中的 `non_movie_title_type` 有 129 个待复核商品。
+  - 评价池里页面簇商品对（S2）为 0，S2 的 5 对由 S1 补足，评价集对页面途径的误合并没有专门的样本。
+
 ## 与后续任务的接口
 
 - 任务 5（人物）：`field_assertion` 中的 `director`、`actor` 断言（含原值、署名顺序、来源），以及 `imdb.name`/`title_principal` 都是人物候选的输入。
 - 任务 6（上映信息）：`imdb_linked` 作品的 `tconst` 与 IMDb `startYear` 源记录可直接用于补全；商品发售日期已经是 `edition.product_release_date`，不会和上映年份混淆。
 - 任务 7、任务 9：`field_assertion` 的父子链与 `merge_decision` 的特征证据是字段选择与血缘的基础。
 - 任务 8：评论通过 `task4.product_movie` 的 `edition` 关系归到作品；合集评论保持在商品层。
+
+## 实现中的修订（T4-01 至 T4-04，2026-10-29）
+
+实现时对上文做的改动；不一致处以本节为准。已同步 spec 的 R05、R15、AC02。
+
+- **`imdb.title_other`（改 R05、R15、AC02）**：R15 要求“电影类商品只在 `tvSeries` 等作品里有匹配时标 `non_movie_title_type`”，但 R05 原本不装载这些作品，无从识别。改为：`tvSeries`、`tvMiniSeries`、`tvSpecial`、`short`、`tvShort` 五类只把 `tconst`、类型、标题、年份与行号写入 `imdb.title_other`（basics 文件读两遍，第二遍不重复计数），不装别名、导演、演员；`tvEpisode` 等其余类型只计数不装载（约 800 万行，不值得）。`imdb_title_key` 对它们也生成标题键，`title_class = 'other'`；商品只在这类键里命中时生成 G4 候选，判定 `review`，原因 `non_movie_title_type`。
+- **人物来源（对齐 R10、AC04）**：署名行存在时完全不使用详情要点，删去原文“详情要点多出的人记为 `detail_only`”。没有署名行时才按逗号拆分，每项一个词且项数为偶数的逗号串（“Arlt, Lewis, Brown, Blair”）整串标 `name_ambiguous` 并记质量问题，只算弱证据。参与评分的来源限 `byline`、`reversed`、`detail`。
+- **批次与恢复判据**：新增表 `task4.entity_stage`（抽取、阶段、阶段键、实体）。每批的断言、候选、决策、实体标记与 `run_batch` 在同一事务写入，重跑只处理没有标记的实体，与批大小无关；`run_batch` 只做批次审计。阶段键：标准化 = 解析版本+标准化版本；判定 = 任务 3 规则版本+解析版本+标准化版本+规则版本+IMDb 快照。因此只改规则版本时不会重新标准化、也不会重新生成候选，只新增该规则版本的决策。
+- **候选表**：`task4.candidate` 的 `imdb_snapshot_id` 对商品对商品候选同样记录（G3 的判定依赖 IMDb 关联，换快照后要有独立的候选与决策）；`generator` 增加 `G4`。`task4.merge_decision` 增加 `reason` 列（`tie`、`r22_not_met`、`candidate_overflow`、`non_movie_title_type`、`suggest_join_imdb_cluster`、`different_external_id`、`same_imdb_work`、`page_cluster`、`no_title_year`、`block_overflow` 等）。
+- **G3 的细则**：两边自动关联到同一 `tconst` 的商品对记 `auto`（原因 `same_imdb_work`，簇仍由 IMDb 关联形成）；标题键块超过 30 个商品时仍枚举全部商品对，但只能判 `review`，并写 `candidate_overflow`。一个标题键块是 `decide_pair` 阶段的一个实体（`block:<标题键>`）。
+- **字段断言**：增加 `genre`（只记录，对应 K 特征）；说明段的原文存去掉括号后的内部文字，位置（paren、bracket、dash、prefix）和类别在 `qualifier`、`extra`；`field_assertion` 唯一键带 `parser_version`；`extra` 存宽松键、匹配片段、拆分方式。尾部说明（破折号、冒号、逗号之后）只在完全由词表解释时才去掉，避免 “Star Trek - The Motion Picture” 被截断。
+- **`product_match_status`**：只写参与匹配的商品（电影与合集）。`not_applicable`、`no_page` 由 `product_edition.match_scope` 给出，不在每个映射版本里重复 25 万行。
+- **映射版本**：编号 `map0001`、`map0002`…（按抽取计数）。输入键唯一，同一输入键只会有一个映射版本。人工决策是按抽取累积的集合，集合哈希（空集为 `none`）进入输入键；`cannot_link(a, b)` 把 b 移出，`detach(a)` 把 a 移出，移出后该商品不再使用它的自动 IMDb 关联。
+- **事件语义**：与父版本逐商品对比。`split` = 商品离开仍存在的旧作品、去了新作品；`merge` = 商品并入已有作品、旧作品不再出现；`move` = 其余情形（两部已有作品之间，或锚点改变）；`retire` = 旧作品不再出现，`to_movie_id` 指向接收它成员最多的作品。
+- **IMDb 源记录**：只为进入候选的作品登记 `source_record`（基于 `title.basics` 行号）；导演与演员的文件与行号放在决策 `features.evidence.imdb` 里，没有逐人登记。
+- **纯函数与数据库代码的分工**：`match.py` 只含纯规则；取数与落库在 `candidates.py`；运行编排在 `runner.py`。运行锁按抽取加（比“同一输入”更严），拿不到锁抛 `RunBusy`，按 AC10 是确定性失败，不自动重试。
+- **匹配 DAG 与 `limit`**：`runner.execute_match` 暂未提供 `limit`，试跑限定留给 T4-05 的 DAG 步骤。
+
+## 实现中的修订（T4-05 至 T4-08，2026-10-29）
+
+不一致处以本节为准；已同步 spec 的 R40、AC10–AC13 的说明与 tasks、checklist。
+
+- **DAG 分三个步骤共用一条运行**：规划里 `normalize → candidates_decide → cluster_map` 是三个 Airflow 任务，而 `runner.execute_match` 是一次完整调用。新增 `runner.run_stage`：每个步骤各持一次抽取锁，靠 `task4.run.airflow_run_id` 找回同一条运行；步骤失败把运行记为 `failed`，同一 DAG run 里重试时改回 `running` 并接着用，已提交的批次不重做；`close_abandoned` 不关闭本次 DAG run 自己的 `running` 运行。输入键已有成功运行时，`normalize` 步骤记 `reused`，后两个步骤直接返回 `reused`。`execute_match` 保留，供测试与命令行直接使用。
+- **DAG 参数**：规划里的“人工决策集”不是参数。决策集按抽取累积在 `task4.human_decision` 里，哈希进输入键，所以导入决策之后再触发一次 DAG 就是新的输入键。`limit` 只限制标准化的商品数，之后的 `candidates_decide` 因仍有未标准化的商品而确定性失败，不生成映射版本（和任务 3 的 `limit` 语义一致：试跑不冒充全量）。
+- **故障注入**：`before_commit:<阶段>:<批号>`（阶段为 `normalize`、`imdb_keys`、`decide`、`decide_pair`）与 `transient_once:<标记文件>`，仅 `ETL_ENV=test`。
+- **规则集登记**：`match.RULESETS` 登记全部规则版本，`match.ruleset(version)` 取用，未登记是确定性错误；`CURRENT_RULE_VERSION = t4r2` 是 DAG 参数默认值，代码里的 `RULE_VERSION`/`DEFAULT_RULES` 仍是 t4r1（单元与集成测试依赖它的数值）。
+- **IMDb 引用缺失的容忍**（改 `imdb.problems`）：真实快照里导演有 86 行、主要演职员有 618 行引用了 `name.basics` 没有的 `nconst`（占比 0.001% 与 0.009%）。这是源数据瑕疵，不为通过核对而删行；占比不超过 0.1% 时记为 `warnings`（写入 `summary.json`），超过才算问题。比较时这些人没有姓名，被自然跳过。首次装载因此在 `verify_snapshot` 失败过一次（`t4_imdb_load_1`），修正后重新触发（`t4_imdb_load_2`，装载 `reused`）。
+- **核对 `check.py`**：`verify` 在只读事务里核对一个映射版本，`problems` 给出问题列表；DAG 的 `verify` 步骤与命令行共用。核对的 R22 条件落在判定的 `features`：IMDb 自动关联要求 `evidence.start_year` 非空、导演严格重叠或演员严格重叠、没有硬冲突；商品对自动要求同一 IMDb 作品或“标题年份相同且导演严格重叠”。
+- **报告 `report.py`**：`build_summary`（合并前后、作品来源、判定、合集、剧集、评论口径、未知说明段）、`examples`（确定性选择：已有用户标注的优先，其次 IMDb 关联的多商品作品，再按 `md5`）、`export_files`、命令行 `summary|examples|export`。
+- **评价工具 `evaluate.py`**：
+  - 开发池存的是实体编号（商品 ASIN 与合集成员 `ASIN#序号`），按标题键划分，所以同一标题键下的商品与成员整组落在同一侧。
+  - 评价表的 `predicted_same` 在导出时写入 `eval_pair`，指标按导出时的预测计算，之后改规则不影响已导出的评价集；`metrics` 会提示导出后出现了新的映射版本。
+  - 层 S2（页面簇商品对）在评价池里没有可抽的对（`available: 0`），按 design 的补足规则由 S1 补 5 对，实际层数写入 `eval_set.strata`。
+  - S5（标题键相近）用字符三元组 Jaccard ≥ 0.6，倒排索引并跳过出现在超过 250 个标题键里的三元组；候选对按 `md5` 取前若干个，保证确定性。
+  - 已存在 `eval_pairs.csv` 或 `cluster_sample.csv` 时不覆盖（防止丢失标注），除非加 `--force`；评价集每个映射版本只抽一次，再次导出按库里的样本重写。
+  - F1 的分母 `P + R` 为 0 时也记“无定义”（与 Precision、Recall 的分母为零同一规则）。
+  - 簇抽查：评价池里 ≥3 个商品的簇只有 11 个，取 10 个；2 个商品的簇 182 个，取 10 个。
+- **端到端**：`scripts/seed_task4_e2e.py` 在测试容器里为 `etl_test` 准备合成的任务 3 数据和合成 IMDb 快照（脚本经标准输入传入），再经真实 scheduler 跑两个 DAG 的成功、重跑、不存在快照三次，见 runbook 第 2 节。
