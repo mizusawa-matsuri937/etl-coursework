@@ -15,6 +15,7 @@ x-etl-env: &etl-env
   SOURCE_GZIP_PATH: /data/source/${SOURCE_GZIP_NAME:-movies.txt.gz}
   SOURCE_MANIFEST_PATH: /data/source/${SOURCE_MANIFEST_NAME:-movies.txt.gz.download.json}
   ETL_OUTPUT_DIR: /opt/etl/outputs
+  IMDB_DATA_DIR: /data/imdb
 
 x-airflow-env: &airflow-env
   ETL_ENV: ${ETL_ENV:-prod}
@@ -38,6 +39,7 @@ x-etl-mounts: &etl-mounts
   - ./dags:/opt/airflow/dags:ro
   - ./outputs:/opt/etl/outputs
   - ./tests/fixtures/data:/data/fixtures:ro
+  - ${IMDB_HOST_DIR:-./tests/fixtures/task4}:/data/imdb:ro  # 任务 4 的 IMDb 快照（仓库外，只读；留空时挂载夹具目录，其下没有快照）
   - ${SOURCE_HOST_DIR:?在 .env 中设置 SOURCE_HOST_DIR}/${SOURCE_GZIP_NAME:-movies.txt.gz}:/data/source/${SOURCE_GZIP_NAME:-movies.txt.gz}:ro
   - ${SOURCE_HOST_DIR:?}/${SOURCE_MANIFEST_NAME:-movies.txt.gz.download.json}:/data/source/${SOURCE_MANIFEST_NAME:-movies.txt.gz.download.json}:ro
 
@@ -125,6 +127,7 @@ services:
       - ./dags:/opt/etl/dags:ro
       - ./sql:/opt/etl/sql:ro
       - ./outputs:/opt/etl/outputs  # 资源试跑结果写入 outputs/resource-trial
+      - ${IMDB_HOST_DIR:-./tests/fixtures/task4}:/data/imdb:ro
       - ${SOURCE_HOST_DIR:?}/${SOURCE_GZIP_NAME:-movies.txt.gz}:/data/source/${SOURCE_GZIP_NAME:-movies.txt.gz}:ro
       - ${SOURCE_HOST_DIR:?}/${SOURCE_MANIFEST_NAME:-movies.txt.gz.download.json}:/data/source/${SOURCE_MANIFEST_NAME:-movies.txt.gz.download.json}:ro
     depends_on:
@@ -151,6 +154,7 @@ services:
       - ./src:/opt/etl/src:ro
       - ./sql:/opt/etl/sql:ro
       - ./outputs:/opt/etl/outputs
+      - ${IMDB_HOST_DIR:-./tests/fixtures/task4}:/data/imdb:ro
     depends_on:
       postgres:
         condition: service_healthy

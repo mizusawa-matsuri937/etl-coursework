@@ -1,6 +1,6 @@
 # ETL 作业项目
 
-当前状态：任务 1 计划已完成，T1-01（容器环境）与 T1-02（解析与转换）、T1-03（数据库约束、批次装载与恢复）、T1-04（统计、报告与 Airflow 流程）于 2026-10-26 完成，经单元、集成测试和真实 scheduler 样本运行验证；T1-05 于 2026-10-26 完成资源试跑、正式全量（7,911,696 条，经真实 Airflow 写入业务库）和同输入重跑，结果见 [任务 1 报告](doc/task1/task1-report.md)；T1-06（复现交付）于同日完成：独立项目、容器无外网下按 runbook 复现固定样本与一次恢复。任务 2 第一部分（ASIN 采集清单，T2-01 至 T2-03）于 2026-10-28 完成：正式库 `task2.product_manifest` 共 253,059 行、全部 `not_collected`，见 [任务 2 checklist](doc/task2/checklist.md)；第二部分爬虫（T2-04、T2-05）于 2026-10-29 完成并由用户叫停：已处理 29,126 个 ASIN，success 22,321，其余 223,933 保持 `not_collected`；2026-10-29 补完接入 Airflow（T2-06，DAG `amazon_products_task2_crawl`）与跳转链、页面模板证据（T2-07）；2026-10-29 用户按 checklist 人工复核通过。任务 3（电影页面筛选，T3-00 至 T3-05）于 2026-10-29 在分支 `task3-movie-filter` 实现并经 Airflow 全量运行：253,059 个产品各有分类，电影 8,808、待确认 239,274，见 [任务 3 checklist](doc/task3/checklist.md)；同日用户按 checklist 复核通过，并人工抽检抽查表（口头确认已分类的基本无问题，未逐条导入标注）；之后修复已知问题，规则升为 t3r2（T3-06：电影 8,730、待确认 239,361），2026-10-29 经 PR #3 合并到 `main`。
+当前状态：任务 1 计划已完成，T1-01（容器环境）与 T1-02（解析与转换）、T1-03（数据库约束、批次装载与恢复）、T1-04（统计、报告与 Airflow 流程）于 2026-10-26 完成，经单元、集成测试和真实 scheduler 样本运行验证；T1-05 于 2026-10-26 完成资源试跑、正式全量（7,911,696 条，经真实 Airflow 写入业务库）和同输入重跑，结果见 [任务 1 报告](doc/task1/task1-report.md)；T1-06（复现交付）于同日完成：独立项目、容器无外网下按 runbook 复现固定样本与一次恢复。任务 2 第一部分（ASIN 采集清单，T2-01 至 T2-03）于 2026-10-28 完成：正式库 `task2.product_manifest` 共 253,059 行、全部 `not_collected`，见 [任务 2 checklist](doc/task2/checklist.md)；第二部分爬虫（T2-04、T2-05）于 2026-10-29 完成并由用户叫停：已处理 29,126 个 ASIN，success 22,321，其余 223,933 保持 `not_collected`；2026-10-29 补完接入 Airflow（T2-06，DAG `amazon_products_task2_crawl`）与跳转链、页面模板证据（T2-07）；2026-10-29 用户按 checklist 人工复核通过。任务 3（电影页面筛选，T3-00 至 T3-05）于 2026-10-29 在分支 `task3-movie-filter` 实现并经 Airflow 全量运行：253,059 个产品各有分类，电影 8,808、待确认 239,274，见 [任务 3 checklist](doc/task3/checklist.md)；同日用户按 checklist 复核通过，并人工抽检抽查表（口头确认已分类的基本无问题，未逐条导入标注）；之后修复已知问题，规则升为 t3r2（T3-06：电影 8,730、待确认 239,361），2026-10-29 经 PR #3 合并到 `main`。任务 4（定义并识别同一电影，T4-01 至 T4-08）于 2026-10-29 在分支 `task4-movie-identity` 实现（未提交）：IMDb 快照 `imdb_2026-10-29` 装载进正式库，经 Airflow 全量匹配（规则 t4r2）：8,730 个电影类商品 → 8,472 部作品，多商品作品 240 部，IMDb 关联商品 4,544 个，待复核 899 个；120 对评价样本与 20 簇由付林轩审核 AI 预标注后导入，自动合并 Precision 1.000、Recall 0.487、F1 0.655，簇抽查混入 0，见 [任务 4 checklist](doc/task4/checklist.md)。
 
 任务 1 的目标是全量流式抽取 Amazon 评论，分批装载 PostgreSQL，保留原始证据与异常，并通过 Airflow 完成数量核对和运行报告。
 
@@ -18,17 +18,18 @@ ETL作业模板/
 ├── src/etl_task1/            # Python 包：config、source、identity、parser、transform、quality、records、evidence、db、checkpoint、loader、validation、reporting、metrics、pipeline
 ├── src/etl_task2/            # 任务 2 采集清单：urls（候选链接）、manifest（表结构、前置检查、构建）、pipeline（DAG 步骤）
 ├── src/etl_task3/            # 任务 3 电影页面筛选：extract（证据区域字段抽取）、rules（分类规则）、classify（分组、分批装载、核对、版本差异）、report（统计、导出、人工抽查）、pipeline（DAG 步骤）、check（只读核对）
-├── tests/unit/ integration/  # 合计 336 项（2026-10-29）：任务 1 196、任务 2 89、任务 3 51；集成测试连接 etl_test 库
+├── src/etl_task4/            # 任务 4 同一电影：imdb（快照校验与装载）、normalize、editions（断言）、match（特征与三档）、candidates、cluster（簇、movie_id、映射版本）、review（人工纠正）、run/runner（运行与分步骤）、pipeline（DAG 步骤）、report、check（只读核对）、evaluate（评价工具）
+├── tests/unit/ integration/  # 合计 505 项（2026-10-29）：任务 1 196、任务 2 89、任务 3 51，任务 4 共 169；集成测试连接 etl_test 库
 ├── tests/fixtures/           # 10 条固定样本、生成脚本与预期值
 ├── compose.e2e.yaml          # 端到端验证覆盖：Airflow 写入 etl_test，不污染业务库
 ├── compose.offline.yaml      # 离线复现覆盖：容器网络 internal，无外网
-├── sql/                      # 表结构、完整性核对、数量核对、质量分布、产品汇总；101_task2_schema、task2_manifest_source/checks/export（任务 2 清单）；102/103（任务 2 爬虫）；201_task3_schema、task3_input_groups、task3_classification_export（任务 3）
-├── dags/                     # amazon_reviews_task1.py、amazon_products_task2_manifest.py、amazon_products_task2_crawl.py、amazon_products_task3_classify.py
-├── scripts/                  # run_dag_e2e.py 经真实 scheduler 触发 DAG 并等待；sample_host_stats.sh 宿主侧资源采样；gen_schema_appendix.py 从数据库生成字段字典附录；check_task2_manifest.py 逐行核对任务 2 清单与任务 1 产品汇总；crawl_mihomo.py 生成爬虫用的 mihomo 多端口配置
+├── sql/                      # 表结构、完整性核对、数量核对、质量分布、产品汇总；101_task2_schema、task2_manifest_source/checks/export（任务 2 清单）；102/103（任务 2 爬虫）；201_task3_schema、task3_input_groups、task3_classification_export（任务 3）；301_imdb_schema、302_task4_schema（任务 4）
+├── dags/                     # amazon_reviews_task1.py、amazon_products_task2_manifest.py、amazon_products_task2_crawl.py、amazon_products_task3_classify.py、imdb_reference_task4_load.py、amazon_movies_task4_match.py
+├── scripts/                  # run_dag_e2e.py 经真实 scheduler 触发 DAG 并等待；sample_host_stats.sh 宿主侧资源采样；gen_schema_appendix.py 从数据库生成字段字典附录；check_task2_manifest.py 逐行核对任务 2 清单与任务 1 产品汇总；crawl_mihomo.py 生成爬虫用的 mihomo 多端口配置；fetch_imdb.py 下载 IMDb 五个文件（需 --confirm，文件放仓库外）；seed_task4_e2e.py 为任务 4 的端到端验证准备合成数据
 └── doc/
     ├── request-template.md   # 公共请求模板
     ├── handoffs/             # 任务间交接文档（新对话先读最新一份，见 CLAUDE.md）
-    ├── task4/                # 任务 4（定义并识别同一电影）：spec、design、tasks、checklist 已建空文件，待编写
+    ├── task4/                # 任务 4（定义并识别同一电影）：spec（R01–R42、AC00–AC17）、design、tasks、checklist、runbook；T4-01 至 T4-08 于 2026-10-29 完成；当前规则 t4r2
     ├── task3/                # 任务 3（电影页面筛选）：spec、design、tasks、checklist、runbook；T3-00 至 T3-06 于 2026-10-29 完成；当前规则 t3r2
     ├── task2/                # 任务 2（ASIN 采集清单与产品页面爬虫）：spec、design、tasks、checklist、runbook；T2-00 至 T2-07 已完成
     └── task1/                # 任务 1 第一轮计划
@@ -90,6 +91,8 @@ docker compose --profile test run --rm etl-test pytest -q tests   # 单元 + 集
 
 任务 2 爬虫（2026-10-28 至 29）：依赖 `scrapling[fetchers]==0.5`（锁定于 `requirements.lock`，未装浏览器）；Compose 服务 `crawler`（profile `crawl`），出口代理 `CRAWL_PROXY_URLS` 与机场订阅 `CRAWL_SUBSCRIPTION_URL` 只写在 `.env`。运行、补爬、核对与 mihomo 多出口见 [任务 2 runbook](doc/task2/runbook.md) 第 6 节。
 
+任务 4（2026-10-29）：IMDb 非商业数据集（五个 `.tsv.gz`，约 1.9 GB）用 `python3 scripts/fetch_imdb.py --confirm` 下载到仓库外的 `../imdb/<日期>/`（联网前需用户许可，文件不入仓库），在 `.env` 里用 `IMDB_HOST_DIR` 指向其父目录并只读挂载到容器 `/data/imdb`；装载与匹配经 Airflow DAG `imdb_reference_task4_load`、`amazon_movies_task4_match` 运行，核对用 `python -m etl_task4.check`，评价与标注见 [任务 4 runbook](doc/task4/runbook.md)。
+
 `docker compose` 需在 `~/.docker/config.json` 中加入 `"cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"]`。Airflow 界面为 `http://127.0.0.1:8080`（仅本机、免登录，不得对外暴露）。测试覆盖配置、来源校验、解析、转换、证据回放、数据库约束、批次装载与恢复、统计报告与 DAG 定义。经 Airflow 运行、端到端验证与故障演示的命令见 [runbook](doc/task1/runbook.md)。
 
 已验证范围：计划文件检查、T1-01 的容器环境，T1-02 的单元测试（固定样本 10/6/4），以及 T1-03/T1-04 的集成测试与真实 scheduler 样本运行；T1-05 的资源试跑与全量运行证据见 [任务 1 报告](doc/task1/task1-report.md)；AC14（离线复现）的证据见报告第 7 节与 `outputs/repro/`（不入库）。未来运行结果保存于 `outputs/task1/<extraction_id>/<run_id>/`，不得用规划数字冒充实测结果。
@@ -123,5 +126,9 @@ docker compose --profile test run --rm etl-test pytest -q tests   # 单元 + 集
 | 2026-10-29 | 用户同意假设按建议执行；完成 T3-01 至 T3-05：字段抽取、规则分类与证据、分批装载、DAG `amazon_products_task3_classify`（真实 scheduler 在 etl_test 跑通成功、重跑、暂时错误、失败分支）；正式库全量 `t3_full_1` 约 5.5 分钟，分类 253,059 行（电影 8,808、演唱会或其他 3,256、合集 861、剧集 835、非电影 25、待确认 239,274），重跑 reused；333 项测试通过；抽查表已导出；用户复核 checklist 全部通过、人工抽检口头确认已分类的基本无问题；提交 `939562d` |
 | 2026-10-29 | T3-06：规则升为 t3r2，修复载体列表误判合集、占位署名算作演员、非视频首级影片判为非电影；正式库 `t3_full_r2_1` 只重算分类，212 个产品变化（电影 8,730、待确认 239,361）；336 项测试通过 |
 | 2026-10-29 | 推送分支 `task3-movie-filter` 并开 PR #3；PR #3 合并到 `main`（`c547c27`），任务 3 完成（AC12 无逐条标注，未勾选） |
+| 2026-10-29 | 在分支 `task4-movie-identity` 编写任务 4（定义并识别同一电影）的 spec（R01–R42、AC00–AC17）、design、tasks、checklist；用户确认引入 IMDb、合并范围（电影 + 合集拆分，剧集只建商品层）、人物只做姓名比较、评价样本 120 对，其余假设同意按建议执行；实现未开始 |
+| 2026-10-29 | 完成 T4-01 至 T4-04：IMDb 快照下载脚本与流式装载、迁移 301/302、标准化与断言、候选与三档判定、聚类与稳定 movie_id、映射版本与人工纠正；475 项测试通过 |
+| 2026-10-29 | 完成 T4-05 至 T4-07：分步骤运行与锁、报告与核对、匹配 DAG、评价工具；用户授权后下载 IMDb（1.93 GB，仓库外），经 Airflow 装载（287 秒）与全量匹配（346 秒）；开发池上把导演严格重叠的权重 3 → 4，规则升为 t4r2：8,730 个电影类商品 → 8,472 部作品、多商品作品 240 部、IMDb 关联率 52.05%、待复核率 10.30%；只读核对通过，同参数重跑为 reused；505 项测试通过；评价表与簇抽查表已导出 |
+| 2026-10-29 | T4-08：AI 先出预标注草稿，标注人付林轩审核（改判 4 对）后导入 120 对与 20 簇；自动合并 P 1.000、R 0.487、F1 0.655，误合并 0，簇抽查混入 0；AC00–AC17 全部有证据；全部未提交 |
 
 本目录已初始化独立 Git 仓库，当前分支为 `main`，跟踪 `origin/main`。GitHub 公开仓库为 [mizusawa-matsuri937/etl-coursework](https://github.com/mizusawa-matsuri937/etl-coursework)。任务 1 经 PR #1 合并到 `main`；任务 2 经 [PR #2](https://github.com/mizusawa-matsuri937/etl-coursework/pull/2) 于 2026-10-29 合并到 `main`（合并提交 `9594985`）；任务 3 经 [PR #3](https://github.com/mizusawa-matsuri937/etl-coursework/pull/3) 于 2026-10-29 合并到 `main`（合并提交 `c547c27`）。没有阶段标签。
