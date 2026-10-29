@@ -81,15 +81,15 @@ python3 scripts/run_dag_e2e.py --dag-id amazon_products_task2_manifest --run-id 
 
 ## 6. 爬虫（第二部分）
 
-代码 `src/etl_task2/crawl/crawler.py`，表结构 `sql/102_task2_crawl.sql`（首次运行自动应用；正式库 2026-10-28 已应用）。规则见 [spec](spec.md) R16–R31，设计见 [design](design.md)“爬虫”一节。出口在 `.env` 配置：`CRAWL_PROXY_URLS`（逗号分隔，多出口）优先，其次 `CRAWL_PROXY_FILE`、`CRAWL_PROXY_URL`，都没有则直连。
+代码 `src/etl_task2/crawl/crawler.py`，表结构 `sql/102_task2_crawl.sql`、`sql/103_task2_crawl_evidence.sql`（首次运行自动应用；正式库分别于 2026-10-28、29 应用）。规则见 [spec](spec.md) R16–R34，设计见 [design](design.md)“爬虫”一节。出口在 `.env` 配置：`CRAWL_PROXY_URLS`（逗号分隔，多出口）优先，其次 `CRAWL_PROXY_FILE`、`CRAWL_PROXY_URL`，都没有则直连。
 
 测试（不访问外网，写 `etl_test`）：
 
 ```bash
-docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task2_crawl.py tests/integration/test_task2_crawl.py
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task2_crawl.py tests/integration/test_task2_crawl.py tests/integration/test_task2_crawl_dag.py
 ```
 
-期望：`24 passed`。
+期望：`41 passed`。
 
 小测试（50 个 ASIN，前台运行，结束打印 JSON 汇总）：
 
@@ -125,7 +125,13 @@ docker compose --profile crawl run -d --name etl-task2-crawl crawler python -m e
 docker compose --profile crawl run --rm -T crawler python -m etl_task2.crawl.check
 ```
 
-期望：退出码 0，`status_sum_equals_rows: true`，其余计数项均为 0。
+期望：退出码 0，`status_sum_equals_rows: true`，其余计数项均为 0。输出还包括页面模板分布（`page_template`）和跳转统计（`redirected`、`redirect_not_recorded`）。
+
+从快照回填 `103` 之前请求的页面模板（只写 `page_template` 为空的行，可重复运行；2026-10-29 已在正式库执行）：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task2.crawl.backfill
+```
 
 状态与原因分布（只读）：
 
@@ -192,3 +198,57 @@ docker exec etl-task2-crawl sh -c 'ls /proc/1/fd | wc -l'
 ```
 
 期望：远小于 65536（2026-10-29 修复后运行时为 40–60）。
+
+### 6.2 经 Airflow 运行爬虫
+
+DAG `amazon_products_task2_crawl`：`check_crawl_input → crawl_pages → verify_crawl → finalize_report → run_gate`。每次最多处理 `limit` 个 ASIN、最多运行 `deadline_minutes` 分钟，重跑从未处理的行续接；报告在 `outputs/task2/<抽取>/crawl/<run_key>/`。Airflow 服务读取 `.env` 的 `CRAWL_PROXY_URLS`，修改后要执行 `docker compose up -d` 重建服务。
+
+正式库真实爬取（计划，尚未执行；需先按 6.1 节启动 mihomo，会消耗机场流量）：
+
+```bash
+python3 scripts/run_dag_e2e.py --dag-id amazon_products_task2_crawl --run-id t2c_live_1 --conf '{"limit":1000,"deadline_minutes":60}' --timeout 7200
+```
+
+补爬被拦截的行，在 conf 里加 `"retry_statuses":["access_restricted","timeout"]`。
+
+测试库端到端（真实 scheduler，离线假请求，不访问外网；2026-10-29 已执行）：
+
+1. 切换到端到端配置：
+
+```bash
+docker compose -f compose.yaml -f compose.e2e.yaml up -d
+```
+
+2. 用任务 1 的固定样本产生一个样本抽取，再为它构建清单（同第 2 节）：
+
+```bash
+COMPOSE_FILE=compose.yaml:compose.e2e.yaml python3 scripts/run_dag_e2e.py --run-id t2c_pre_task1_sample --conf '{"scope":"sample","sample_max_records":100,"batch_rows":3,"source_gzip_path":"/data/fixtures/task1_sample.txt.gz","source_manifest_path":"/data/fixtures/task1_sample.manifest.json"}'
+```
+
+```bash
+docker compose exec -T postgres psql -U postgres -d etl_test -Atc "SELECT extraction_id FROM extraction WHERE status = 'complete' AND scope = 'sample'"
+```
+
+3. 把上一步的抽取 ID 填进下面的命令（2026-10-29 为 `80954174b73813ac93b211624595c11c07a6212045b9efa44b8299ac68432bc4`；集成测试会清空 `etl_test`，重做时要重新执行第 2 步，并以第 2 步查询到的 ID 为准）：
+
+```bash
+COMPOSE_FILE=compose.yaml:compose.e2e.yaml python3 scripts/run_dag_e2e.py --dag-id amazon_products_task2_manifest --run-id t2c_pre_manifest --conf '{"extraction_id":"80954174b73813ac93b211624595c11c07a6212045b9efa44b8299ac68432bc4","allow_sample":true}'
+```
+
+```bash
+COMPOSE_FILE=compose.yaml:compose.e2e.yaml python3 scripts/run_dag_e2e.py --dag-id amazon_products_task2_crawl --run-id t2c_e2e_ok --conf '{"extraction_id":"80954174b73813ac93b211624595c11c07a6212045b9efa44b8299ac68432bc4","fetch_mode":"fixture","concurrency":3}'
+```
+
+期望：`DAG run t2c_e2e_ok: success`；`outputs/e2e/task2/8095…/crawl/t2c_e2e_ok/report.md` 里处理 6 个 ASIN，发生跳转 2 个。用同一 conf 换一个 run id 重跑，期望 success 且处理 0 个。
+
+```bash
+COMPOSE_FILE=compose.yaml:compose.e2e.yaml python3 scripts/run_dag_e2e.py --dag-id amazon_products_task2_crawl --run-id t2c_e2e_bad_extraction_2 --conf '{"extraction_id":"0000000000000000000000000000000000000000000000000000000000000000","fetch_mode":"fixture"}'
+```
+
+期望：`check_crawl_input failed`、下游 `upstream_failed`、`DAG run ...: failed`；报告与 `check_crawl_input-try1.json` 在 `outputs/e2e/task2/_failures/t2c_e2e_bad_extraction_2/`。Airflow 的 run id 不能重复，重做时换新的 run id。
+
+4. 回到正常配置：
+
+```bash
+docker compose up -d
+```

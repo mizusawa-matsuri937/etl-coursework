@@ -1,6 +1,6 @@
 # 任务 2 AC 完成情况（ASIN 采集清单与产品页面爬虫）
 
-状态：第一部分 AC00–AC10 于 2026-10-28 由 AI 执行并通过，同日用户按本文命令人工复核，测试全部通过。第二部分 AC11–AC18 于 2026-10-29 由 AI 执行并通过，用户尚未复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：第一部分 AC00–AC10 于 2026-10-28 由 AI 执行并通过，同日用户按本文命令人工复核，测试全部通过。第二部分 AC11–AC21 于 2026-10-29 由 AI 执行并通过，用户尚未复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都可在项目根目录直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库，可随时重跑；容器启动日志之后的最后一行就是结果。
 
@@ -10,11 +10,11 @@
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望：`268 passed`（2026-10-29；第一部分复核时为 244，第二部分新增爬虫测试 24 项）。
+期望：`285 passed`（2026-10-29；第一部分复核时为 244，第二部分新增爬虫测试 41 项）。
 
 ## AC00 计划文件规范
 
-- [x] 2026-10-28 通过（AI 文档检查）；2026-10-29 补写 R16–R31、AC11–AC18 后复查通过。
+- [x] 2026-10-28 通过（AI 文档检查）；2026-10-29 补写 R16–R34、AC11–AC21 后复查通过。
 
 ```bash
 grep -n "^## " doc/task2/spec.md
@@ -149,7 +149,7 @@ git ls-files | grep -c '^outputs/'
 git grep -nE '/Users/[a-z]|PASSWORD=[A-Za-z0-9]' -- . ':!*.example'
 ```
 
-期望：第一条为 `001`、`101` 两行；第二条输出 `0`；第三条无输出。再跑一次 `docker compose --profile test run --rm etl-test pytest -q tests`，期望 `244 passed`（任务 1 的 196 项仍全部通过）。2026-10-29 起第二部分已加入迁移 `102` 和 24 项测试，第一条现为三行、全部测试为 268 项，见 AC18。
+期望：第一条为 `001`、`101` 两行；第二条输出 `0`；第三条无输出。再跑一次 `docker compose --profile test run --rm etl-test pytest -q tests`，期望 `244 passed`（任务 1 的 196 项仍全部通过）。2026-10-29 起第二部分已加入迁移 `102` 和 24 项测试，第一条现为四行（含 `102`、`103`）、全部测试为 285 项，见 AC18。
 
 ## AC11 状态判定
 
@@ -231,7 +231,7 @@ git grep --untracked -l -F "$(sed -n 's/^CRAWL_SUBSCRIPTION_URL=//p' .env)"
 docker compose --profile crawl run --rm -T crawler python -m etl_task2.crawl.check
 ```
 
-期望：退出码 0；`manifest_rows: 253059`，`status_sum_equals_rows: true`，`status` 为上面的六个数，`fetch_attempts: 29144`，`snapshots_checked: 28913`；`success_missing_evidence`、`processed_without_attempt`、`not_collected_with_attempt`、`attempt_count_mismatch`、`success_final_url_without_asin`、`snapshot_missing`、`snapshot_hash_mismatch` 均为 0。约 1 分钟。
+期望：退出码 0；`manifest_rows: 253059`，`status_sum_equals_rows: true`，`status` 为上面的六个数，`fetch_attempts: 29144`，`snapshots_checked: 28913`（模板与跳转统计见 AC21）；`success_missing_evidence`、`processed_without_attempt`、`not_collected_with_attempt`、`attempt_count_mismatch`、`success_final_url_without_asin`、`snapshot_missing`、`snapshot_hash_mismatch` 均为 0。约 1 分钟。
 
 ```bash
 docker compose exec -T postgres psql -U postgres -d etl_movies -c "SELECT status, count(*) FROM task2.crawl_run GROUP BY 1 ORDER BY 1"
@@ -249,6 +249,50 @@ git grep --untracked -nE '/Users/[a-z]|PASSWORD=[A-Za-z0-9]' -- . ':!*.example'
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望：第一条为 `001`、`101`、`102` 三行；第二条无输出；第三条 `268 passed`。
+期望：第一条为 `001`、`101`、`102`、`103` 四行（`103` 于 2026-10-29 随 AC21 应用）；第二条无输出；第三条 `285 passed`。
 
-当前汇总：AC00–AC18 共 19 项。第一部分 AC00–AC10：AI 执行通过 11 项，用户人工复核通过 11 项（2026-10-28）。第二部分 AC11–AC18：AI 执行通过 8 项，用户尚未复核。
+## AC19 跳转链与页面模板
+
+- [x] 2026-10-29 通过（单元测试：本地 HTTP 服务两跳跳转、7 种模板；集成测试：写回证据、从快照回填）。
+
+```bash
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task2_crawl.py -k "detect_template or scrapling_fetch"
+```
+
+期望：`8 passed`。
+
+```bash
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task2_crawl.py -k "writes_statuses or backfill"
+```
+
+期望：`2 passed`。
+
+## AC20 Airflow 爬虫 DAG
+
+- [x] 2026-10-29 通过（集成测试按 DAG 顺序以离线假请求运行；真实 scheduler 在 `etl_test` 运行 `t2c_e2e_ok`、`t2c_e2e_rerun` 均 success，`t2c_e2e_bad_extraction_2` 在检查步骤失败、只尝试 1 次、DAG failed）。正式库尚未经 DAG 发真实请求。
+
+```bash
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task2_crawl_dag.py
+```
+
+期望：`9 passed`。
+
+可选：真实 scheduler 端到端（要切换到测试库配置，步骤见 [runbook](runbook.md) 第 6.2 节）。
+
+## AC21 正式库模板回填与跳转证据
+
+- [x] 2026-10-29 通过。迁移 `103` 已应用；回填 28,913 个请求的模板，没有缺失的快照。成功页模板为 `dp_product_title` 20,828、`automation_title` 1,493。`103` 之前的 29,126 个 ASIN 没有跳转链。另有 167 个成功页被跳到 `amazon.co.jp`/`amazon.sg`（spec H11）。
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task2.crawl.check
+```
+
+期望：退出码 0；`page_template` 为 `automation_title: 1493`、`captcha: 3310`、`checkpoint: 730`、`dp_product_title: 20828`、`not_found: 2378`、`other: 62`、`service_error: 112`、`unknown: 213`（合计 29,126，等于已处理 ASIN 数；`unknown` 是超时、没有响应）；`redirected: 0`，`redirect_not_recorded: 29126`（都是 `103` 之前的请求）。
+
+```bash
+docker compose exec -T postgres psql -U postgres -d etl_movies -c "SELECT split_part(split_part(final_url, '://', 2), '/', 1) AS host, outcome, count(*) FROM task2.fetch_attempt WHERE extraction_id = 'f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8' AND final_url IS NOT NULL GROUP BY 1, 2 ORDER BY 3 DESC"
+```
+
+期望：`www.amazon.com` 的 success 22154、access_restricted 4165、not_found 2377、parse_failed 62；`www.amazon.co.jp | success | 160`；`www.amazon.sg` 的 success 7、not_found 1。
+
+当前汇总：AC00–AC21 共 22 项。第一部分 AC00–AC10：AI 执行通过 11 项，用户人工复核通过 11 项（2026-10-28）。第二部分 AC11–AC21：AI 执行通过 11 项，用户尚未复核。

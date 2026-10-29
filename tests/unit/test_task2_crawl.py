@@ -8,8 +8,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from etl_task2.crawl.crawler import (ExitPool, SessionFetcher, TokenBucket, classify, load_exits,
-                                     scrapling_fetch)
+from etl_task2.crawl.crawler import (ExitPool, SessionFetcher, TokenBucket, classify, detect_template,
+                                     load_exits, scrapling_fetch)
 
 ASIN = "B000TEST01"
 PRODUCT = b'<html><span id="productTitle"> A Movie </span><input name="ASIN" value="B000TEST01"></html>'
@@ -132,6 +132,19 @@ def test_classify(status, url, body, expected):
     assert classify(ASIN, status, url, body) == expected
 
 
+@pytest.mark.parametrize("status,url,body,expected", [
+    (200, f"https://www.amazon.com/dp/{ASIN}", PRODUCT, "dp_product_title"),
+    (200, f"https://www.amazon.com/dp/{ASIN}", b'<h1 data-automation-id="title">A Movie</h1>', "automation_title"),
+    (200, "https://www.amazon.com/checkpoint/continue?token=x", b"<html>nav</html>", "checkpoint"),
+    (200, f"https://www.amazon.com/dp/{ASIN}", b'<form action="/errors/validateCaptcha">', "captcha"),
+    (404, f"https://www.amazon.com/dp/{ASIN}", b"<title>Page Not Found</title>", "not_found"),
+    (503, f"https://www.amazon.com/dp/{ASIN}", b"Something went wrong", "service_error"),
+    (200, f"https://www.amazon.com/dp/{ASIN}", b"<html>home</html>", "other"),
+])
+def test_detect_template(status, url, body, expected):
+    assert detect_template(url, status, body) == expected
+
+
 def test_load_exits_hides_credentials_and_falls_back():
     exits = load_exits({"CRAWL_PROXY_URLS": "http://u:pw@gw.example:8000, http://u:pw@gw.example:8000,http://1.2.3.4:80"})
     assert [label for label, _ in exits] == ["gw.example:8000", "gw.example:8000#2", "1.2.3.4:80"]
@@ -152,6 +165,13 @@ class _Handler(BaseHTTPRequestHandler):
             cookie = f"session-id=s{type(self).homes}; Path=/".encode()
         elif "echo-cookie" in self.path:
             code, body = 200, (self.headers.get("Cookie") or "").encode()
+        elif self.path.startswith("/redirect"):  # 两跳：301 → 302 → 产品页
+            nxt = "/redirect2" if self.path == "/redirect" else f"/dp/{ASIN}"
+            self.send_response(301 if self.path == "/redirect" else 302)
+            self.send_header("Location", nxt)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         elif "missing" in self.path:
             code, body = 404, b"<title>Page Not Found</title>"
         else:
@@ -175,11 +195,16 @@ def test_scrapling_fetch_against_local_server():
     try:
         ok = asyncio.run(scrapling_fetch(f"{base}/dp/{ASIN}", None, 10))
         missing = asyncio.run(scrapling_fetch(f"{base}/dp/missing", None, 10))
+        moved = asyncio.run(scrapling_fetch(f"{base}/redirect", None, 10))
     finally:
         server.shutdown()
-    assert (ok.status, ok.body) == (200, PRODUCT)
+    assert (ok.status, ok.body, ok.history) == (200, PRODUCT, ())
     assert classify(ASIN, ok.status, ok.url, ok.body)[0] == "success"
     assert missing.status == 404
+    # 跳转链按顺序记录每一跳的状态、地址与 Location，最终页面不在其中
+    assert moved.url == f"{base}/dp/{ASIN}" and moved.body == PRODUCT
+    assert moved.history == ({"status": 301, "url": f"{base}/redirect", "location": "/redirect2"},
+                             {"status": 302, "url": f"{base}/redirect2", "location": f"/dp/{ASIN}"})
 
 
 def test_session_fetcher_keeps_cookies_and_renews_after_blocks():

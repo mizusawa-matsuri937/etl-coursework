@@ -119,7 +119,7 @@
 
 先用单元测试锁定链接规则（AC03），再在 `etl_test` 用任务 1 固定样本验证表约束、构建、幂等与冲突（AC02、AC04–AC06），再验证失败与 Airflow 端到端（AC01、AC07、AC08，经 `compose.e2e.yaml` 写测试库），最后在正式库全量构建（AC09）并做交付检查（AC10）。
 
-## 爬虫（第二部分，R16–R31）
+## 爬虫（第二部分，R16–R34）
 
 用户 2026-10-28 把爬虫改为由 Claude（Claude Code）实现、用户复核，并明确“效率优先、不追求成功率”。代码先于规则完成，本节按实际实现记录。AI 辅助说明（作业要求记录）：代码、参数实验与本节文字由 Claude 生成；验证方式是单元/集成测试（假请求、本地 HTTP 服务）、正式库只读核对脚本 `etl_task2.crawl.check`，以及用户按 checklist 命令复核（截至 2026-10-29 尚未进行）。
 
@@ -132,10 +132,13 @@
 | 组件 | 职责 |
 |---|---|
 | `sql/102_task2_crawl.sql` | `task2.crawl_run`（每次运行一行）、`task2.fetch_attempt`（每次请求一行，外键到清单）；登记迁移 `102` |
+| `sql/103_task2_crawl_evidence.sql` | 给 `fetch_attempt` 加 `redirect_chain`（jsonb 数组）与 `page_template`；登记迁移 `103` |
 | `src/etl_task2/crawl/crawler.py` | 全部爬虫逻辑与命令行：令牌桶、出口池与自适应调速、出口配置、`classify`、Scrapling 请求与会话、快照、写回、`crawl()` 主循环 |
-| `src/etl_task2/crawl/check.py` | 只读核对：状态之和、成功证据、尝试次数与日志一致、快照哈希（AC17） |
+| `src/etl_task2/crawl/check.py` | 只读核对：状态之和、成功证据、尝试次数与日志一致、快照哈希，以及模板与跳转统计；命令行（AC17、AC21）和 DAG 的 `verify_crawl` 共用 `run_checks` |
+| `src/etl_task2/crawl/backfill.py` | 从快照回填 `103` 之前尝试的页面模板（AC21） |
+| `src/etl_task2/crawl/pipeline.py`、`dags/amazon_products_task2_crawl.py` | 爬虫 DAG 的步骤函数与编排（R34、AC20） |
 | `scripts/crawl_mihomo.py` | 宿主机运行，仅标准库：用 `.env` 的订阅链接生成 mihomo 配置，每个节点一个本地端口（7801 起），热加载并打印 `CRAWL_PROXY_URLS` |
-| `compose.yaml` 的 `crawler` 服务 | profile `crawl`；挂载 `src`、`sql`（只读）与 `outputs`；`host.docker.internal` 指向宿主以连接 mihomo；`nofile` 上限 65536 |
+| `compose.yaml` 的 `crawler` 服务与 Airflow 服务 | `crawler` 为 profile `crawl`，挂载 `src`、`sql`（只读）与 `outputs`；它和 Airflow 的三个服务都把 `host.docker.internal` 指向宿主以连接 mihomo，读取 `CRAWL_PROXY_URLS`，`nofile` 上限 65536 |
 
 为了便于快速复核，逻辑集中在一个文件里；请求函数可以注入（`fetch` 参数），测试用假请求，不访问外网（R31）。
 
@@ -143,7 +146,7 @@
 
 1. **启动**：应用迁移 `102`（已应用则跳过）；默认取最近一次全量清单构建的抽取；取会话级 advisory lock `(etl_task2_crawl, extraction_id)`，拿不到就报错退出（R23）；插入 `crawl_run(status=running)`。
 2. **生产者**：按 keyset 分批读取，每批 1000 行，条件为 `status = ANY(待处理状态) AND original_url IS NOT NULL`（R16）。默认 `--order shuffle`，按 `md5(asin)` 排序，打散 ASIN 前缀，避免连续请求同一类产品；放入有界队列（容量为并发数 × 4）。
-3. **worker**（`--concurrency` 个）：从出口池取一个有令牌的出口（R25、R26）→ 随机抖动 → 请求，外层再套一层 `timeout + 10` 秒的 `asyncio.wait_for` → `classify` 判定（R18–R20）→ 把结果报告给出口池和会话 → 被拦截或出错且还有尝试次数时换出口重试（R24）。
+3. **worker**（`--concurrency` 个）：从出口池取一个有令牌的出口（R25、R26）→ 随机抖动 → 请求，外层再套一层 `timeout + 10` 秒的 `asyncio.wait_for` → `classify` 判定（R18–R20），`detect_template` 标模板、取跳转链（R32、R33）→ 把结果报告给出口池和会话 → 被拦截或出错且还有尝试次数时换出口重试（R24）。
 4. **落盘与写回**：最后一次响应体 gzip 后原子写入快照，`content_hash` 用未压缩字节计算（R22）；一个事务内批量插入本 ASIN 的 `fetch_attempt` 行，并更新清单爬虫列：`attempt_count` 累加，`fetched_at` 取最后一次尝试时间（R17、R21、R23）。
 5. **结束**：正常结束记 `succeeded`；收到停止信号或到达截止时间记 `interrupted`；异常记 `failed` 并保留原因。在 `crawl_run` 写入各判定计数，释放锁（R30）。
 
@@ -206,9 +209,42 @@
 - **按快照大小估算**（未直接测量）：商品页压缩后约 230 KB，checkpoint 页约 70 KB；全量第一遍约 35–50 GB 机场流量。
 - **用户叫停时的结果**：处理 29,126 个 ASIN；success 22,321、access_restricted 4,152（验证码 3,310、checkpoint 730、5xx 112）、not_found 2,378、timeout 213、parse_failed 62；not_collected 223,933；快照 28,913 个，共 4.7 GB。
 
+### 跳转链与页面模板（R32、R33，2026-10-29 补）
+
+- **跳转链**：Scrapling 的响应保留了 curl_cffi 的 `history`，里面是每一跳的响应，没有响应体。爬虫从中取出状态码、地址和 `Location` 头，存为 `fetch_attempt.redirect_chain`。用 jsonb 数组是因为跳数不定，而且只用于留证和统计，不参与关联。三种取值的含义：
+  - 空数组：确认没有跳转。
+  - NULL：没有响应，或者是 `103` 之前的请求。
+- **页面模板**：`detect_template` 和 `classify` 共用正则，给每个有响应的请求打一个标签。按标签统计、按时间分组，就能看出页面模板的变化。没有另存 DOM 指纹：标签已经能区分两种产品页模板，指纹要解析 DOM，会拖慢爬取。
+- **回填**：`103` 之前的请求只有每个 ASIN 最后一次尝试存了快照，所以只回填这些行的模板。回填只写 `page_template` 为空的行，可以重复运行。旧请求的跳转链没有原始数据，无法补回，保持 NULL；只能比较最终地址与请求地址，看是否发生过跳转。
+
+2026-10-29 在正式库回填，实测结果：
+- **回填**：28,913 个请求，没有缺失的快照，用时约 4 分 40 秒。
+- **成功页的两种模板**：`dp_product_title` 20,828 个、`automation_title` 1,493 个，这是模板变化的直接证据，任务 3 解析时两种都要处理。
+- **其他页面**：captcha 3,310、checkpoint 730、not_found 2,378、service_error 112、other 62。
+- **地址变化**：已有请求中，最终地址与请求地址不同的有 26,174 / 28,926 个，大多是被加上 `?lv=shuf&channelId=500&plpRedirect=mhFallback` 参数（25,151 个）。
+- **跳到其他站点**：日本出口 7809–7811 有 160 个成功页被跳转到 `amazon.co.jp`；新加坡出口有 7 个成功页、1 个 404 被跳转到 `amazon.sg`。ASIN 一致，按 R18 仍记 success，是否改判由用户决定（spec H11）。
+
+### Airflow 调用（R34，2026-10-29 补）
+
+- **DAG 结构**：DAG `amazon_products_task2_crawl` 依次运行 `check_crawl_input → crawl_pages → verify_crawl → finalize_report → run_gate`，与清单 DAG 同构，复用 `etl_task2.pipeline` 的 `run_step`、失败文件和门禁。
+- **重试分类**：`CrawlBusy`（爬虫锁被占用）也算暂时错误。
+- **check_crawl_input**：应用迁移，确认清单存在，记录运行前的状态分布和待处理行数。
+- **crawl_pages**：用与命令行相同的 `crawl()`，参数来自 DAG 参数。每次运行以 `limit`（默认 1000）和 `deadline_minutes`（默认 60）限定规模。
+  - 为什么限定规模：Airflow 任务不适合跑十几个小时；分批运行时，每批都有独立的报告和门禁。
+  - 失败了怎么办：任务失败后重试，或者下一次触发，都会接着处理剩余行，不会重复请求。
+- **verify_crawl**：全表计数一致；只核对本次运行写入的快照；本次最后一次尝试的行数等于处理数。
+- **finalize_report**：无论上游成败都写 `outputs/task2/<抽取>/crawl/<run_key>/summary.json` 和 `report.md`，内容包括本次判定、模板与跳转，以及运行前后的状态分布。检查步骤失败时，报告放在 `_failures/<run_key>/`。
+  - 实施中修正：起初收尾也校验参数，参数不合法时连报告都写不出；改为只读配置，不校验参数。
+- **快照路径**：Airflow 任务的工作目录不是 `/opt/etl`，所以 `save_snapshot` 改为记相对 `PROJECT_ROOT`（`/opt/etl`）的路径，读的时候用 `resolve_snapshot` 还原。已有快照的路径本来就是相对 `/opt/etl` 的，不需要迁移。
+- **离线测试**：`fetch_mode=fixture` 用确定性的离线响应，按 ASIN 末位区分（D 为 404，C 跳到 checkpoint，A 带一次 301），只允许在 `ETL_ENV=test` 下使用，测试和测试库端到端都不访问外网。
+- **网络与环境**：Airflow 服务和 `crawler` 服务一样配置 `host.docker.internal`、代理变量和句柄上限，真实运行同样依赖宿主上的 mihomo。
+- **验证**（2026-10-29）：
+  - 用真实 scheduler 经 `compose.e2e.yaml` 在 `etl_test` 运行：成功（6 个 ASIN）、重跑（0 个）都 success；不存在的抽取在检查步骤失败，只尝试 1 次，下游 upstream_failed，门禁失败，报告在 `_failures`。
+  - 正式库还没有通过 DAG 发过真实请求。
+
 ### 与作业要求的差距（如实记录）
 
-- **Airflow**：爬虫还没有由 Airflow 调用（spec H07）。
-- **重定向与模板变化**：没有保存完整跳转链（H08）。
+- **Airflow**：已接入（R34），但正式库只用命令行跑过全量，DAG 只在测试库端到端运行过（spec H07）。
+- **重定向**：`103` 之前的 29,144 次请求没有完整跳转链，只能比较最终地址（H08）。
 - **robots.txt**：爬虫不读取 robots.txt（H09）。
 - **覆盖率**：只采到约 11.5% 的 ASIN，其余如实保持 `not_collected`；成功率的分母仍为 253,059。

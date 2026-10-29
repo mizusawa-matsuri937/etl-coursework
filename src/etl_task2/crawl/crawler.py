@@ -38,7 +38,9 @@ from etl_task1.db import connect, sql_dir
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = "102"
+# 依次应用的爬虫迁移：(版本, 文件)
+MIGRATIONS = (("102", "102_task2_crawl.sql"), ("103", "103_task2_crawl_evidence.sql"))
+PROJECT_ROOT = sql_dir().parent  # 快照路径相对它保存，容器内为 /opt/etl
 STATUSES = ("success", "not_found", "access_restricted", "timeout", "parse_failed")
 RETRYABLE = ("access_restricted", "timeout")
 
@@ -87,6 +89,10 @@ class Exit:
     last_used: float = 0.0
     used: int = 0
     blocked: int = 0
+
+
+class CrawlBusy(RuntimeError):
+    """同一抽取已有爬虫持有锁（暂时错误，Airflow 可稍后重试）。"""
 
 
 class CrawlStopped(Exception):
@@ -223,6 +229,8 @@ def load_exits(env: Mapping[str, str]) -> list[tuple[str, str | None]]:
 
 # ---------------------------------------------------------------- 状态判定
 
+_DP_TITLE = re.compile(rb'id="productTitle"')
+_AUTO_TITLE = re.compile(rb'data-automation-id="title"')
 _TITLE = re.compile(rb'id="productTitle"|data-automation-id="title"')
 _NOT_FOUND = re.compile(rb"Page Not Found|couldn't find that page|looking for something\?", re.I)
 _CAPTCHA = re.compile(rb"validateCaptcha|Enter the characters you see below|/errors/validateCaptcha", re.I)
@@ -247,6 +255,23 @@ def classify(asin: str, http_status: int, final_url: str, body: bytes) -> tuple[
     return "success", "product_page"
 
 
+def detect_template(final_url: str, http_status: int, body: bytes) -> str:
+    """页面模板标签，作为模板变化的证据（R33）：两种产品页标题、拦截页、错误页或其他。"""
+    if "/checkpoint/" in final_url:
+        return "checkpoint"
+    if _CAPTCHA.search(body):
+        return "captcha"
+    if _DP_TITLE.search(body):
+        return "dp_product_title"
+    if _AUTO_TITLE.search(body):
+        return "automation_title"
+    if http_status == 404 or _NOT_FOUND.search(body):
+        return "not_found"
+    if http_status >= 500:
+        return "service_error"
+    return "other"
+
+
 # ---------------------------------------------------------------- 请求
 
 @dataclass(frozen=True)
@@ -254,6 +279,13 @@ class FetchResult:
     status: int
     url: str
     body: bytes
+    history: tuple[dict, ...] = ()  # 跳转链 [{status, url, location}]，最终页面不在其中
+
+
+def redirect_history(page) -> tuple[dict, ...]:
+    """从 Scrapling 响应取跳转链：curl_cffi 的 history 只保留每一跳的状态、地址和响应头。"""
+    return tuple({"status": int(h.status_code), "url": str(h.url), "location": h.headers.get("location")}
+                 for h in getattr(page, "history", None) or ())
 
 
 Fetch = Callable[[str, str | None, float], Awaitable[FetchResult]]
@@ -265,7 +297,7 @@ async def scrapling_fetch(url: str, proxy: str | None, timeout: float) -> FetchR
 
     page = await AsyncFetcher.get(url, impersonate="chrome", proxy=proxy, timeout=timeout,
                                   retries=1, follow_redirects=True)
-    return FetchResult(int(page.status), str(page.url), bytes(page.body))
+    return FetchResult(int(page.status), str(page.url), bytes(page.body), redirect_history(page))
 
 
 @dataclass
@@ -340,7 +372,7 @@ class SessionFetcher:
             sess.inflight -= 1
             if sess.inflight == 0 and sess in self.retired:
                 await self._close(sess)
-        return FetchResult(int(page.status), str(page.url), bytes(page.body))
+        return FetchResult(int(page.status), str(page.url), bytes(page.body), redirect_history(page))
 
     def notify(self, proxy: str | None, outcome: str) -> None:
         sess = self.sessions.get(proxy)
@@ -371,16 +403,17 @@ class SessionFetcher:
 # ---------------------------------------------------------------- 数据库与快照
 
 def apply_crawl_schema(conn: psycopg.Connection) -> bool:
-    """应用爬虫表结构（须先有 101）；已应用时不做任何事。返回是否本次新建。"""
+    """依次应用爬虫迁移（须先有 101）；已应用的跳过。返回本次是否应用了任何迁移。"""
+    applied = False
     with conn.transaction():
         conn.execute("SELECT pg_advisory_xact_lock(hashtext('etl_task2_schema'))")
         if not conn.execute("SELECT 1 FROM public.schema_migration WHERE version = '101'").fetchone():
             raise RuntimeError("任务 2 清单表结构（101）尚未应用")
-        if conn.execute("SELECT 1 FROM public.schema_migration WHERE version = %s",
-                        (SCHEMA_VERSION,)).fetchone():
-            return False
-        conn.execute((sql_dir() / "102_task2_crawl.sql").read_text(encoding="utf-8"))
-    return True
+        for version, name in MIGRATIONS:
+            if not conn.execute("SELECT 1 FROM public.schema_migration WHERE version = %s", (version,)).fetchone():
+                conn.execute((sql_dir() / name).read_text(encoding="utf-8"))
+                applied = True
+    return applied
 
 
 def latest_full_extraction(conn: psycopg.Connection) -> str:
@@ -405,16 +438,24 @@ class Attempt:
     body_bytes: int | None = None
     content_hash: str | None = None
     snapshot_path: str | None = None
+    redirect_chain: list[dict] | None = None  # None：没有响应（异常）；[]：没有跳转
+    page_template: str | None = None
 
 
 def save_snapshot(snapshot_dir: Path, asin: str, body: bytes) -> str:
-    """gzip 保存响应体；按 ASIN 末两位分目录，先写临时文件再原子替换。"""
-    path = snapshot_dir / asin[-2:] / f"{asin}.html.gz"
+    """gzip 保存响应体；按 ASIN 末两位分目录，先写临时文件再原子替换。
+    项目目录下的快照记相对 PROJECT_ROOT 的路径，命令行与 Airflow 的工作目录不同也指向同一文件。"""
+    path = (snapshot_dir / asin[-2:] / f"{asin}.html.gz").resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".gz.tmp")
     tmp.write_bytes(gzip.compress(body, compresslevel=6))
     os.replace(tmp, path)
-    return str(path)
+    return str(path.relative_to(PROJECT_ROOT)) if path.is_relative_to(PROJECT_ROOT) else str(path)
+
+
+def resolve_snapshot(path: str) -> Path:
+    p = Path(path)
+    return p if p.is_absolute() else PROJECT_ROOT / p
 
 
 def record_result(conn: psycopg.Connection, eid: str, run_id: str, asin: str, attempts: list[Attempt]) -> None:
@@ -425,9 +466,10 @@ def record_result(conn: psycopg.Connection, eid: str, run_id: str, asin: str, at
             cur.executemany(
                 "INSERT INTO task2.fetch_attempt (extraction_id, asin, attempt_no, run_id, exit_label, requested_url, "
                 "final_url, http_status, outcome, reason, body_bytes, content_hash, snapshot_path, started_at, "
-                "elapsed_ms) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                "elapsed_ms, redirect_chain, page_template) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 [(eid, asin, a.attempt_no, run_id, a.exit_label, a.requested_url, a.final_url, a.http_status,
-                  a.outcome, a.reason, a.body_bytes, a.content_hash, a.snapshot_path, a.started_at, a.elapsed_ms)
+                  a.outcome, a.reason, a.body_bytes, a.content_hash, a.snapshot_path, a.started_at, a.elapsed_ms,
+                  None if a.redirect_chain is None else json.dumps(a.redirect_chain), a.page_template)
                  for a in attempts])
         conn.execute(
             "UPDATE task2.product_manifest SET status = %s, final_url = %s, http_status = %s, "
@@ -467,7 +509,7 @@ async def crawl(conn: psycopg.Connection, eid: str, cfg: CrawlConfig, pool: Exit
     stop = stop or asyncio.Event()
     run_id = uuid.uuid4().hex
     if not conn.execute("SELECT pg_try_advisory_lock(hashtext('etl_task2_crawl'), hashtext(%s))", (eid,)).fetchone()[0]:
-        raise RuntimeError("同一抽取已有爬虫在运行")
+        raise CrawlBusy("同一抽取已有爬虫在运行")
     params = {**{k: str(v) if isinstance(v, Path) else v for k, v in asdict(cfg).items()},
               "exits": [e.label for e in pool.exits]}
     conn.execute("INSERT INTO task2.crawl_run (run_id, extraction_id, params) VALUES (%s, %s, %s)",
@@ -524,6 +566,8 @@ async def crawl(conn: psycopg.Connection, eid: str, cfg: CrawlConfig, pool: Exit
                 a.outcome, a.reason = classify(asin, res.status, res.url, res.body)
                 a.http_status = res.status if 100 <= res.status <= 599 else None
                 a.final_url, a.body_bytes = res.url, len(res.body)
+                a.redirect_chain = list(res.history)
+                a.page_template = detect_template(res.url, res.status, res.body)
                 a.content_hash = hashlib.sha256(res.body).hexdigest()
                 body = res.body
             except asyncio.CancelledError:

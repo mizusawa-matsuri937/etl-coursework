@@ -1,6 +1,6 @@
 # ETL 作业项目
 
-当前状态：任务 1 计划已完成，T1-01（容器环境）与 T1-02（解析与转换）、T1-03（数据库约束、批次装载与恢复）、T1-04（统计、报告与 Airflow 流程）于 2026-10-26 完成，经单元、集成测试和真实 scheduler 样本运行验证；T1-05 于 2026-10-26 完成资源试跑、正式全量（7,911,696 条，经真实 Airflow 写入业务库）和同输入重跑，结果见 [任务 1 报告](doc/task1/task1-report.md)；T1-06（复现交付）于同日完成：独立项目、容器无外网下按 runbook 复现固定样本与一次恢复。任务 2 第一部分（ASIN 采集清单，T2-01 至 T2-03）于 2026-10-28 完成：正式库 `task2.product_manifest` 共 253,059 行、全部 `not_collected`，见 [任务 2 checklist](doc/task2/checklist.md)；第二部分爬虫（T2-04、T2-05）于 2026-10-29 完成并由用户叫停：已处理 29,126 个 ASIN，success 22,321，其余 223,933 保持 `not_collected`；接入 Airflow（T2-06）未做，用户尚未复核。
+当前状态：任务 1 计划已完成，T1-01（容器环境）与 T1-02（解析与转换）、T1-03（数据库约束、批次装载与恢复）、T1-04（统计、报告与 Airflow 流程）于 2026-10-26 完成，经单元、集成测试和真实 scheduler 样本运行验证；T1-05 于 2026-10-26 完成资源试跑、正式全量（7,911,696 条，经真实 Airflow 写入业务库）和同输入重跑，结果见 [任务 1 报告](doc/task1/task1-report.md)；T1-06（复现交付）于同日完成：独立项目、容器无外网下按 runbook 复现固定样本与一次恢复。任务 2 第一部分（ASIN 采集清单，T2-01 至 T2-03）于 2026-10-28 完成：正式库 `task2.product_manifest` 共 253,059 行、全部 `not_collected`，见 [任务 2 checklist](doc/task2/checklist.md)；第二部分爬虫（T2-04、T2-05）于 2026-10-29 完成并由用户叫停：已处理 29,126 个 ASIN，success 22,321，其余 223,933 保持 `not_collected`；2026-10-29 补完接入 Airflow（T2-06，DAG `amazon_products_task2_crawl`）与跳转链、页面模板证据（T2-07），用户尚未复核。
 
 任务 1 的目标是全量流式抽取 Amazon 评论，分批装载 PostgreSQL，保留原始证据与异常，并通过 Airflow 完成数量核对和运行报告。
 
@@ -22,12 +22,12 @@ ETL作业模板/
 ├── compose.e2e.yaml          # 端到端验证覆盖：Airflow 写入 etl_test，不污染业务库
 ├── compose.offline.yaml      # 离线复现覆盖：容器网络 internal，无外网
 ├── sql/                      # 表结构、完整性核对、数量核对、质量分布、产品汇总；101_task2_schema、task2_manifest_source/checks/export（任务 2 清单）
-├── dags/                     # amazon_reviews_task1.py、amazon_products_task2_manifest.py
+├── dags/                     # amazon_reviews_task1.py、amazon_products_task2_manifest.py、amazon_products_task2_crawl.py
 ├── scripts/                  # run_dag_e2e.py 经真实 scheduler 触发 DAG 并等待；sample_host_stats.sh 宿主侧资源采样；gen_schema_appendix.py 从数据库生成字段字典附录；check_task2_manifest.py 逐行核对任务 2 清单与任务 1 产品汇总；crawl_mihomo.py 生成爬虫用的 mihomo 多端口配置
 └── doc/
     ├── request-template.md   # 公共请求模板
     ├── handoffs/             # 任务间交接文档（新对话先读最新一份，见 CLAUDE.md）
-    ├── task2/                # 任务 2（ASIN 采集清单与产品页面爬虫）：spec、design、tasks、checklist、runbook；T2-00 至 T2-05 已完成，T2-06 未做
+    ├── task2/                # 任务 2（ASIN 采集清单与产品页面爬虫）：spec、design、tasks、checklist、runbook；T2-00 至 T2-07 已完成
     └── task1/                # 任务 1 第一轮计划
         ├── spec.md           # 目标、范围、规则、AC测试、假设
         ├── design.md         # 设计思路与实现取舍
@@ -113,5 +113,6 @@ docker compose --profile test run --rm etl-test pytest -q tests   # 单元 + 集
 | 2026-10-28 | 完成 T2-03：经 Airflow 在正式库构建清单 253,059 行（in_valid 252,603/456，全部 not_collected，url_issue 0），与任务 1 产品汇总逐行一致；同参数重跑复用；修正审计结束时间；任务 2 第一部分结束 |
 | 2026-10-28 | 任务 2 第二部分：装好爬虫环境（Scrapling 0.5、镜像重建、Compose 服务 `crawler`）；用户随后因时间紧改为由 Claude 实现、用户复核 |
 | 2026-10-29 | 完成 T2-04、T2-05：爬虫（令牌桶、mihomo 15 个出口、cookie 会话、状态判定、快照与尝试日志、续跑）；修复会话句柄泄漏；用户叫停时已处理 29,126 个 ASIN（success 22,321，其余 223,933 未采集），只读核对通过；268 项测试通过；补写 spec R16–R31、AC11–AC18；尚未接入 Airflow；提交到本地分支 `task2-manifest`（`272eb11`），未推送 |
+| 2026-10-29 | 完成 T2-06、T2-07：爬虫 DAG `amazon_products_task2_crawl`（真实 scheduler 在 etl_test 跑通成功、重跑与失败分支）；迁移 103 记录跳转链与页面模板，正式库从快照回填 28,913 个请求的模板（成功页两种模板 20,828 / 1,493）；285 项测试通过；提交到本地分支 `task2-manifest`，未推送 |
 
 本目录已初始化独立 Git 仓库，当前分支为 `main`，跟踪 `origin/main`。GitHub 公开仓库为 [mizusawa-matsuri937/etl-coursework](https://github.com/mizusawa-matsuri937/etl-coursework)。提交按任务阶段在本地 `main` 上累积，没有阶段标签，也尚未推送。

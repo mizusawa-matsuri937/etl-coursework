@@ -12,6 +12,7 @@ import pytest
 from psycopg.rows import dict_row
 
 from etl_task1.loader import load_extraction
+from etl_task2.crawl.backfill import backfill_templates
 from etl_task2.crawl.crawler import (CrawlConfig, ExitPool, FetchResult, apply_crawl_schema, crawl)
 from etl_task2.manifest import build_manifest
 
@@ -20,10 +21,13 @@ def product(asin: str) -> bytes:
     return f'<span id="productTitle">Movie {asin}</span><input name="ASIN" value="{asin}">'.encode()
 
 
+REDIRECT = {"status": 301, "url": "https://www.amazon.com/dp/AAAAAAAAAA",
+            "location": "https://www.amazon.com/dp/AAAAAAAAAA?lv=shuf"}
 BLOCK = FetchResult(200, "https://www.amazon.com/checkpoint/continue?token=t", b"<html>nav only</html>")
 # 每个 ASIN 依次返回的响应；Exception 表示该次请求抛错。
 SCRIPT = {
-    "AAAAAAAAAA": [FetchResult(200, "https://www.amazon.com/dp/AAAAAAAAAA?lv=shuf", product("AAAAAAAAAA"))],
+    "AAAAAAAAAA": [FetchResult(200, "https://www.amazon.com/dp/AAAAAAAAAA?lv=shuf", product("AAAAAAAAAA"),
+                               (REDIRECT,))],
     "BBBBBBBBBB": [BLOCK, FetchResult(200, "https://www.amazon.com/dp/BBBBBBBBBB", product("BBBBBBBBBB"))],
     "CCCCCCCCCC": [BLOCK, BLOCK],
     "DDDDDDDDDD": [FetchResult(404, "https://www.amazon.com/dp/DDDDDDDDDD", b"Page Not Found")],
@@ -95,6 +99,14 @@ def test_crawl_writes_statuses_attempts_and_evidence(conn, eid, tmp_path):
                             "ORDER BY asin, attempt_no", (eid,)).fetchall()
     assert len(attempts) == 9
     assert [a[2] for a in attempts if a[0] == "BBBBBBBBBB"] == ["access_restricted", "success"]
+    # 跳转链与页面模板（R32、R33）：有响应的尝试都记录，超时没有响应则为空
+    evidence = {(a, n): (chain, tpl) for a, n, chain, tpl in conn.execute(
+        "SELECT asin, attempt_no, redirect_chain, page_template FROM task2.fetch_attempt "
+        "WHERE extraction_id = %s", (eid,)).fetchall()}
+    assert evidence[("AAAAAAAAAA", 1)] == ([REDIRECT], "dp_product_title")
+    assert evidence[("BBBBBBBBBB", 1)] == ([], "checkpoint") and evidence[("BBBBBBBBBB", 2)][1] == "dp_product_title"
+    assert evidence[("DDDDDDDDDD", 1)] == ([], "not_found") and evidence[("FFFFFFFFFF", 1)] == ([], "other")
+    assert evidence[("EEEEEEEEEE", 1)] == (None, None)
     assert conn.execute("SELECT status, asin_done, outcome_counts->>'success' FROM task2.crawl_run "
                         "WHERE run_id = %s", (summary.run_id,)).fetchone() == ("succeeded", 6, "2")
 
@@ -149,3 +161,16 @@ def test_shuffled_order_with_jitter_covers_every_row_once(conn, eid, tmp_path):
     assert run(conn, eid, tmp_path, fetch, shuffle=True, jitter=0.01).asin_done == 3
     rows = manifest(conn, eid)
     assert {a: (r["status"], r["attempt_count"]) for a, r in rows.items()} == EXPECTED
+
+
+def test_backfill_fills_templates_from_snapshots_only(conn, eid, tmp_path):
+    run(conn, eid, tmp_path, FakeFetch(SCRIPT))
+    conn.execute("UPDATE task2.fetch_attempt SET page_template = NULL, redirect_chain = NULL WHERE extraction_id = %s",
+                 (eid,))
+    # 只有每个 ASIN 最后一次、有响应体的尝试保存了快照：A–D、F 各 1 个，E 超时没有快照
+    assert backfill_templates(conn, eid) == {"candidates": 5, "filled": 5, "snapshot_missing": 0}
+    got = dict(conn.execute("SELECT asin, page_template FROM task2.fetch_attempt WHERE extraction_id = %s "
+                            "AND page_template IS NOT NULL", (eid,)).fetchall())
+    assert got == {"AAAAAAAAAA": "dp_product_title", "BBBBBBBBBB": "dp_product_title", "CCCCCCCCCC": "checkpoint",
+                   "DDDDDDDDDD": "not_found", "FFFFFFFFFF": "other"}
+    assert backfill_templates(conn, eid)["candidates"] == 0  # 可重复运行，不重复写

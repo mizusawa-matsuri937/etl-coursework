@@ -67,7 +67,9 @@ class ManifestVerificationError(RuntimeError):
 
 
 def is_transient(exc: BaseException) -> bool:
-    return isinstance(exc, ManifestBusy) or _task1_transient(exc)
+    from .crawl.crawler import CrawlBusy  # 爬虫 DAG 共用本模块的失败记录与重试分类
+
+    return isinstance(exc, (ManifestBusy, CrawlBusy)) or _task1_transient(exc)
 
 
 def settings_for(params: RunParams, env: dict[str, str] | None = None) -> Settings:

@@ -1,11 +1,11 @@
 # 交接：任务 2 第二部分（爬虫）→ 任务 3（电影页面筛选）
 
-日期：2026-10-29。写给接手后续任务的人（用户本人，或协助的 agent）。任务 2 第二部分（爬虫）的代码和文档都已完成，用户已叫停全量爬取；改动已提交到本地分支 `task2-manifest`（提交 `272eb11`，未推送、未合并到 `main`）。规则、设计与证据以 `doc/task2/` 为准，这里只写接手所需的事实。
+日期：2026-10-29。写给接手后续任务的人（用户本人，或协助的 agent）。任务 2 第二部分（爬虫）的代码和文档都已完成，用户已叫停全量爬取；爬虫与文档已提交到本地分支 `task2-manifest`（提交 `272eb11`），之后同日补的 Airflow 接入与跳转链、模板证据（T2-06、T2-07）在其后的提交 `feat: 任务 2 爬虫接入 Airflow…` 中；均未推送、未合并到 `main`。规则、设计与证据以 `doc/task2/` 为准，这里只写接手所需的事实。
 
 ## 1. 先做什么
 
 1. 读 `CLAUDE.md`、`README.md`，再读本文。
-2. 读 `doc/task2/spec.md` 的 R16–R31、AC11–AC18，`doc/task2/design.md` 的“爬虫”一节。
+2. 读 `doc/task2/spec.md` 的 R16–R34、AC11–AC21，`doc/task2/design.md` 的“爬虫”一节。
 3. 用第 6 节的命令核对现状。数字是写作当时的快照，以实际为准。
 
 ## 2. 完成了什么
@@ -17,10 +17,12 @@
   - 判定与证据：判定后在同一事务里写尝试日志并更新清单。每个已处理的 ASIN 都保存 gzip 快照和 SHA-256。
   - 中断后重跑同一命令即可续接。
 - **测试与核对**：
-  - 测试不访问外网，共 268 项，含爬虫 24 项。
+  - 测试不访问外网，共 285 项，含爬虫 41 项。
   - 只读核对脚本是 `python -m etl_task2.crawl.check`。
 - **用户叫停**：2026-10-29 07:58（北京时间），最后一次运行在库里记为 `interrupted`。
-- **未做**：没有接入 Airflow（T2-06）。
+- **之后补的（2026-10-29）**：
+  - Airflow DAG `amazon_products_task2_crawl` 调用爬虫（T2-06）：真实 scheduler 只在 `etl_test` 用离线假请求跑过，正式库没有经 DAG 发过真实请求。
+  - 迁移 `103` 给每次请求记录跳转链和页面模板（T2-07）。正式库已有的请求从快照回填了模板；跳转链没有原始数据，补不回来，保持为空。
 
 ## 3. 结果在哪里
 
@@ -29,7 +31,7 @@
 | 表 | 内容 |
 |---|---|
 | `product_manifest` | 爬虫列已写回：`status`、`final_url`、`http_status`、`attempt_count`、`fetched_at`、`snapshot_path`、`content_hash`、`status_reason` |
-| `fetch_attempt` | 每次请求一行，共 29,144 行：出口、URL、状态码、判定、原因、字节数、哈希、耗时 |
+| `fetch_attempt` | 每次请求一行，共 29,144 行：出口、URL、状态码、判定、原因、字节数、哈希、耗时、`page_template`（已回填）、`redirect_chain`（`103` 之前为空） |
 | `crawl_run` | 每次运行一行，共 10 行 |
 
 `crawl_run` 里有一行 `28d7bcd0…` 停在 `running`：那次运行因句柄泄漏卡住后被强制停止，实际结果已逐个 ASIN 写进清单。
@@ -58,7 +60,8 @@
 ## 5. 给任务 3 的提示
 
 - **输入**：用 `status='success'` 的行，从 `snapshot_path` 读取快照（gzip 解压后是 HTML）。不要重新请求页面。读取时用 `content_hash` 核对快照。
-- **页面模板**：有两种标题选择器，`#productTitle` 和 `data-automation-id="title"`，说明至少有两种页面模板，解析时两种都要处理。
+- **页面模板**：成功页有两种模板，`fetch_attempt.page_template` 为 `dp_product_title`（20,828）或 `automation_title`（1,493），解析时两种都要处理。
+- **其他站点的页面**：日本、新加坡出口有 167 个成功页被跳转到 `amazon.co.jp`（160）或 `amazon.sg`（7），`final_url` 的域名可以看出来。ASIN 一致，但不是 amazon.com 的页面，内容和语言可能不同；要保持、改判还是补爬，用户还没决定（spec H11）。
 - **非 success 的行**：`access_restricted`、`timeout`、`not_collected` 没有可用页面，任务 3 应把它们归为“待确认/无证据”，不能当作非电影。
 - **补爬**：想补更多页面，命令见 `doc/task2/runbook.md` 第 6 节（`--retry-status`）。补爬需要先启动 mihomo（6.1 节），还会消耗机场流量。
 
@@ -71,7 +74,7 @@
 docker compose --profile crawl run --rm -T crawler python -m etl_task2.crawl.check
 ```
 
-- 全部测试（期望 `268 passed`）：
+- 全部测试（期望 `285 passed`）：
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests
@@ -85,29 +88,34 @@ docker compose --profile test run --rm etl-test pytest -q tests
 - **mihomo 节点延迟**：要用提供者接口 `/providers/proxies/airport/<节点>/healthcheck` 测，全局 `/proxies/<名>/delay` 查不到提供者里的节点。
 - **Scrapling 的 `FetcherSession`**：`__aenter__` 返回的客户端才能发请求，会话对象本身没有 `get`。
 - **Scrapling 日志**：首次导入 `scrapling.core.utils._utils` 时会把 logger 重设为 INFO，要先导入再静音。
+- **快照路径**：Airflow 任务的工作目录不是 `/opt/etl`，所以快照记的是相对 `/opt/etl` 的路径，读取时用 `resolve_snapshot` 还原，不要直接 `Path(snapshot_path)`。
+- **测试会清空 etl_test**：集成测试会话开始时会清空 `etl_test`，测试库端到端要在测试之后、按 runbook 6.2 节从头准备。
 - **流量估算**：按快照大小推算（未直接测量），跑一晚约用 25–30 GB 机场流量。Shadowrocket 开着时可能计两次（未验证）。
 
 ## 8. 遗留事项
 
-- **提交状态**：本阶段改动已于 2026-10-29 提交到本地分支 `task2-manifest`（`272eb11`），未推送、未开 PR、未合并到 `main`。
+- **提交状态**：爬虫与文档已于 2026-10-29 提交到本地分支 `task2-manifest`（`272eb11`、`24a90ef`）；T2-06、T2-07 在随后的提交 `feat: 任务 2 爬虫接入 Airflow…` 中。都未推送、未开 PR、未合并到 `main`。
+  - T2-06、T2-07 新增：`sql/103_task2_crawl_evidence.sql`、`src/etl_task2/crawl/{backfill,pipeline}.py`、`dags/amazon_products_task2_crawl.py`、`tests/integration/test_task2_crawl_dag.py`；修改了爬虫、核对、测试、`compose.yaml`（Airflow 服务）与文档。
   - 新增：`src/etl_task2/crawl/`（`crawler.py`、`check.py`）、`sql/102_task2_crawl.sql`、`scripts/crawl_mihomo.py`、两个测试文件、本交接文档。
   - 修改：`compose.yaml`、`.env.example`、`pyproject.toml`、`requirements.lock`、`README.md`、`CLAUDE.md`、`doc/task2/` 下的五份文档。
   - 推送与合并须由用户要求。
-- **用户复核**：AC11–AC18 由 AI 执行通过，用户尚未按 `doc/task2/checklist.md` 复核。
-- **与作业要求的差距**（spec 假设 H07–H09）：
-  - 爬虫没有由 Airflow 调用（T2-06）。
-  - 没有保存完整的重定向链。
-  - 不读取 robots.txt。
+- **用户复核**：AC11–AC21 由 AI 执行通过，用户尚未按 `doc/task2/checklist.md` 复核。
+- **与作业要求的差距**（spec 假设 H07–H09、H11）：
+  - 正式库还没有经 DAG 发过真实请求，需要 mihomo，由用户决定是否执行（runbook 6.2 节）。
+  - `103` 之前的请求没有跳转链。
+  - 不读取 robots.txt（用户暂不处理）。
+  - 167 个跳到其他站点的成功页如何处理，待用户决定。
 - **可选的后续工作**：补爬被拦截的行；用浏览器渲染（Scrapling 的 Chromium 会话）处理 checkpoint 页。这类改动要先改 spec。
 
 ## 9. 文件索引
 
 | 需要什么 | 看哪里 |
 |---|---|
-| 爬虫规则与验收 | `doc/task2/spec.md` R16–R31、AC11–AC18；`doc/task2/checklist.md` |
+| 爬虫规则与验收 | `doc/task2/spec.md` R16–R34、AC11–AC21；`doc/task2/checklist.md` |
 | 设计、实测参数、异常处理 | `doc/task2/design.md`“爬虫”一节 |
-| 运行、补爬、核对、mihomo | `doc/task2/runbook.md` 第 6 节 |
+| 运行、补爬、核对、回填、mihomo、Airflow | `doc/task2/runbook.md` 第 6 节（6.2 为 Airflow） |
 | 爬虫代码 | `src/etl_task2/crawl/crawler.py` |
-| 只读核对 | `src/etl_task2/crawl/check.py` |
-| 表结构 | `sql/102_task2_crawl.sql` |
+| 只读核对、模板回填 | `src/etl_task2/crawl/check.py`、`backfill.py` |
+| 爬虫 DAG | `dags/amazon_products_task2_crawl.py`、`src/etl_task2/crawl/pipeline.py` |
+| 表结构 | `sql/102_task2_crawl.sql`、`sql/103_task2_crawl_evidence.sql` |
 | 上一份交接（清单） | `doc/handoffs/2026-10-28-task2-part1-to-part2.md` |
