@@ -10,7 +10,7 @@
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望：2026-10-30 完成 T5-03 后为 `625 passed`（任务 1–4 的 505 项不变，任务 5 新增 120 项）；任务 5 后续步骤继续增加。
+期望：2026-10-30 完成 T5-05 后为 `681 passed`（任务 1–4 的 505 项不变，任务 5 新增 176 项）；T5-06 继续增加。
 
 ## AC00 计划文件规范
 
@@ -106,43 +106,44 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC09 幂等、改规则与版本差异
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过：第二次运行为 `reused` 且目标表行数不变；换规则版本不重新抽取提及、差异不含无关作品且每个变化带原因；换任务 4 映射版本生成新人物映射版本，差异恰为被拆出的那条提及，锚点未变的 `person_id` 不变。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task5_runs.py -k "reused or rule_change or mapping_change"
 ```
 
-期望（计划）：全部选中的测试通过。
+期望：`3 passed, 7 deselected`。
 
 ## AC10 分批恢复与并发锁
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过：批大小 2，在提及、途径一、途径二、跨作品判定的第 2 批提交前注入故障，只有第 1 批的行，重跑只补剩余批次，行数与一次跑完相同；聚类与 MoviePerson 故障无部分行；另一个连接持锁时运行 `RunBusy`、不留行。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task5_runs.py -k "fault or lock"
 ```
 
-期望（计划）：全部选中的测试通过。
+期望：`7 passed, 3 deselected`。
 
 ## AC11 Airflow DAG
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（测试库）：DAG 定义与依赖顺序、`all_done`、重试 2 次、成功与重跑（`reused`）、不存在映射版本在检查步骤失败且不重试、下游未运行、暂时错误可重试、锁冲突确定性失败、故障注入后同一 run_key 重试沿用同一条运行。
+- [x] 2026-10-30 真实 scheduler（可选复核）：经 `compose.e2e.yaml` 触发 `t5_e2e_ok1`（success）、`t5_e2e_rerun1`（success，`reused`）、`t5_e2e_missing1`（failed，`check_inputs` 只试 1 次、下游 `upstream_failed`、门禁失败、失败记录在 `_failures`），另有暂时错误重试 `t5_e2e_transient1`（success）；步骤与期望见 [runbook](runbook.md) 第 2 节。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task5_dag.py
 ```
 
-期望（计划）：全部通过。可选：真实 scheduler 的三次运行，步骤与期望见 `doc/task5/runbook.md`（T5-05 编写）。
+期望：`17 passed`。
 
 ## AC12 报告、实例与查询
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过：统计与库中逐项一致（提及、合并前后、按途径的外部 ID、迭代、状态、MoviePerson、特征开关影响数、升级线索），实例含别名合并与不合并（附外部 ID 或冲突证据、源记录定位，用户标注的优先并注明结论），两个查询返回原始署名、别名、决策链、作品，同名的两个导演分别列出；导出文件哈希与记录一致且无 HTML；只读核对对篡改的库报问题。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task5_report.py
 ```
 
-期望（计划）：全部通过。
+期望：`18 passed`。
 
 ## AC13 评价工具
 

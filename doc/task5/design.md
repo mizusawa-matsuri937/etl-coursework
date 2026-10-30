@@ -546,3 +546,12 @@ IMDb 一侧对 `primary_name` 走同一流程（R09）。
 - 是否已生成 MoviePerson 记在 `person_mapping_version.counts` 的 `movie_person` 键里（含各项计数）；`build_movie_person` 看到该键就直接返回 `reused`，所以重复调用与 `reused` 运行都不重写。生成在一个事务里，`before_commit("movie_person", 1)` 是测试的注入点。
 - 聚类（`build_people`）新增 `before_commit("cluster", 1)` 注入点；同一输入键已有人物映射版本时（上一次运行在生成版本之后、MoviePerson 之前失败）直接沿用，不再重算，否则会撞上 `(extraction_id, input_key)` 的唯一约束。
 - `source_labels` 为 `<区域>:<原始标签>`（如 `byline:Actor`、`detail_bullets:Actors`），合集来源另加 `collection:<ASIN>`；多角色人物数不把 `starring` 与 `cast` 算作两种角色。
+
+**运行、DAG、报告与核对（T5-05）**
+
+- **默认的任务 4 映射版本**：`map0002` 属于该抽取时取它，否则取该抽取最新的任务 4 映射版本（测试库里只有 `map0001`）；参数显式给出不存在的版本时 `check_inputs` 确定性失败。IMDb 快照默认取映射版本所用的快照。
+- **run_stage**：步骤为 `mentions`、`link_external`（途径一再途径二）、`resolve`（作品内组、分批判定、聚类与人物）、`movie_person`（收尾，运行记 `succeeded`）。`resolve` 成功后运行记下 `person_mapping_version_id` 但仍是 `running`。外部 ID 未做完时 `resolve` 确定性失败。`limit` 使后续步骤在 `link_external` 处失败。
+- **故障注入名**：`before_commit:<阶段>:<批号>`，阶段为 `mentions`、`credits`、`filmography`、`decide_pair`、`cluster`、`movie_person`（后两者批号固定为 1）。
+- **核对的口径**：AC14 的“任务 4 表未被写入”在本任务代码内无法在运行前后对比，改为核对任务 4 映射版本记录的数量与重数一致，并输出各 task4 表的行数（`t4_table_rows`），运行手册 3.1 在运行前后各取一次对比；R19 核对按判定特征里的合作者数重算 W（含发行商开关），不依赖判定行里的 `w` 字段（后续轮次的行没有它）。
+- **报告**：`persons.csv` 不含锚点（锚点里有 `nconst`）；`decisions_sample.csv` 把外部 ID 判定与跨作品判定放在一起（列 `kind`），各按档取 md5 前 200；人工复核覆盖率 = 有人工决策的复核候选数 / 复核候选总数（跨作品候选按双方代表提及匹配，外部 ID 候选按 `imdb:<nconst>` 匹配）；块溢出计数取本运行的质量问题。
+- **命令行**：`review` 增加 `queue`、`import`；导入只写人工决策，重算靠再触发一次 DAG。

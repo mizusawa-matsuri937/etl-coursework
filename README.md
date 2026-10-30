@@ -29,7 +29,7 @@ ETL作业模板/
 └── doc/
     ├── request-template.md   # 公共请求模板
     ├── handoffs/             # 任务间交接文档（新对话先读最新一份，见 CLAUDE.md）
-    ├── task5/                # 任务 5（人物姓名归一与消歧）：spec（R01–R47、AC00–AC17）、design、tasks、checklist 已编写并经用户审批；T5-01 至 T5-04 已实现（见 tasks）
+    ├── task5/                # 任务 5（人物姓名归一与消歧）：spec（R01–R47、AC00–AC17）、design、tasks、checklist 已编写并经用户审批；T5-01 至 T5-05 已实现（见 tasks）
     ├── task4/                # 任务 4（定义并识别同一电影）：spec（R01–R42、AC00–AC17）、design、tasks、checklist、runbook；T4-01 至 T4-08 于 2026-10-29 完成；当前规则 t4r2
     ├── task3/                # 任务 3（电影页面筛选）：spec、design、tasks、checklist、runbook；T3-00 至 T3-06 于 2026-10-29 完成；当前规则 t3r2
     ├── task2/                # 任务 2（ASIN 采集清单与产品页面爬虫）：spec、design、tasks、checklist、runbook；T2-00 至 T2-07 已完成
