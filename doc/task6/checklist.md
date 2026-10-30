@@ -192,7 +192,7 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_evaluate.py
 ```
 
-期望：`4 passed`。
+期望：`7 passed`。
 
 ## AC18 正式库全量运行与只读核对
 
@@ -282,10 +282,10 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC23 评价分层键名修复、商品原始标题导出、盲测打乱与非循环 AI 草稿
 
-- [ ] 未执行（计划，对应 T6-10，修复审查 ISSUE-01、ISSUE-02、ISSUE-03、ISSUE-11）。
+- [x] 2026-10-30 通过（验证 `tvMovie`/`video`/`year_diff_1`/`year_disagreement`/`tconst_disagreement` 的 `verified` 作品均分入 `E2`；`eval_items.csv` 的 `product_titles` 保留任务 4 商品原始标题中的括号年份；`item_id` 按 `md5(movie_id)` 全局打乱分配 `t6_eval_0001`–`t6_eval_0120` 不泄露分层与状态；`eval_items_draft.csv` 独立比对生成且不读取系统采用年份或推断上界、`missing` 作品不填入禁用来源年份；`metrics` / `compute_eval_metrics` 完整断言 `by_stratum`、`by_source` 与 `by_evidence_type` / `bounds_by_evidence`）。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_evaluate.py -k "ac23 or ac17"
 ```
 
-期望（计划）：全部通过（验证 `tvMovie`/`video`/`year_diff_1`/`year_disagreement`/`tconst_disagreement` 的 `verified` 作品均分入 `E2`；`eval_items.csv` 的 `product_titles` 保留任务 4 商品原始标题中的括号年份；`item_id` 按 `md5(movie_id)` 全局打乱不泄露分层与状态；`eval_items_draft.csv` 独立比对生成且不读取系统采用年份或推断上界、`missing` 作品不填入禁用来源年份；`metrics` 完整断言 `by_stratum`、`by_source` 与 `bounds_by_evidence`）。
+期望：`7 passed`。

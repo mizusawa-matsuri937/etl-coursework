@@ -5,7 +5,7 @@
 ## 1. 测试
 
 ```bash
-docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task6_rules.py tests/integration/test_task6_candidates.py tests/integration/test_task6_cooccur.py tests/integration/test_task6_select.py tests/integration/test_task6_product_dates.py tests/integration/test_task6_reviews.py tests/integration/test_task6_bounds.py tests/integration/test_task6_runs.py tests/integration/test_task6_dag.py tests/integration/test_task6_report.py
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task6_rules.py tests/integration/test_task6_candidates.py tests/integration/test_task6_cooccur.py tests/integration/test_task6_select.py tests/integration/test_task6_product_dates.py tests/integration/test_task6_reviews.py tests/integration/test_task6_bounds.py tests/integration/test_task6_runs.py tests/integration/test_task6_dag.py tests/integration/test_task6_report.py tests/integration/test_task6_evaluate.py
 ```
 
 集成测试会话开始时会清空 `etl_test`；下一节的端到端数据要在测试之后从头准备。

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,10 @@ from etl_task6.evaluate import (
     DRAFT_COLUMNS,
     ITEM_COLUMNS,
     EvalError,
+    _classify_movie_stratum,
+    _generate_ai_draft,
+    build_eval_candidates,
+    compute_eval_metrics,
     eval_set_id,
     export_eval_set,
     freeze_dev_pool,
@@ -122,45 +127,50 @@ def test_ac17_import_and_metrics_with_hand_calculated_ground_truth(conn, world, 
         "FROM task6.eval_item WHERE eval_set_id = %s ORDER BY item_id", (sid,)).fetchall()
     assert len(items) >= 5
 
-    # 构造人工标注测试数据：
-    # item 0: 完全一致 (true_year == system_year), tconst same
-    # item 1: 相差 1 年 (true_year == system_year + 1), tconst different
-    # item 2: 相差 3 年 (true_year == system_year + 3), tconst same
-    # item 3: unsure (不确定)
+    # 构造人工标注测试数据（由于 item_id 已按 md5 全局打乱，从有 system_year 和 tconst 的项目中取前 4 个分别构造）：
+    # role 0: 完全一致 (true_year == system_year), tconst same
+    # role 1: 相差 1 年 (true_year == system_year + 1), tconst different
+    # role 2: 相差 3 年 (true_year == system_year + 3), tconst same
+    # role 3: unsure (不确定)
     # 其余 items: 正常填或测试 missing
+    with_tc_ids = [iid for iid, _, _, tc, sys_yr, _, _ in items if sys_yr is not None and tc is not None]
+    assert len(with_tc_ids) >= 4
+    role_of = {with_tc_ids[0]: 0, with_tc_ids[1]: 1, with_tc_ids[2]: 2, with_tc_ids[3]: 3}
+
     labels_to_write = []
-    for idx, (iid, strat, mid, tc, sys_yr, st, bnd_yr) in enumerate(items):
-        if idx == 0:
+    for iid, strat, mid, tc, sys_yr, st, bnd_yr in items:
+        role = role_of.get(iid)
+        if role == 0:
             labels_to_write.append({
                 "item_id": iid,
-                "true_year": str(sys_yr or 2000),
+                "true_year": str(sys_yr),
                 "year_label": "known",
-                "tconst_label": "same" if tc else "na",
-                "note": "item 0 exact",
+                "tconst_label": "same",
+                "note": "item exact",
             })
-        elif idx == 1:
+        elif role == 1:
             labels_to_write.append({
                 "item_id": iid,
-                "true_year": str((sys_yr or 2000) + 1),
+                "true_year": str(sys_yr + 1),
                 "year_label": "known",
-                "tconst_label": "different" if tc else "na",
-                "note": "item 1 diff 1yr",
+                "tconst_label": "different",
+                "note": "item diff 1yr",
             })
-        elif idx == 2:
+        elif role == 2:
             labels_to_write.append({
                 "item_id": iid,
-                "true_year": str((sys_yr or 2000) + 3),
+                "true_year": str(sys_yr + 3),
                 "year_label": "known",
-                "tconst_label": "same" if tc else "na",
-                "note": "item 2 diff 3yr",
+                "tconst_label": "same",
+                "note": "item diff 3yr",
             })
-        elif idx == 3:
+        elif role == 3:
             labels_to_write.append({
                 "item_id": iid,
                 "true_year": "",
                 "year_label": "unsure",
                 "tconst_label": "unsure",
-                "note": "item 3 unsure",
+                "note": "item unsure",
             })
         else:
             # 对于 missing 项目，给出一个 known 年份，便于测试 missing 可查到率
@@ -217,6 +227,40 @@ def test_ac17_import_and_metrics_with_hand_calculated_ground_truth(conn, world, 
     # 缺失可查到率：
     assert m["missing_findable"]["findable_count"] >= 1
 
+    # 细分指标断言：按层（by_stratum）、按来源（by_source）、按上界证据类型（by_evidence / by_evidence_type）
+    assert "by_stratum" in m["year_accuracy"] and m["by_stratum"] == m["year_accuracy"]["by_stratum"]
+    assert "by_source" in m["year_accuracy"] and m["by_source"] == m["year_accuracy"]["by_source"]
+    assert "by_source" in m["tconst_accuracy"]
+    assert "by_evidence" in m["bound_validity"]
+    assert m["bound_validity"]["by_evidence_type"] == m["bound_validity"]["by_evidence"]
+    assert m["by_evidence_type"] == m["bound_validity"]["by_evidence"]
+    assert set(m["bound_validity"]["by_evidence"].keys()) == {"review", "media_release"}
+
+    # 逐层核对：各层 year_accuracy 的 total 之和等于 overall.total，exact_count 之和等于 overall.exact_count
+    stratum_totals = sum(v["total"] for v in m["year_accuracy"]["by_stratum"].values())
+    stratum_exacts = sum(v["exact_count"] for v in m["year_accuracy"]["by_stratum"].values())
+    stratum_w1s = sum(v["within_1yr_count"] for v in m["year_accuracy"]["by_stratum"].values())
+    assert stratum_totals == y_ov["total"]
+    assert stratum_exacts == y_ov["exact_count"]
+    assert stratum_w1s == y_ov["within_1yr_count"]
+
+    # 逐来源核对：各来源 year_accuracy 的 total 之和等于 overall.total，tconst_accuracy 的 same/different 之和等于 overall
+    source_totals = sum(v["total"] for v in m["year_accuracy"]["by_source"].values())
+    assert source_totals == y_ov["total"]
+    tc_same_sum = sum(v["same"] for v in m["tconst_accuracy"]["by_source"].values())
+    tc_diff_sum = sum(v["different"] for v in m["tconst_accuracy"]["by_source"].values())
+    assert tc_same_sum == t_ov["same"]
+    assert tc_diff_sum == t_ov["different"]
+
+    # 上界证据类型核对：review 与 media_release 的 total/valid 之和等于 bound_validity.overall
+    ev_totals = sum(v["total"] for v in m["bound_validity"]["by_evidence"].values())
+    ev_valids = sum(v["valid"] for v in m["bound_validity"]["by_evidence"].values())
+    assert ev_totals == m["bound_validity"]["overall"]["total"]
+    assert ev_valids == m["bound_validity"]["overall"]["valid"]
+
+    # compute_eval_metrics 别名返回一致结果
+    assert compute_eval_metrics(conn, rv) == m
+
     # 渲染 Markdown 报告
     md = render_metrics(m)
     assert "# 任务 6 评价指标报告" in md
@@ -257,3 +301,241 @@ def test_ac17_no_bounds_yields_undefined_rate(conn, world, tmp_path):
     assert m["bound_validity"]["overall"]["rate"] is None
     md = render_metrics(m)
     assert "无定义" in md
+
+
+# ------------------------------------------------------------------ 5. AC23：分层键名修复（E1/E2/E3–E7）
+
+def test_ac23_stratum_classification_tvmovie_video_and_disagreement_keys(conn, world):
+    w, rv = world
+    # 1. 单元级直接验证 _classify_movie_stratum 对新旧键名的支持
+    # E1：movie 且无任何分歧或上界冲突
+    assert _classify_movie_stratum(
+        ("verified", {"year_diff_1": [], "year_disagreement": [], "tconst_disagreement": []}),
+        ("imdb_t4_link", {"title_type": "movie"}, 1999),
+        None,
+        False,
+    ) == "E1"
+    # E2：title_type = tvMovie 或 video（含旧键名 titleType）
+    assert _classify_movie_stratum(
+        ("verified", {}), ("imdb_t4_link", {"title_type": "tvMovie"}, 2004), None, False
+    ) == "E2"
+    assert _classify_movie_stratum(
+        ("verified", {}), ("imdb_t4_link", {"title_type": "video"}, 2001), None, False
+    ) == "E2"
+    assert _classify_movie_stratum(
+        ("verified", {}), ("imdb_t4_link", {"titleType": "tvMovie"}, 2004), None, False
+    ) == "E2"
+    # E2：三种分歧键名 year_diff_1 / year_disagreement / tconst_disagreement
+    assert _classify_movie_stratum(
+        ("verified", {"year_diff_1": [10]}), ("imdb_t4_link", {"title_type": "movie"}, 1990), None, False
+    ) == "E2"
+    assert _classify_movie_stratum(
+        ("verified", {"year_disagreement": [{"candidate_id": 11, "diff": 4}]}),
+        ("imdb_t4_link", {"title_type": "movie"}, 1990),
+        None,
+        False,
+    ) == "E2"
+    assert _classify_movie_stratum(
+        ("verified", {"tconst_disagreement": ["tt9999999"]}),
+        ("imdb_t4_link", {"title_type": "movie"}, 1990),
+        None,
+        False,
+    ) == "E2"
+    # E3–E7
+    assert _classify_movie_stratum(("hint_matched", {"tconst_disagreement": ["tt1"]}), None, None, False) == "E3"
+    assert _classify_movie_stratum(("cooccur_matched", {}), None, None, False) == "E4"
+    assert _classify_movie_stratum(("page_reported", {}), None, None, False) == "E5"
+    assert _classify_movie_stratum(("missing", {}), None, ("2001-01-01", "media_release"), False) == "E6"
+    assert _classify_movie_stratum(("missing", {}), None, None, False) == "E7"
+
+    # 2. 集成级验证夹具全池（清空 dev_pool 以观察全部作品的分层）
+    conn.execute("DELETE FROM task6.dev_pool WHERE extraction_id = %s", (w.extraction_id,))
+    strata = build_eval_candidates(conn, rv)
+    by_mid = {item["movie_id"]: item["stratum"] for items in strata.values() for item in items}
+
+    m_alpha = h._movie_of(conn, w.mapping, "B0T6A10001")   # movie, 1999, 无分歧
+    m_beta = h._movie_of(conn, w.mapping, "B0T6B10001")    # tvMovie, 2004
+    m_video = h._movie_of(conn, w.mapping, "B0T6V10001")   # video, 2001
+    m_filmg = h._movie_of(conn, w.mapping, "B0T6FLG001")   # movie, year_diff_1 (1990 vs 1991)
+    m_filmh = h._movie_of(conn, w.mapping, "B0T6FLH001")   # movie, year_disagreement (1990 vs 1994)
+    m_ers = h._movie_of(conn, w.mapping, "B0T6ERS001")     # bound_before_release_year (B4)
+    m_cls = h._movie_of(conn, w.mapping, "B0T6CLS001")     # bound_before_release_year (M4)
+    m_luk = h._movie_of(conn, w.mapping, "B0T6LUK001")     # hint_matched + tconst_disagreement
+
+    assert by_mid[m_alpha] == "E1"
+    assert by_mid[m_beta] == "E2"
+    assert by_mid[m_video] == "E2"
+    assert by_mid[m_filmg] == "E2"
+    assert by_mid[m_filmh] == "E2"
+    assert by_mid[m_ers] == "E2"
+    assert by_mid[m_cls] == "E2"
+    assert by_mid[m_luk] == "E3"
+
+
+# ------------------------------------------------------------------ 6. AC23：商品原始标题导出与 item_id 全局 MD5 打乱
+
+def test_ac23_raw_product_titles_and_global_md5_shuffle(conn, world, tmp_path):
+    w, rv = world
+    conn.execute("DELETE FROM task6.dev_pool WHERE extraction_id = %s", (w.extraction_id,))
+    out_dir = tmp_path / "eval_ac23_blind"
+    exp = export_eval_set(conn, rv, out_dir)
+    sid = exp["eval_set_id"]
+
+    # 1. 验证 item_id 格式为 t6_eval_0001.. 且顺序严格按 md5(movie_id) 全局打乱，而非按 stratum 扎堆
+    db_rows = conn.execute(
+        "SELECT item_id, movie_id, stratum FROM task6.eval_item WHERE eval_set_id = %s ORDER BY item_id",
+        (sid,),
+    ).fetchall()
+    assert [r[0] for r in db_rows] == [f"t6_eval_{i:04d}" for i in range(1, len(db_rows) + 1)]
+    expected_mids = sorted(
+        [r[1] for r in db_rows],
+        key=lambda m: (hashlib.md5(m.encode("utf-8")).hexdigest(), m),
+    )
+    assert [r[1] for r in db_rows] == expected_mids
+    # 验证 stratum 序列不是单调非降序（即未按 E1..E7 顺序连续排列）
+    strata_seq = [r[2] for r in db_rows]
+    assert strata_seq != sorted(strata_seq)
+
+    # 2. 验证 eval_items.csv 的 product_titles 保留了 task4.field_assertion 的原始标题（含括号年份与 [VHS]）
+    with Path(exp["eval_items_file"]).open("r", encoding="utf-8") as f:
+        csv_by_id = {r["item_id"]: r for r in csv.DictReader(f)}
+
+    mid_to_iid = {r[1]: r[0] for r in db_rows}
+    m_filmc = h._movie_of(conn, w.mapping, "B0T6FLC001")   # E5 page_reported: Film C (1985) / Film C (1985) [VHS]
+    m_filme = h._movie_of(conn, w.mapping, "B0T6FLE001")   # E5 page_reported: Film E (1986)
+    assert "(1985)" in csv_by_id[mid_to_iid[m_filmc]]["product_titles"]
+    assert "[VHS]" in csv_by_id[mid_to_iid[m_filmc]]["product_titles"]
+    assert csv_by_id[mid_to_iid[m_filme]]["product_titles"] == "Film E (1986)"
+
+    # 3. 验证当总池充足但中间层不足时，按 FILL_ORDER (E1, E7) 补足凑满 120 部并分配 t6_eval_0001..t6_eval_0120
+    cand_id = conn.execute(
+        "SELECT selected_candidate_id FROM task6.release_selection WHERE release_version_id = %s AND status = 'verified' LIMIT 1",
+        (rv,),
+    ).fetchone()[0]
+    t4_run_id = conn.execute(
+        "SELECT run_id FROM task4.mapping_version WHERE mapping_version_id = %s",
+        (w.mapping,),
+    ).fetchone()[0]
+    for i in range(1, 45):
+        mid = f"mv_e10000000000{i:04x}"
+        conn.execute(
+            "INSERT INTO task4.movie_identity (anchor_key, movie_id, created_run) VALUES (%s, %s, %s)",
+            (f"fill_e1:{i}", mid, t4_run_id),
+        )
+        conn.execute(
+            "INSERT INTO task4.movie (mapping_version_id, movie_id, status, anchor_key, tconst, display_title, edition_count) "
+            "VALUES (%s, %s, 'imdb_linked', %s, 'tt0006001', %s, 1)",
+            (w.mapping, mid, f"fill_e1:{i}", f"Fill E1 Movie {i}"),
+        )
+        conn.execute(
+            "INSERT INTO task6.release_selection (release_version_id, movie_id, status, release_year, precision, "
+            "release_type, regional_release_missing_reason, selected_candidate_id, selection_rule, reason, confidence, disagreement) "
+            "VALUES (%s, %s, 'verified', 1999, 'year', 'first_release', 'no_permitted_dated_source', %s, 't6r1', 'fill e1', 0.95, '{}')",
+            (rv, mid, cand_id),
+        )
+    for i in range(1, 80):
+        mid = f"mv_e70000000000{i:04x}"
+        conn.execute(
+            "INSERT INTO task4.movie_identity (anchor_key, movie_id, created_run) VALUES (%s, %s, %s)",
+            (f"fill_e7:{i}", mid, t4_run_id),
+        )
+        conn.execute(
+            "INSERT INTO task4.movie (mapping_version_id, movie_id, status, anchor_key, display_title, edition_count) "
+            "VALUES (%s, %s, 'page_only', %s, %s, 1)",
+            (w.mapping, mid, f"fill_e7:{i}", f"Fill E7 Movie {i}"),
+        )
+        conn.execute(
+            "INSERT INTO task6.release_selection (release_version_id, movie_id, status, missing_reason, precision, "
+            "release_type, regional_release_missing_reason, selection_rule, reason, confidence, disagreement) "
+            "VALUES (%s, %s, 'missing', 'no_candidate', 'year', 'first_release', 'no_permitted_dated_source', 't6r1', 'fill e7', 0.0, '{}')",
+            (rv, mid),
+        )
+    out_dir_120 = tmp_path / "eval_ac23_120"
+    exp120 = export_eval_set(conn, rv, out_dir_120)
+    assert exp120["items_total"] == 120
+    assert exp120["strata_counts"]["E1"]["filled"] > 0
+    assert exp120["strata_counts"]["E7"]["filled"] > 0
+    rows120 = conn.execute(
+        "SELECT item_id, movie_id FROM task6.eval_item WHERE eval_set_id = %s ORDER BY item_id",
+        (exp120["eval_set_id"],),
+    ).fetchall()
+    assert [r[0] for r in rows120] == [f"t6_eval_{i:04d}" for i in range(1, 121)]
+    assert [r[1] for r in rows120] == sorted(
+        [r[1] for r in rows120],
+        key=lambda m: (hashlib.md5(m.encode("utf-8")).hexdigest(), m),
+    )
+
+
+# ------------------------------------------------------------------ 7. AC23：AI 草稿非循环且不采用禁用来源
+
+def test_ac23_ai_draft_is_non_circular_and_rejects_forbidden_sources(conn, world, tmp_path):
+    w, rv = world
+    conn.execute("DELETE FROM task6.dev_pool WHERE extraction_id = %s", (w.extraction_id,))
+
+    m_alpha = h._movie_of(conn, w.mapping, "B0T6A10001")   # tt0006001, IMDb start_year=1999
+    m_jan = h._movie_of(conn, w.mapping, "B0T6JAN001")     # missing, 有 media_release 2001-01-01 与推断上界 2001
+    m_rvt = h._movie_of(conn, w.mapping, "B0T6RVT001")     # missing, 仅有评论年份提及 1950 与评论时间 1999
+
+    # 故意篡改 release_selection.release_year 为虚假的 1911，验证 _generate_ai_draft 绝不读取或复制 system_year
+    conn.execute(
+        "UPDATE task6.release_selection SET release_year = 1911 WHERE release_version_id = %s AND movie_id = %s",
+        (rv, m_alpha),
+    )
+
+    out_dir = tmp_path / "eval_ac23_draft"
+    exp = export_eval_set(conn, rv, out_dir)
+    sid = exp["eval_set_id"]
+    mid_to_iid = dict(
+        conn.execute("SELECT movie_id, item_id FROM task6.eval_item WHERE eval_set_id = %s", (sid,)).fetchall()
+    )
+
+    with Path(exp["draft_file"]).open("r", encoding="utf-8") as f:
+        draft_by_id = {r["item_id"]: r for r in csv.DictReader(f)}
+
+    # 1. Alpha Film 的草稿年份来自独立查询的 imdb.title (1999)，绝不等于被篡改的 system_year (1911)
+    d_alpha = draft_by_id[mid_to_iid[m_alpha]]
+    assert d_alpha["ai_true_year"] == "1999"
+    assert d_alpha["ai_tconst_label"] == "same"
+    assert "1911" not in d_alpha["ai_reason"]
+
+    # 2. missing 作品（含发售日/推断上界 2001 的 January Movie、含评论提及 1950 的 Review Talk）绝不填入 ai_true_year，且不泄露上界年份
+    d_jan = draft_by_id[mid_to_iid[m_jan]]
+    assert d_jan["ai_true_year"] == ""
+    assert d_jan["ai_tconst_label"] == "na"
+    assert d_jan["ai_doubt"] == "true"
+    assert "2001" not in d_jan["ai_reason"]
+
+    d_rvt = draft_by_id[mid_to_iid[m_rvt]]
+    assert d_rvt["ai_true_year"] == ""
+    assert d_rvt["ai_tconst_label"] == "na"
+    assert d_rvt["ai_doubt"] == "true"
+
+    # 3. 当候选 tconst 的 IMDb 标题或演职员与商品不吻合（如单实词别名跨作品错配）时，标 ai_tconst_label = different, ai_doubt = true
+    mismatch_draft = _generate_ai_draft(
+        {
+            "movie_title": "New Legend of Shaolin",
+            "product_titles": "New Legend of Shaolin [DVD]",
+            "directors": "Corey Yuen",
+            "actors": "Jet Li",
+            "tconst": "tt0106936",
+            "system_year": 1993,   # 即使传入 system_year 也不得读取
+            "bound_year": 1998,
+        },
+        {"titles": ["New Legend of Shaolin [DVD]"], "directors": ["Corey Yuen"], "actors": ["Jet Li"]},
+        {
+            "tt0106936": {
+                "tconst": "tt0106936",
+                "primary_title": "The Legend",
+                "original_title": "Fong Sai-Yuk",
+                "start_year": 1993,
+                "title_type": "movie",
+                "title_keys": {"legend", "fong sai yuk"},
+                "directors": {"corey yuen"},
+                "actors": {"jet li"},
+            }
+        },
+    )
+    assert mismatch_draft["ai_true_year"] == ""
+    assert mismatch_draft["ai_tconst_label"] == "different"
+    assert mismatch_draft["ai_doubt"] == "true"
+

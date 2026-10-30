@@ -18,6 +18,7 @@ import csv
 import hashlib
 import json
 import math
+import re
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -29,9 +30,13 @@ from etl_task1 import reporting
 from etl_task1.config import load_settings
 from etl_task1.db import connect
 from etl_task2.crawl.crawler import latest_full_extraction
+from etl_task4.normalize import PLACEHOLDER_NAMES, split_title, strict_name, title_key
 
 from .check import latest_rv, rv_row
+from .pipeline import default_t4_mapping
 from .report import output_root
+from .rules import cooccur_number_guard, cooccur_title_ok
+from .run import apply_task6_schema
 
 DEV_FRACTION = 5   # 前 1/5 = 20% 作品属于开发池
 TARGET_TOTAL = 120
@@ -141,16 +146,30 @@ def freeze_dev_pool(conn: psycopg.Connection, extraction_id: str, t4_mapping_ver
 
 # ------------------------------------------------------------------ 2. 评价表导出 (R37)
 
-def _classify_movie_stratum(s_row: tuple, c_row: tuple | None, b_row: tuple | None,
-                            has_bound_conflict: bool) -> str:
+def _classify_movie_stratum(s_row: tuple | dict[str, Any], c_row: tuple | dict[str, Any] | None,
+                            b_row: tuple | dict[str, Any] | None, has_bound_conflict: bool) -> str:
     """判定单部作品的评价分层（E1–E7）。"""
-    status, disagreement = s_row[0], s_row[1] or {}
+    if isinstance(s_row, dict):
+        status = s_row.get("status")
+        disagreement = s_row.get("disagreement") or {}
+    else:
+        status, disagreement = s_row[0], s_row[1] or {}
     if status == "verified":
-        source_ref = (c_row[1] if c_row else {}) or {}
-        ttype = source_ref.get("titleType")
-        diff_yr = disagreement.get("year_diff")
-        diff_tc = disagreement.get("tconst_different")
-        is_hard = (ttype in ("tvMovie", "video")) or bool(diff_yr) or bool(diff_tc) or has_bound_conflict
+        if isinstance(c_row, dict):
+            source_ref = (c_row.get("source_ref") if "source_ref" in c_row else c_row) or {}
+        else:
+            source_ref = (c_row[1] if c_row else {}) or {}
+        ttype = source_ref.get("title_type") or source_ref.get("titleType")
+        diff_yr1 = disagreement.get("year_diff_1")
+        diff_yr = disagreement.get("year_disagreement") or disagreement.get("year_diff")
+        diff_tc = disagreement.get("tconst_disagreement") or disagreement.get("tconst_different")
+        is_hard = (
+            (ttype in ("tvMovie", "video"))
+            or bool(diff_yr1)
+            or bool(diff_yr)
+            or bool(diff_tc)
+            or has_bound_conflict
+        )
         return "E2" if is_hard else "E1"
     elif status == "hint_matched":
         return "E3"
@@ -188,10 +207,14 @@ def build_eval_candidates(conn: psycopg.Connection, rv: str) -> dict[str, list[d
         "SELECT movie_id, bound_time, chosen_evidence FROM task6.inferred_release_bound "
         "WHERE release_version_id = %s", (rv,)).fetchall()}
 
-    # 质量问题中的上界早于上映年
+    # 质量问题或上界证据中的上界早于上映年（B4/M4）
     bound_conflicts = {r[0] for r in conn.execute(
         "SELECT entity_id FROM task6.quality_issue WHERE extraction_id = %s "
-        "AND issue_code = 'bound_before_release_year'", (eid,)).fetchall()}
+        "AND issue_code = 'bound_before_release_year' "
+        "UNION "
+        "SELECT movie_id FROM task6.bound_evidence WHERE release_version_id = %s "
+        "AND ('B4' = ANY(failed_checks) OR 'M4' = ANY(failed_checks))",
+        (eid, rv)).fetchall()}
 
     # 作品与元数据
     movies = conn.execute(
@@ -237,6 +260,7 @@ def export_eval_set(conn: psycopg.Connection, rv: str, directory: Path) -> dict[
     eid = row["extraction_id"]
     t4 = row["t4_mapping_version_id"]
     rule = row["rule_version"]
+    snapshot_id = row.get("imdb_snapshot_id")
     sid = eval_set_id(rv)
 
     directory.mkdir(parents=True, exist_ok=True)
@@ -269,14 +293,17 @@ def export_eval_set(conn: psycopg.Connection, rv: str, directory: Path) -> dict[
             if needed <= 0:
                 break
 
-    # 排序并编号 item_id
-    selected_items.sort(key=lambda x: (x["stratum"], _md5(x["movie_id"])))
+    # 按 md5(movie_id) 全局确定性打乱后再顺序分配 t6_eval_0001..t6_eval_0120，严禁按 stratum 连续编号泄露分层与状态
+    selected_items.sort(key=lambda x: (hashlib.md5(x["movie_id"].encode("utf-8")).hexdigest(), x["movie_id"]))
     for idx, item in enumerate(selected_items, start=1):
-        item["item_id"] = f"it_{idx:04d}"
+        item["item_id"] = f"t6_eval_{idx:04d}"
 
-    # 补充页面展示字段（ASIN、标题、导演、主演）
+    # 补充页面展示字段（ASIN、商品原始标题、导演、主演）与公开 IMDb 信息
     item_mids = [x["movie_id"] for x in selected_items]
     product_info = _fetch_product_details(conn, eid, t4, item_mids)
+    imdb_info = _fetch_imdb_public_info(
+        conn, snapshot_id, [x["tconst"] for x in selected_items if x.get("tconst")]
+    )
 
     # 写库：task6.eval_set 与 task6.eval_item
     with conn.transaction(), conn.cursor() as cur:
@@ -314,8 +341,8 @@ def export_eval_set(conn: psycopg.Connection, rv: str, directory: Path) -> dict[
         human_blank = {"true_year": "", "year_label": "", "tconst_label": "", "note": ""}
         csv_rows.append({**base_row, **human_blank})
 
-        # AI 预标注草稿
-        ai_draft = _generate_ai_draft(it, info)
+        # AI 预标注草稿：仅传盲测可见字段 base_row、商品详情 info 与公开 IMDb 信息
+        ai_draft = _generate_ai_draft(base_row, info, imdb_info)
         draft_rows.append({**base_row, **ai_draft, **human_blank})
 
     _write_csv(directory / "eval_items.csv", ITEM_COLUMNS, csv_rows)
@@ -334,27 +361,54 @@ def export_eval_set(conn: psycopg.Connection, rv: str, directory: Path) -> dict[
 
 def _fetch_product_details(conn: psycopg.Connection, eid: str, t4: str,
                            movie_ids: list[str]) -> dict[str, dict[str, list[str]]]:
-    """查询作品下各商品的 ASIN、标题、导演与主要演员。"""
+    """查询作品下各商品的 ASIN、原始商品标题（来自 task4.field_assertion title 断言，保留括号年份）、导演与主要演员。"""
     res: dict[str, dict[str, list[str]]] = defaultdict(lambda: {
         "asins": [], "titles": [], "directors": [], "actors": []})
     if not movie_ids:
         return res
 
-    # ASIN 与商品标题
-    for mid, asin, title in conn.execute(
-            "SELECT pm.movie_id, pm.asin, m.display_title FROM task4.product_movie pm "
-            "JOIN task4.movie m ON m.mapping_version_id = pm.mapping_version_id AND m.movie_id = pm.movie_id "
-            "WHERE pm.mapping_version_id = %s AND pm.movie_id = ANY(%s) ORDER BY pm.member_ordinal",
-            (t4, movie_ids)).fetchall():
+    # ASIN 与商品原始标题（优先取 task4.field_assertion 的 title 原值，保留如 (1998) [VHS]）
+    for mid, asin, raw_title in conn.execute(
+            """
+            SELECT pm.movie_id,
+                   pm.asin,
+                   COALESCE(
+                       (SELECT fa.raw_value
+                        FROM task4.field_assertion fa
+                        WHERE fa.extraction_id = %s
+                          AND fa.field_name = 'title'
+                          AND fa.entity_id = CASE WHEN pm.member_ordinal > 0
+                                                  THEN pm.asin || '#' || pm.member_ordinal::text
+                                                  ELSE pm.asin END
+                        ORDER BY fa.ordinal, fa.assertion_id
+                        LIMIT 1),
+                       (SELECT fa.raw_value
+                        FROM task4.field_assertion fa
+                        WHERE fa.extraction_id = %s
+                          AND fa.field_name = 'title'
+                          AND fa.entity_id = pm.asin
+                        ORDER BY fa.ordinal, fa.assertion_id
+                        LIMIT 1),
+                       m.display_title
+                   ) AS raw_title
+            FROM task4.product_movie pm
+            JOIN task4.movie m
+              ON m.mapping_version_id = pm.mapping_version_id AND m.movie_id = pm.movie_id
+            WHERE pm.mapping_version_id = %s AND pm.movie_id = ANY(%s)
+            ORDER BY pm.member_ordinal, pm.asin
+            """,
+            (eid, eid, t4, movie_ids)).fetchall():
         if asin not in res[mid]["asins"]:
             res[mid]["asins"].append(asin)
-            res[mid]["titles"].append(title)
+        if raw_title and raw_title not in res[mid]["titles"]:
+            res[mid]["titles"].append(raw_title)
 
     # 演职员断言（任务 4 结构）
     for mid, asin in [(m, a) for m, data in res.items() for a in data["asins"]]:
         for fk, val in conn.execute(
                 "SELECT field_name, raw_value FROM task4.field_assertion WHERE extraction_id = %s "
-                "AND entity_id = %s AND field_name IN ('director', 'starring', 'actor')", (eid, asin)).fetchall():
+                "AND entity_id = %s AND field_name IN ('director', 'starring', 'actor') "
+                "ORDER BY ordinal, assertion_id", (eid, asin)).fetchall():
             if fk == "director" and val and val not in res[mid]["directors"]:
                 res[mid]["directors"].append(val)
             elif fk in ("starring", "actor") and val and val not in res[mid]["actors"]:
@@ -362,40 +416,215 @@ def _fetch_product_details(conn: psycopg.Connection, eid: str, t4: str,
     return res
 
 
-def _generate_ai_draft(item: dict[str, Any], info: dict[str, Any]) -> dict[str, str]:
-    """为 AI 草稿给出预标注建议（非事实依据，仅作为建议）。"""
-    tconst = item.get("tconst")
-    sys_yr = item.get("system_year")
-    bound_yr = item.get("bound_year")
+def _fetch_imdb_public_info(
+    conn: psycopg.Connection, snapshot_id: str | None, tconsts: list[str]
+) -> dict[str, dict[str, Any]]:
+    """从 imdb.title、task4.imdb_title_key 与演职员公开表独立查询候选 tconst 的标题、年份與演职员。"""
+    clean_tconsts = sorted({tc for tc in tconsts if tc})
+    if not clean_tconsts:
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    rows = []
+    if snapshot_id:
+        rows = conn.execute(
+            "SELECT tconst, primary_title, original_title, start_year, title_type "
+            "FROM imdb.title WHERE snapshot_id = %s AND tconst = ANY(%s)",
+            (snapshot_id, clean_tconsts),
+        ).fetchall()
+    if not rows:
+        rows = conn.execute(
+            "SELECT tconst, primary_title, original_title, start_year, title_type "
+            "FROM imdb.title WHERE tconst = ANY(%s)",
+            (clean_tconsts,),
+        ).fetchall()
+    for tc, ptitle, otitle, syr, ttype in rows:
+        tkeys = set()
+        for t in (ptitle, otitle):
+            if t:
+                for k in (split_title(t).key, title_key(t)):
+                    if k:
+                        tkeys.add(k)
+        out[tc] = {
+            "tconst": tc,
+            "primary_title": ptitle or "",
+            "original_title": otitle or "",
+            "start_year": syr,
+            "title_type": ttype,
+            "title_keys": tkeys,
+            "directors": set(),
+            "actors": set(),
+        }
+    for tc, tk in conn.execute(
+        "SELECT tconst, title_key FROM task4.imdb_title_key WHERE tconst = ANY(%s)",
+        (clean_tconsts,),
+    ).fetchall():
+        if tc in out and tk:
+            out[tc]["title_keys"].add(tk)
+    for tc, name in conn.execute(
+        "SELECT td.tconst, n.primary_name FROM imdb.title_director td "
+        "JOIN imdb.name n ON n.snapshot_id = td.snapshot_id AND n.nconst = td.nconst "
+        "WHERE td.tconst = ANY(%s)",
+        (clean_tconsts,),
+    ).fetchall():
+        if tc in out and name and strict_name(name):
+            out[tc]["directors"].add(strict_name(name))
+    for tc, name in conn.execute(
+        "SELECT tp.tconst, n.primary_name FROM imdb.title_principal tp "
+        "JOIN imdb.name n ON n.snapshot_id = tp.snapshot_id AND n.nconst = tp.nconst "
+        "WHERE tp.tconst = ANY(%s) AND tp.category IN ('actor', 'actress', 'self')",
+        (clean_tconsts,),
+    ).fetchall():
+        if tc in out and name and strict_name(name):
+            out[tc]["actors"].add(strict_name(name))
+    return out
 
-    if tconst and sys_yr:
-        return {
-            "ai_true_year": str(sys_yr),
-            "ai_tconst_label": "same",
-            "ai_doubt": "low" if item["stratum"] == "E1" else "medium",
-            "ai_reason": f"IMDb {tconst} 记录上映年份为 {sys_yr}；作品标题一致",
-        }
-    elif sys_yr:
-        return {
-            "ai_true_year": str(sys_yr),
-            "ai_tconst_label": "na",
-            "ai_doubt": "medium",
-            "ai_reason": f"依据商品标题提取年份 {sys_yr}；未关联 IMDb 作品",
-        }
-    elif bound_yr:
+
+_MEDIA_YEAR_RE = re.compile(r"\b(?:dvd|vhs|blu[- ]?ray|laser\s*disc|umd|hd[- ]?dvd|reissue|remaster(?:ed)?)\b", re.I)
+
+
+def _extract_bracket_title_years(raw_titles: list[str]) -> list[int]:
+    """仅从原始商品标题的括号段提取作品年份（排除写明 DVD/VHS 等介质重发年份的括号）。"""
+    years: set[int] = set()
+    for raw in raw_titles:
+        parts = split_title(raw)
+        for desc in parts.descriptors:
+            if desc.position in ("paren", "bracket") and desc.year is not None:
+                if not _MEDIA_YEAR_RE.search(desc.raw):
+                    years.add(desc.year)
+    return sorted(years)
+
+
+def _generate_ai_draft(
+    item: dict[str, Any],
+    info: dict[str, Any] | None = None,
+    imdb_info: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, str]:
+    """仅基于盲测表公开信息（商品原始标题中的括号年份、公开演职员、候选 tconst 在 imdb 公开表中的独立核对）生成预标注建议。
+
+    严禁读取或复制 item 中的 system_year、release_year、status、stratum、bound_year、bound_time；
+    严禁将 DVD/VHS 发售日期、最早评论时间或推断上界填作 ai_true_year。
+    """
+    info = info or {}
+    tconst = (item.get("tconst") or "").strip()
+    movie_title = (item.get("movie_title") or "").strip()
+
+    raw_titles = [t.strip() for t in info.get("titles", []) if t and str(t).strip()]
+    if not raw_titles and item.get("product_titles"):
+        raw_titles = [t.strip() for t in str(item["product_titles"]).split(";") if t.strip()]
+
+    directors = [d.strip() for d in info.get("directors", []) if d and str(d).strip()]
+    if not directors and item.get("directors"):
+        raw_d = item["directors"]
+        directors = [d.strip() for d in (raw_d.split(";") if isinstance(raw_d, str) else raw_d) if str(d).strip()]
+
+    actors = [a.strip() for a in info.get("actors", []) if a and str(a).strip()]
+    if not actors and item.get("actors"):
+        raw_a = item["actors"]
+        actors = [a.strip() for a in (raw_a.split(";") if isinstance(raw_a, str) else raw_a) if str(a).strip()]
+
+    title_years = _extract_bracket_title_years(raw_titles)
+
+    prod_keys: list[str] = []
+    for t in raw_titles:
+        for k in (split_title(t).key, title_key(t)):
+            if k and k not in prod_keys:
+                prod_keys.append(k)
+    if movie_title:
+        for k in (split_title(movie_title).key, title_key(movie_title)):
+            if k and k not in prod_keys:
+                prod_keys.append(k)
+
+    placeholder_strict = {strict_name(p) for p in PLACEHOLDER_NAMES}
+    page_people = {
+        strict_name(p)
+        for p in (directors + actors)
+        if strict_name(p) and strict_name(p) not in placeholder_strict
+    }
+
+    if tconst:
+        rec = (imdb_info or {}).get(tconst)
+        if rec and rec.get("start_year") is not None:
+            imdb_yr = int(rec["start_year"])
+            imdb_keys = set(rec.get("title_keys") or ())
+            for pt in (rec.get("primary_title"), rec.get("original_title")):
+                if pt:
+                    for k in (split_title(pt).key, title_key(pt)):
+                        if k:
+                            imdb_keys.add(k)
+            title_match = any(
+                (ik == pk) or (cooccur_title_ok(ik, pk) and cooccur_number_guard(ik, pk))
+                for ik in imdb_keys
+                for pk in prod_keys
+            )
+            imdb_people = set(rec.get("directors") or ()) | set(rec.get("actors") or ())
+            person_ok = (not page_people) or (not imdb_people) or bool(page_people & imdb_people)
+
+            if not title_match or not person_ok:
+                why = "标题与商品不吻合" if not title_match else "演职员与页面署名不一致"
+                return {
+                    "ai_true_year": str(title_years[0]) if len(title_years) == 1 else "",
+                    "ai_tconst_label": "different",
+                    "ai_doubt": "true",
+                    "ai_reason": (
+                        f"IMDb {tconst}（{rec.get('primary_title')}, {imdb_yr}）{why}，疑为异片错配，需人工核查"
+                    ),
+                }
+            if len(title_years) == 1 and abs(title_years[0] - imdb_yr) > 1:
+                return {
+                    "ai_true_year": str(imdb_yr),
+                    "ai_tconst_label": "same",
+                    "ai_doubt": "true",
+                    "ai_reason": (
+                        f"IMDb {tconst}（{rec.get('primary_title')}）startYear={imdb_yr}，但与商品原始标题括号年份 "
+                        f"({title_years[0]}) 相差超过 1 年，需人工复核"
+                    ),
+                }
+            ttype = rec.get("title_type") or "movie"
+            return {
+                "ai_true_year": str(imdb_yr),
+                "ai_tconst_label": "same",
+                "ai_doubt": "false" if ttype == "movie" else "true",
+                "ai_reason": (
+                    f"独立核对 IMDb {tconst}（{rec.get('primary_title')}，type={ttype}）标题与公开演职员吻合，"
+                    f"startYear={imdb_yr}"
+                ),
+            }
+        # 有 tconst 但公开表中未查到有效 startYear
+        if len(title_years) == 1:
+            return {
+                "ai_true_year": str(title_years[0]),
+                "ai_tconst_label": "unsure",
+                "ai_doubt": "true",
+                "ai_reason": f"IMDb {tconst} 在公开表中无有效 startYear；从商品原始标题括号提取年份 ({title_years[0]})，需人工核查",
+            }
         return {
             "ai_true_year": "",
-            "ai_tconst_label": "same" if tconst else "na",
-            "ai_doubt": "high",
-            "ai_reason": f"未确证首次公开发行年；系统推断上界为 {bound_yr}",
+            "ai_tconst_label": "unsure",
+            "ai_doubt": "true",
+            "ai_reason": f"IMDb {tconst} 在公开表中无有效 startYear 且商品原始标题不含括号上映年份，留空待人工核查",
         }
-    else:
+
+    # 无关联 tconst：仅依据商品原始标题中的括号上映年份独立判断
+    if len(title_years) == 1:
+        return {
+            "ai_true_year": str(title_years[0]),
+            "ai_tconst_label": "na",
+            "ai_doubt": "false",
+            "ai_reason": f"无关联 tconst；从商品原始标题括号独立提取上映年份 ({title_years[0]})",
+        }
+    if len(title_years) > 1:
         return {
             "ai_true_year": "",
             "ai_tconst_label": "na",
-            "ai_doubt": "high",
-            "ai_reason": "未能从公开页面或 IMDb 条目查到上映年份",
+            "ai_doubt": "true",
+            "ai_reason": f"无关联 tconst；商品原始标题存在多个不一致括号年份 {title_years}，留空待人工核查",
         }
+    return {
+        "ai_true_year": "",
+        "ai_tconst_label": "na",
+        "ai_doubt": "true",
+        "ai_reason": "无关联 tconst 且商品原始标题不含括号上映年份（不采用 DVD/VHS 发售日、评论时间或推断上界），留空待人工核查",
+    }
 
 
 def _write_csv(path: Path, columns: tuple[str, ...], rows: list[dict[str, Any]]) -> None:
@@ -441,7 +670,12 @@ def import_labels(conn: psycopg.Connection, eval_set_id_val: str, csv_path: Path
             if not iid:
                 continue
             if iid not in items:
-                raise EvalError(f"第 {row_idx} 行：item_id {iid} 不属于评价集 {eval_set_id_val}")
+                if iid.startswith("it_") and f"t6_eval_{iid[3:]}" in items:
+                    iid = f"t6_eval_{iid[3:]}"
+                elif iid.startswith("t6_eval_") and f"it_{iid[8:]}" in items:
+                    iid = f"it_{iid[8:]}"
+                else:
+                    raise EvalError(f"第 {row_idx} 行：item_id {iid} 不属于评价集 {eval_set_id_val}")
 
             y_lbl = r.get("year_label", "").strip()
             if y_lbl not in ("known", "unsure"):
@@ -565,7 +799,16 @@ def metrics(conn: psycopg.Connection, rv: str) -> dict[str, Any]:
 
     # 2. tconst 匹配正确率（总体、按来源）
     tconst_overall = _calc_tconst_acc(labeled)
-    tconst_by_source = {src: _calc_tconst_acc([r for r in labeled if r["source"] == src]) for src in sources}
+    tc_sources = sorted(
+        {r["source"] or ("imdb_t4_link" if r["tconst"] else None) for r in labeled if r["source"] or r["tconst"]}
+        - {None}
+    )
+    tconst_by_source = {
+        src: _calc_tconst_acc(
+            [r for r in labeled if (r["source"] or ("imdb_t4_link" if r["tconst"] else None)) == src]
+        )
+        for src in tc_sources
+    }
 
     # 3. 推断上界成立率（总体、按证据类型）
     bound_overall = _calc_bound_rate(labeled)
@@ -616,10 +859,18 @@ def metrics(conn: psycopg.Connection, rv: str) -> dict[str, Any]:
         "bound_validity": {
             "overall": bound_overall,
             "by_evidence": bound_by_evidence,
+            "by_evidence_type": bound_by_evidence,
         },
+        "by_stratum": year_by_stratum,
+        "by_source": year_by_source,
+        "by_evidence_type": bound_by_evidence,
+        "bounds_by_evidence": bound_by_evidence,
         "missing_findable": missing_findable,
         "scope_note": "指标只代表评价样本（分层抽样刻意多取难例），不代表全量准确率；“不确定”不计入准确率分母；分母为零记“无定义”。",
     }
+
+
+compute_eval_metrics = metrics
 
 
 def render_metrics(m: dict[str, Any]) -> str:
@@ -710,15 +961,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     s = load_settings()
     with connect(s) as conn:
+        apply_task6_schema(conn)
         eid = getattr(args, "extraction_id", None) or latest_full_extraction(conn)
-        rv = getattr(args, "rv", None) or latest_rv(conn, eid)
-        row = rv_row(conn, rv)
-
         if args.cmd == "freeze":
-            t4 = getattr(args, "mapping_id", None) or row["t4_mapping_version_id"]
+            t4 = getattr(args, "mapping_id", None) or default_t4_mapping(conn, eid)
             res = freeze_dev_pool(conn, eid, t4)
             print(json.dumps(res, ensure_ascii=False, indent=2))
-        elif args.cmd == "export":
+            return 0
+
+        rv = getattr(args, "rv", None) or latest_rv(conn, eid)
+
+        if args.cmd == "export":
             directory = eval_dir(Path(args.output_dir), eid, rv)
             res = export_eval_set(conn, rv, directory)
             print(json.dumps(res, ensure_ascii=False, indent=2))

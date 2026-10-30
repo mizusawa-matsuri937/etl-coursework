@@ -71,7 +71,7 @@
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_evaluate.py
   ```
 
-  期望：`4 passed`。全量 781 passed。
+  期望：`7 passed`（初版 `4 passed`，T6-10 补充 3 项 AC23 回归测试后为 `7 passed`）。
 
 - [x] T6-07 正式库初版运行：经 Airflow 全量运行，只读核对，导出报告与评价表初稿；独立审查发现的问题由 T6-08 至 T6-11 修复后重跑。关联 AC18、AC20。
   - 文件：`doc/task6/design.md`（资源实测、审查发现与修复设计）、`doc/task6/review.md`；`outputs/task6/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rv0001/`（不入库）。
@@ -111,16 +111,16 @@
 
   期望：`23 passed, 7 warnings`（且 `test_task6_dag.py` 中来自 `amazon_movies_task6_release.py` 的弃用警告已消除）。
 
-- [ ] T6-10 修复评价分层键名、盲测导出与非循环 AI 预标注草稿（审查 ISSUE-01、ISSUE-02、ISSUE-03、ISSUE-11）。关联 AC17、AC23。
+- [x] T6-10 修复评价分层键名、盲测导出与非循环 AI 预标注草稿（审查 ISSUE-01、ISSUE-02、ISSUE-03、ISSUE-11）。关联 AC17、AC23。
   - 文件：`src/etl_task6/evaluate.py`、`tests/integration/test_task6_evaluate.py`、`doc/task6/runbook.md`。
-  - 目标：（1）`_classify_movie_stratum` 改为读取 `source_ref.get("title_type")`、`disagreement.get("year_diff_1")`、`disagreement.get("year_disagreement")`、`disagreement.get("tconst_disagreement")`，确保 `tvMovie`/`video`/分歧作品归入 `E2`；（2）`_fetch_product_details` 改为从 `task4.field_assertion` 读取商品原始标题（保留括号年份供 `E5` 核查），`export_eval_set` 在抽样后按 `md5(movie_id)` 全局打乱再分配 `it_0001`–`it_0120` 消除行号对分层与状态的泄露；（3）重写 `_generate_ai_draft`，严禁读取 `system_year`/`status`/`bound_year`，仅依据商品原始标题、演职员与 `imdb` 公开表独立比对，严禁用商品发售日、评论时间或推断上界填充 `ai_true_year`；（4）补充 `E1/E2` 分层、配额补足、盲测导出、AI 草稿非循环性及 `by_stratum`/`by_source`/`bounds_by_evidence` 全量指标测试。
-  - 完成情况：未执行。
+  - 目标：（1）`_classify_movie_stratum` 改为读取 `source_ref.get("title_type")`（兼容 `titleType`）、`disagreement.get("year_diff_1")`、`disagreement.get("year_disagreement")`、`disagreement.get("tconst_disagreement")`，确保 `tvMovie`/`video`/分歧作品归入 `E2`；（2）`_fetch_product_details` 改为从 `task4.field_assertion` 读取商品原始标题（保留括号年份供 `E5` 核查），`export_eval_set` 在抽样后按 `md5(movie_id)` 全局打乱再分配 `t6_eval_0001`–`t6_eval_0120` 消除行号对分层与状态的泄露；（3）重写 `_generate_ai_draft`，严禁读取 `system_year`/`status`/`bound_year`，仅依据商品原始标题、演职员与 `imdb` 公开表独立比对，严禁用商品发售日、评论时间或推断上界填充 `ai_true_year`；（4）补充 `E1/E2` 分层、配额补足、盲测导出、AI 草稿非循环性及 `by_stratum`/`by_source`/`by_evidence_type` 全量指标测试。
+  - 完成情况：2026-10-30 完成。`_classify_movie_stratum` 修复 `title_type` 与三种 `disagreement` 键名读取；`_fetch_product_details` 从 `task4.field_assertion` 补充商品原始标题；`export_eval_set` 按 `md5(movie_id)` 全局确定性打乱后顺序分配 `t6_eval_0001`–`t6_eval_0120`；`_generate_ai_draft` 移除系统年份/状态/上界循环依赖，仅根据商品原始标题括号年份与 `imdb` 公开表独立比对；`metrics`（别名 `compute_eval_metrics`）完整输出 `by_stratum`、`by_source`、`by_evidence_type`（兼容 `by_evidence` / `bounds_by_evidence`）。全量 792 passed（任务 1–5 的 691 项不减少）。
 
   ```bash
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_evaluate.py
   ```
 
-  期望（计划）：新增 AC23 与原有评价测试全部通过。
+  期望：`7 passed`。全量 `792 passed, 56 warnings`。
 
 - [ ] T6-11 正式库清空 `task6` 重跑：先冻结开发池，经 Airflow 全量运行与复用验证，只读核对，重导报告与非循环评价集草稿，修正文档失实数据（审查 ISSUE-07）。关联 AC18、AC20。
   - 文件：`doc/task6/{design,report,tasks,checklist}.md`；`outputs/task6/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rv0001/`（不入库）。
