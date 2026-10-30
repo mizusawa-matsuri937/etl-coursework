@@ -23,15 +23,15 @@
 
   期望：`27 passed`。
 
-- [ ] T6-02 人物共现反查（评分、标题与编号条件、唯一性、`shared_tconst`）与评论年份提及（抽取、计票、消歧）。关联 AC05、AC06。
+- [x] T6-02 人物共现反查（评分、标题与编号条件、唯一性、`shared_tconst`）与评论年份提及（抽取、计票、消歧）。关联 AC05、AC06。
   - 文件：`src/etl_task6/{cooccur,review_years}.py`、`tests/integration/test_task6_cooccur.py`、`tests/fixtures/task6/`（IMDb 演职员与人物、含正文的评论）。
-  - 完成情况：未执行。
+  - 完成情况：2026-10-30 完成。评分记录（含未通过的条件）、标题与编号条件、唯一性、评论年份消歧与 `shared_tconst`；提及模式 t6m1 与计票。集成 11 项通过；全量 729 passed。修复 `resolve` 未预取共现命中 tconst 的作品行（年份取不到、消歧失效），记入 design 修订第 7 条。
 
   ```bash
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_cooccur.py
   ```
 
-  期望（计划）：全部通过。
+  期望：`11 passed`。
 
 - [ ] T6-03 择优、状态与缺失原因、分歧质量问题、上映信息版本与版本差异，日期语义分离的约束。关联 AC02、AC08。
   - 文件：`src/etl_task6/select.py`、`sql/501_task6_schema.sql`（`release_selection`、`release_version`）、`tests/integration/test_task6_select.py`。

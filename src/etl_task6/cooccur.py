@@ -218,6 +218,10 @@ def resolve(conn: psycopg.Connection, ctx: RunContext, rules: RuleSet) -> dict[s
     targets = {m for m, tc in world.movies if not tc}
     conn.execute("DELETE FROM task6.cooccur_result WHERE extraction_id = %s AND stage_key = %s",
                  (i.extraction_id, key))
+    # 共现命中的 tconst 不在 World 预取的 involved（关联作品与线索）里，补齐它们的作品行（年份与引用）
+    scored = {t for (t,) in conn.execute("SELECT DISTINCT tconst FROM task6.cooccur_score WHERE extraction_id = %s "
+                                         "AND stage_key = %s", (i.extraction_id, key))}
+    world.imdb.update(sources.imdb_titles(conn, i.imdb_snapshot_id, sorted(scored - set(world.imdb))))
     votes: dict[str, dict[int, int]] = {}
     for movie, year, v in conn.execute("SELECT movie_id, year, votes FROM task6.review_year_mention "
                                        "WHERE extraction_id = %s AND stage_key = %s",

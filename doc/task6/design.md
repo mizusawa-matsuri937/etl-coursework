@@ -404,3 +404,7 @@
 6. **AC01 换人物映射版本的期望从 missing 改为 cooccur_matched**：线索随人物映射版本消失（`imdb_t5_hint` 候选为空），但共现反查不读任务 5，仍唯一命中同一作品——这是 R09 与 R07 相互独立的自然结果，checklist 与夹具说明已按此更新。
 
 夹具侧（测试内、不影响正式库）：任务 4 匹配用 **t4r2**（与正式库 `map0002` 同规则；默认 t4r1 的导演权重 3 使“标题 + 导演严格重叠”只有 5 分、合集成员到不了自动关联）；合集成员的 `contains` 关系要求成员满足 R22，夹具合集页面署名两位成员各自的导演；`FORCE_MERGE` 增加 Multi Hint Saga（标题年份 1999/2001 的多 tconst 线索所在合并，任务 4 因年份冲突不会自动合并这两商品）。
+
+## 实现中的修订（T6-02，2026-10-30）
+
+7. **`cooccur.resolve` 补齐共现命中作品行**：`World` 预取的 `imdb.title` 行只含任务 4 关联与线索的 tconst（`involved`），共现命中的 tconst（如夹具的 Ambi Two）取不到 `start_year`，导致消歧比较全部落空（一律 `ambiguous`）与选中后不产生候选。修复为 `resolve` 开始时把本阶段键下评分记录涉及的 tconst 补进作品行映射。测试覆盖：`test_ac06_tiebreak_resolves_ambiguity`（消歧生效）与 `test_ac05_director_hit_unique_candidate`（unique 选中产生候选）。

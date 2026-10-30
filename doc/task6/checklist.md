@@ -66,23 +66,23 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC05 人物共现反查
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（导演命中 + 标题实词子集 + 唯一 → 候选带命中姓名、断言 ID、演职员行号与标题键来源；得分 1、标题不吻合、编号排除各有评分记录写明未通过条件；两部命中且无评论年份 → `cooccur_ambiguous`；命中已占用作品 → `shared_tconst`）。
 
 ```bash
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_cooccur.py -k "cooccur"
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_cooccur.py -k "ac05"
 ```
 
-期望（计划）：选中的案例全部通过。
+期望：`7 passed`。
 
 ## AC06 评论年份提及与消歧
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（每条评论每个年份一票、晚于评论年份的不计、三个模式各计票；多部候选时经评论年份唯一选出并标 `review_year_tiebreak`、置信度 0.70；只有提及的作品仍为 `missing`）。
 
 ```bash
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_cooccur.py -k "review_year"
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_cooccur.py -k "ac06"
 ```
 
-期望（计划）：选中的案例全部通过。
+期望：`4 passed`。
 
 ## AC07 商品标题年份候选
 
