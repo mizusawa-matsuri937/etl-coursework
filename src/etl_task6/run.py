@@ -78,7 +78,9 @@ class RunInputs:
         if stage == "candidates":
             return f"{t4}|{pv}|{self.t5_person_mapping_version_id}|{sid}"
         if stage == "cooccur":
-            return f"{t4}|{pv}|{sid}|{COOCCUR_PARAM_VERSION}"
+            from .rules import ruleset
+            r = ruleset(self.rule_version)
+            return f"{t4}|{pv}|{sid}|{COOCCUR_PARAM_VERSION}:{r.cooccur_director_points}:{r.cooccur_actor_points}:{r.cooccur_min_score}"
         if stage == "review_years":
             return f"{t4}|{pv}|{MENTION_PATTERN_VERSION}"
         if stage == "product_dates":

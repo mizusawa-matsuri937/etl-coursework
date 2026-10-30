@@ -89,16 +89,16 @@
 
   期望：初版五行 `cooccur_matched|690`、`hint_matched|293`、`missing|3155`、`page_reported|48`、`verified|4473`，合计 8,659（T6-11 重跑后更新为修复后实测值）。
 
-- [ ] T6-08 修复人物共现反查与运行阶段键（审查 ISSUE-04、ISSUE-05、ISSUE-08）。关联 AC05、AC13、AC21。
+- [x] T6-08 修复人物共现反查与运行阶段键（审查 ISSUE-04、ISSUE-05、ISSUE-08）。关联 AC05、AC13、AC21。
   - 文件：`src/etl_task6/{rules,run,cooccur}.py`、`tests/unit/test_task6_rules.py`、`tests/integration/test_task6_{cooccur,runs}.py`。
   - 目标：（1）`cooccur._title_keys_of` 改为按 `primary → original → aka` 排序，`score_movies` 改为寻找同时满足 `cooccur_title_ok` 与 `cooccur_number_guard` 的标题键，不因排在前面的无编号 `aka` 提前 `break` 误杀续集；（2）`rules.cooccur_title_ok` 增加单实词别名保护，禁止单实词标题键跨作品子集匹配含其他额外核心实词的长商品标题；（3）`run.Inputs.stage_key("cooccur")` 纳入 `RuleSet` 共现评分参数（导演分、演员分、最低分），使共现规则变更触发阶段重算而非误判 `reused`；（4）补充对应单元与集成测试。
-  - 完成情况：未执行。
+  - 完成情况：2026-10-30 完成。`_title_keys_of` 固定 `primary → original → aka` 优先序，`score_movies` 遍历寻找同时满足标题与编号条件的标题键；`cooccur_title_ok` 对单实词标题键仅允许与单实词相等匹配、保留 ≥2 个实词且字符数 ≥6 按子集匹配；`stage_key("cooccur")` 纳入 `RuleSet` 共现评分参数。新增 3 项 AC21 单元与集成测试通过；全量 784 passed（任务 1–5 的 691 项不减少）。
 
   ```bash
   docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task6_rules.py tests/integration/test_task6_cooccur.py tests/integration/test_task6_runs.py -k "ac21 or cooccur or stage_key"
   ```
 
-  期望（计划）：新增 AC21 与原有共现、阶段键测试全部通过。
+  期望：`16 passed, 18 deselected`。
 
 - [ ] T6-09 修复报告统计、版本差异、只读查询、核对脚本与 DAG 弃用警告（审查 ISSUE-06、ISSUE-09、ISSUE-10、ISSUE-12）。关联 AC13、AC15、AC16、AC22。
   - 文件：`src/etl_task6/{report,query,check}.py`、`dags/amazon_movies_task6_release.py`、`tests/integration/test_task6_{report,runs,dag}.py`。

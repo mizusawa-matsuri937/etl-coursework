@@ -60,14 +60,15 @@ def name_index(conn: psycopg.Connection, snapshot_id: str, keys: set[str]) -> di
 
 
 def _title_keys_of(conn: psycopg.Connection, snapshot_id: str, tconsts: list[str]) -> dict[str, list[tuple]]:
-    """tconst → [(title_key, key_source, source_line)]，按 key_source、ordering 排序（primary 优先）。"""
+    """tconst → [(title_key, key_source, source_line)]，按 key_source（primary → original → aka）、ordering 排序。"""
     out: dict[str, list[tuple]] = defaultdict(list)
     for k in range(0, len(tconsts), 500):
         chunk = tconsts[k:k + 500]
         for tc, tk, ks, line in conn.execute(
                 "SELECT tconst, title_key, key_source, source_line FROM task4.imdb_title_key "
                 "WHERE imdb_snapshot_id = %s AND norm_version = %s AND tconst = ANY(%s) "
-                "ORDER BY tconst, key_source, aka_ordering", (snapshot_id, sources.T4_NORM_VERSION, chunk)):
+                "ORDER BY tconst, CASE key_source WHEN 'primary' THEN 1 WHEN 'original' THEN 2 ELSE 3 END, "
+                "aka_ordering, source_line", (snapshot_id, sources.T4_NORM_VERSION, chunk)):
             out[tc].append((tk, ks, int(line)))
     return out
 
@@ -161,15 +162,19 @@ def score_movies(conn: psycopg.Connection, ctx: RunContext, rules: RuleSet, *,
                     matched_key = matched_asin = key_source = None
                     guard_line = None
                     for tk, ks, line in title_cache.get(tconst, ()):
-                        if not any(cooccur_title_ok(tk, p) for _, p in pk):
-                            continue
                         for asin, p in pk:
                             if cooccur_title_ok(tk, p):
-                                matched_key, matched_asin, key_source, title_ok = tk, asin, ks, True
-                                guard_ok = cooccur_number_guard(tk, p)
-                                guard_line = line
-                                break
-                        break
+                                if cooccur_number_guard(tk, p):
+                                    matched_key, matched_asin, key_source, title_ok = tk, asin, ks, True
+                                    guard_ok = True
+                                    guard_line = line
+                                    break
+                                if not title_ok:
+                                    matched_key, matched_asin, key_source, title_ok = tk, asin, ks, True
+                                    guard_ok = False
+                                    guard_line = line
+                        if guard_ok:
+                            break
                     passed = bool(s["score"] >= rules.cooccur_min_score and title_ok and guard_ok)
                     detail = None
                     if title_ok and not guard_ok:

@@ -112,6 +112,19 @@ def test_content_words_strip_stopwords_and_title_subset():
     assert not cooccur_title_ok("vhs", "some movie vhs")                  # IMDb 侧全是停用词：实词为空，不通过
 
 
+def test_ac21_single_word_title_key_and_min_length_guard():
+    # 单实词标题键仅允许与同样只有 1 个实词的另一方标题键精确相等匹配
+    assert cooccur_title_ok("legend", "the legend dvd")
+    assert not cooccur_title_ok("legend", "new legend of shaolin")
+    assert not cooccur_title_ok("wallace", "wallace and gromit the wrong trousers")
+    assert not cooccur_title_ok("beatles", "beatles biggest secrets")
+    assert not cooccur_title_ok("gambler", "kenny rogers the gambler the adventure continues")
+    # ≥2 个实词且字符数 ≥6 的标题键按子集匹配
+    assert cooccur_title_ok("puppet master 6", "puppet master 6 curse of the puppet master")
+    # ≥2 个实词但实词总字符数 < 6 时拒绝子集匹配
+    assert not cooccur_title_ok("go up", "go up the mountain")
+
+
 def test_number_tokens_and_guard():
     assert number_tokens("land before saga 8") == {8}                    # 罗马数字已在标题键转成阿拉伯数字
     assert number_tokens("film 2001") == set()                           # 四位年份不算编号

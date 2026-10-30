@@ -262,13 +262,13 @@ git ls-files | grep -Ei '(^|/)\.env$|^outputs/|eval_items|eval_pairs|cluster_sam
 
 ## AC21 共现反查排序、续集编号回退、单实词别名保护与阶段键重算
 
-- [ ] 未执行（计划，对应 T6-08，修复审查 ISSUE-04、ISSUE-05、ISSUE-08）。
+- [x] 2026-10-30 通过（验证 `_title_keys_of` 按 `primary → original → aka` 排序；带编号续集作品不因排在前面的无编号标题键提前 `break` 误杀；单实词别名仅允许与单实词相等匹配、保留 ≥2 个实词且字符数 ≥6 按子集匹配；修改 `RuleSet` 共现参数后 `stage_key("cooccur")` 变化并触发重算）。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task6_rules.py tests/integration/test_task6_cooccur.py tests/integration/test_task6_runs.py -k "ac21"
 ```
 
-期望（计划）：全部通过（验证 `_title_keys_of` 按 `primary → original → aka` 排序；带编号续集作品不因排在前面的无编号 `aka` 提前 `break` 误杀；单实词别名不跨作品子集匹配含其他额外核心实词的长标题；修改 `RuleSet` 共现参数后 `stage_key("cooccur")` 变化并触发重算）。
+期望：`3 passed, 31 deselected`。
 
 ## AC22 报告统计口径、真实 run_id、跨版本差异、血缘查询与核对强化
 

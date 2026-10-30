@@ -179,9 +179,17 @@ def number_tokens(key: str) -> frozenset[int]:
 
 
 def cooccur_title_ok(imdb_key: str, product_key: str) -> bool:
-    """标题条件：IMDb 标题键的实词非空且全部出现在商品标题键中（容忍商品标题后面的载体、系列说明）。"""
+    """标题条件：IMDb 标题键的实词非空且全部出现在商品标题键中（容忍商品标题后面的载体、系列说明）。
+    单实词保护：当标题键词数为 1（len(words) == 1）时，仅允许与同样只有 1 个实词的另一方标题键精确相等匹配，
+    禁止单实词别名（如 legend、wallace、beatles、gambler）作为子集跨作品匹配含其他额外实词的多词商品标题；
+    保留 ≥2 个实词且字符数 ≥6 的标题键按子集匹配（受 cooccur_number_guard 约束）。"""
     words = content_words(imdb_key)
-    return bool(words) and words <= content_words(product_key)
+    if not words:
+        return False
+    p_words = content_words(product_key)
+    if len(words) == 1:
+        return words == p_words
+    return sum(len(w) for w in words) >= 6 and words <= p_words
 
 
 def cooccur_number_guard(imdb_key: str, product_key: str) -> bool:

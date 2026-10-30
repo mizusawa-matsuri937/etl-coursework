@@ -105,6 +105,50 @@ def test_ac13_mapping_change_makes_a_new_version_and_diff_is_split_movie(conn, w
     assert new_count == old_count + 1   # 拆出一部新作品
 
 
+def test_ac21_cooccur_rule_param_change_updates_stage_key_and_recomputes_cooccur(conn, world):
+    """修改 RuleSet 的共现评分参数（如 cooccur_min_score=3）时，stage_key('cooccur') 改变并触发共现阶段重算，
+    而非沿用旧阶段键跳过重算（ISSUE-08，AC21）。"""
+    first = execute_release(conn, inputs_for(world), batch_size=7)
+    assert first.status == "succeeded"
+    inp1 = inputs_for(world)
+    cooccur_batches_before = conn.execute(
+        "SELECT count(*) FROM task6.run_batch WHERE stage = 'cooccur'"
+    ).fetchone()[0]
+
+    RULESETS["t6r_cooc3"] = DEFAULT_RULES.with_version("t6r_cooc3", cooccur_min_score=3)
+    try:
+        inp2 = inputs_for(world, rule_version="t6r_cooc3")
+        assert inp2.stage_key("cooccur") != inp1.stage_key("cooccur")
+        assert inp2.stage_key("candidates") == inp1.stage_key("candidates")
+
+        second = execute_release(conn, inp2, batch_size=7)
+        assert second.status == "succeeded" and second.release_version_id != first.release_version_id
+
+        # cooccur 阶段因 stage_key 变化重新执行了分批写入，而 candidates 阶段仍复用
+        cooccur_batches_after = conn.execute(
+            "SELECT count(*) FROM task6.run_batch WHERE stage = 'cooccur'"
+        ).fetchone()[0]
+        assert cooccur_batches_after > cooccur_batches_before
+        assert conn.execute(
+            "SELECT count(*) FROM task6.run_batch WHERE run_id = %s AND stage = 'candidates'",
+            (second.run_id,),
+        ).fetchone()[0] == 0
+
+        # 在 cooccur_min_score=3 下，原先得 2 分的 TRS001 不再通过共现反查
+        trs_movie = conn.execute(
+            "SELECT movie_id FROM task4.product_movie WHERE mapping_version_id = %s AND asin = 'B0T6TRS001'",
+            (world.mapping,),
+        ).fetchone()[0]
+        passed_new = conn.execute(
+            "SELECT passed FROM task6.cooccur_score WHERE extraction_id = %s AND stage_key = %s "
+            "AND movie_id = %s AND tconst = 'tt0006020'",
+            (world.extraction_id, inp2.stage_key("cooccur"), trs_movie),
+        ).fetchone()[0]
+        assert passed_new is False
+    finally:
+        RULESETS.pop("t6r_cooc3", None)
+
+
 # ---------------------------------------------------------------- AC14 分批恢复与并发锁
 
 def test_ac14_fault_injection_and_recovery_candidates(conn, world):

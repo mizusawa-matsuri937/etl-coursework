@@ -210,3 +210,70 @@ def test_ac06_tiebreak_needs_unique_top_year(conn, world, full):
     movie = _movie_of(conn, world, "B0T6AM1001")
     assert _mentions(conn, world, movie) == {}
     assert _result(conn, world, movie)[0] == "ambiguous"
+
+
+# ------------------------------------------------------------------ AC21 审查修复：标题键排序、续集编号回退与单实词别名保护
+
+def test_ac21_title_key_priority_and_sequel_number_fallback(conn, world):
+    """（1）_title_keys_of 按 primary → original → aka 排序；
+    （2）当排在前面的无编号标题键不满足 cooccur_number_guard 时继续向后检查带编号的键，不提前 break 误杀续集；
+    （3）单实词别名不跨作品子集匹配含其他额外实词的多词商品标题。"""
+    from etl_task6 import cooccur, select
+    from etl_task6.rules import DEFAULT_RULES
+
+    # 1. 验证 TRS001 对应的 tt0006020 若存在排在前面的 aka 键，_title_keys_of 仍把 primary 排在第一
+    conn.execute(
+        "INSERT INTO task4.imdb_title_key (imdb_snapshot_id, norm_version, tconst, title_key, title_class, "
+        "key_source, aka_ordering, source_line) "
+        "VALUES (%s, 't4n1', 'tt0006020', 'treasure hunt island', 'movie', 'aka', 1, 999)",
+        (world.sid,),
+    )
+    keys_6020 = cooccur._title_keys_of(conn, world.sid, ["tt0006020"])["tt0006020"]
+    assert [ks for _, ks, _ in keys_6020] == ["primary", "original", "aka"]
+
+    # 2. 为 LND001（商品标题 Land Before Saga VIII [VHS]，键 land before saga 8 vhs）关联的 tt0006024：
+    # primary/original 为无编号 'land before saga'（不满足 number_guard），追加一条带编号 8 的 aka 'land before saga 8'；
+    # 同时追加另一部同演员作品 tt0006099，其标题键为单实词 'saga'（测试单实词别名保护不误匹配 'land before saga 8 vhs'）。
+    conn.execute(
+        "INSERT INTO task4.imdb_title_key (imdb_snapshot_id, norm_version, tconst, title_key, title_class, "
+        "key_source, aka_ordering, source_line) "
+        "VALUES (%s, 't4n1', 'tt0006024', 'land before saga 8', 'movie', 'aka', 2, 888)",
+        (world.sid,),
+    )
+    conn.execute(
+        "INSERT INTO imdb.title (snapshot_id, tconst, title_type, primary_title, original_title, is_adult, "
+        "start_year, runtime_minutes, genres, line_no) "
+        "VALUES (%s, 'tt0006099', 'movie', 'Saga', 'Saga', false, 1995, 90, ARRAY['Drama'], 99)",
+        (world.sid,),
+    )
+    conn.execute(
+        "INSERT INTO imdb.title_principal (snapshot_id, tconst, ordering, nconst, category, line_no) VALUES "
+        "(%s, 'tt0006099', 1, 'nm0006022', 'actor', 991), (%s, 'tt0006099', 2, 'nm0006023', 'actress', 992)",
+        (world.sid, world.sid),
+    )
+    conn.execute(
+        "INSERT INTO task4.imdb_title_key (imdb_snapshot_id, norm_version, tconst, title_key, title_class, "
+        "key_source, aka_ordering, source_line) "
+        "VALUES (%s, 't4n1', 'tt0006099', 'saga', 'movie', 'primary', 0, 990)",
+        (world.sid,),
+    )
+
+    ctx, rv = h.run_stages(conn, world, batch_size=7)
+
+    # TRS001 命中的 key_source 必须是排在最前的 primary 而非 aka
+    trs_movie = _movie_of(conn, world, "B0T6TRS001")
+    trs_score = _score(conn, world, trs_movie, "tt0006020")
+    assert trs_score[6] == "primary" and trs_score[10] is True
+
+    # LND001 不因 primary 无编号提前 break，而是继续匹配到 aka 'land before saga 8' 并通过；
+    # 且单实词 'saga'（tt0006099）因单实词保护 title_ok = False
+    lnd_movie = _movie_of(conn, world, "B0T6LND001")
+    lnd_score_ok = _score(conn, world, lnd_movie, "tt0006024")
+    assert lnd_score_ok[3] is True and lnd_score_ok[4] == "land before saga 8"
+    assert lnd_score_ok[6] == "aka" and lnd_score_ok[8] is True and lnd_score_ok[10] is True
+
+    lnd_score_single = _score(conn, world, lnd_movie, "tt0006099")
+    assert lnd_score_single[0] == 2 and lnd_score_single[3] is False and lnd_score_single[10] is False
+
+    assert _result(conn, world, lnd_movie) == ("unique", "tt0006024", ["tt0006024"], None)
+    assert _sel(conn, rv, lnd_movie) == ("cooccur_matched", None, 1988)
