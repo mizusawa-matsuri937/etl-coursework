@@ -1,8 +1,8 @@
 # 任务 6 开发任务（补全上映信息）
 
-状态：2026-10-30 编写计划；同日按用户要求加入人物共现反查、评论年份提及、被占用 `tconst` 的线索与商品发售日期上界。同日完成 T6-01 至 T6-07 初版实现后经独立审查（见 [review](review.md)），针对审查发现的 12 项问题新增修复任务 T6-08 至 T6-11（原导入标注任务顺延为 T6-12）与回归验收 AC21–AC23；待用户审批后执行修复。分支 `task6-release-info`（从 `main` 的 `1625ad9` 建立）。每完成一个任务本地提交一次；不推送。
+状态：2026-10-30 编写计划；同日按用户要求加入人物共现反查、评论年份提及、被占用 `tconst` 的线索与商品发售日期上界。同日完成 T6-01 至 T6-07 初版实现后经独立审查（见 [review](review.md)），针对审查发现的 12 项问题新增修复任务 T6-08 至 T6-11（原导入标注任务顺延为 T6-12）与回归验收 AC21–AC23；同日已完成 T6-08 至 T6-11 全部修复、测试与正式库清空重跑，T6-12 待付林轩复核评价草稿后执行。分支 `task6-release-info`（从 `main` 的 `1625ad9` 建立）。每完成一个任务本地提交一次；不推送。
 
-命令在项目根目录直接复制运行。T6-01 至 T6-06 的命令已实际运行核对；T6-08 至 T6-12 的命令标注为**（计划）**：对应修复尚未实现，期望值在实现后按实际运行结果改写。每项 AC 的复核命令见 [checklist](checklist.md)。
+命令在项目根目录直接复制运行。T6-01 至 T6-11 的命令已实际运行核对；T6-12 的命令标注为**（计划）**：待人工核查标注后执行。每项 AC 的复核命令见 [checklist](checklist.md)。
 
 - [ ] T6-00 计划：spec、design、tasks、checklist。关联 AC00。
   - 完成情况：2026-10-30 AI 文档检查通过（五个板块、R01–R39、AC00–AC23 一一对应，每条规则都有 AC，审查修复任务 T6-08 至 T6-12 已纳入）；待用户审批。
@@ -21,7 +21,7 @@
   docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task6_rules.py tests/integration/test_task6_candidates.py
   ```
 
-  期望：`27 passed`。
+  期望：`28 passed`（初版 `27 passed`，T6-08 新增 1 项 AC21 单元测试后为 `28 passed`）。
 
 - [x] T6-02 人物共现反查（评分、标题与编号条件、唯一性、`shared_tconst`）与评论年份提及（抽取、计票、消歧）。关联 AC05、AC06。
   - 文件：`src/etl_task6/{cooccur,review_years}.py`、`tests/integration/test_task6_cooccur.py`、`tests/fixtures/task6/`（IMDb 演职员与人物、含正文的评论）。
@@ -31,7 +31,7 @@
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_cooccur.py
   ```
 
-  期望：`11 passed`。
+  期望：`12 passed`（初版 `11 passed`，T6-08 新增 1 项 AC21 集成测试后为 `12 passed`）。
 
 - [x] T6-03 择优、状态与缺失原因、分歧质量问题、上映信息版本与版本差异，日期语义分离的约束。关联 AC02、AC08。
   - 文件：`src/etl_task6/select.py`、`sql/501_task6_schema.sql`（`release_selection`、`release_version`）、`tests/integration/test_task6_select.py`。
@@ -61,7 +61,7 @@
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_runs.py tests/integration/test_task6_dag.py tests/integration/test_task6_report.py
   ```
 
-  期望：`17 passed, 8 warnings`。真实 scheduler 端到端均符合预期。
+  期望：`23 passed, 7 warnings`（初版 `17 passed, 8 warnings`，T6-08 与 T6-09 补充 6 项回归测试并消除弃用警告后为 `23 passed, 7 warnings`）。真实 scheduler 端到端均符合预期。
 
 - [x] T6-06 评价工具：开发池冻结、七层评价表与 AI 草稿模板导出、标注导入、指标。关联 AC17。
   - 文件：`src/etl_task6/evaluate.py`、`tests/integration/test_task6_evaluate.py`、`doc/task6/runbook.md`（评价一节）。
@@ -87,7 +87,7 @@
   docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT status, count(*) FROM task6.release_selection WHERE release_version_id = 'rv0001' GROUP BY status ORDER BY status"
   ```
 
-  期望：初版五行 `cooccur_matched|690`、`hint_matched|293`、`missing|3155`、`page_reported|48`、`verified|4473`，合计 8,659（T6-11 重跑后更新为修复后实测值）。
+  期望：T6-11 修复重跑后五行 `cooccur_matched|641`、`hint_matched|293`、`missing|3202`、`page_reported|50`、`verified|4473`，合计 8,659（初版为 `690 / 293 / 3155 / 48 / 4473`）。
 
 - [x] T6-08 修复人物共现反查与运行阶段键（审查 ISSUE-04、ISSUE-05、ISSUE-08）。关联 AC05、AC13、AC21。
   - 文件：`src/etl_task6/{rules,run,cooccur}.py`、`tests/unit/test_task6_rules.py`、`tests/integration/test_task6_{cooccur,runs}.py`。
@@ -122,22 +122,22 @@
 
   期望：`7 passed`。全量 `792 passed, 56 warnings`。
 
-- [ ] T6-11 正式库清空 `task6` 重跑：先冻结开发池，经 Airflow 全量运行与复用验证，只读核对，重导报告与非循环评价集草稿，修正文档失实数据（审查 ISSUE-07）。关联 AC18、AC20。
-  - 文件：`doc/task6/{design,report,tasks,checklist}.md`；`outputs/task6/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rv0001/`（不入库）。
-  - 目标：（1）清空正式库 `task6` 各表数据，核对清空前后任务 1–5 表行数不变；（2）在全量运行前先执行 `evaluate freeze` 冻结 `task6.dev_pool`（1,732 部作品）；（3）经 Airflow 全量运行生成 `rv0001`（在开发池核查效果并记录到 `design.md`“规则调整记录”），再同参重跑一次验证 `reused`；（4）运行 `etl_task6.check` 确认 `problems: []`，用真实 `run_id` 导出报告与实例，导出 120 部盲测评价表 `eval_items.csv` 与非循环 AI 草稿 `eval_items_draft.csv`（严禁将 DVD/VHS 发售日或推断上界填入 `missing` 作品的 `ai_true_year`）；（5）根据正式库实测结果与 `pytest` 实测输出修正 `doc/task6/{design,report,tasks,checklist}.md` 中的运行 ID、分阶段耗时、测试数、AC 表与缺失原因说明。
-  - 完成情况：未执行。
+- [x] T6-11 正式库清空 `task6` 重跑：先冻结开发池，经 Airflow 全量运行与复用验证，只读核对，重导报告与非循环评价集草稿，修正文档失实数据（审查 ISSUE-07）。关联 AC18、AC20。
+  - 文件：`doc/task6/{design,report,tasks,checklist,runbook}.md`、`README.md`；`outputs/task6/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rv0001/`（不入库）。
+  - 目标：（1）清空正式库 `task6` 各表数据，核对清空前后任务 1–5 表行数不变；（2）在全量运行前先执行 `evaluate freeze` 冻结 `task6.dev_pool`（1,732 部作品）；（3）经 Airflow 全量运行生成 `rv0001`（在开发池核查效果并记录到 `design.md`“规则调整记录”），再同参重跑一次验证 `reused`；（4）运行 `etl_task6.check` 确认 `problems: []`，用真实 `run_id` 导出报告与实例，导出 120 部盲测评价表 `eval_items.csv` 与非循环 AI 草稿 `eval_items_draft.csv`（严禁将 DVD/VHS 发售日或推断上界填入 `missing` 作品的 `ai_true_year`）；（5）根据正式库实测结果与 `pytest` 实测输出修正 `doc/task6/{design,report,tasks,checklist,runbook}.md` 与 `README.md` 中的运行 ID、分阶段耗时、测试数、AC 表与缺失原因说明。
+  - 完成情况：2026-10-30 完成。（1）清空 `task6` 前后任务 1–5 全部 9 张主表行数完全一致；（2）全量运行前于 `13:12:56+00` 冻结 `task6.dev_pool`（1,732 部）；（3）经 Airflow 触发 `t6_full_1`（真实 `run_id = 2a6b07ff00e54bb39fcf86234a366cbf`，耗时 77.74s）生成 `rv0001`（`verified: 4,473`、`hint_matched: 293`、`cooccur_matched: 641`、`page_reported: 50`、`missing: 3,202`，推断上界 `6,978`），触发 `t6_full_2`（真实 `run_id = fb16afb798c046e599502af3a169dbdf`，耗时 0.9ms）全部阶段 `reused`；（4）`etl_task6.check` 退出码 0、`"problems": []`、`"passed": true`；导出真实 `run_id` 报告与 120 部盲测评价表 `eval_items.csv`（`E1:15, E2:15, E3:15, E4:20, E5:15, E6:20, E7:20`，全局 MD5 打乱编号 `t6_eval_0001`–`t6_eval_0120`）及非循环 AI 草稿 `eval_items_draft.csv`（75 条独立年份建议，未导入前 `task6.eval_label` 保持 0 行）；（5）已全面修正 `design.md`、`report.md`、`tasks.md`、`checklist.md`、`runbook.md` 与 `README.md`。
 
   ```bash
   docker compose --profile crawl run --rm -T crawler python -m etl_task6.check
   ```
 
-  期望（计划）：退出码 0，JSON 中 `"problems": []` 且 `"passed": true`。
+  期望：退出码 0，JSON 中 `"problems": []` 且 `"passed": true`。
 
   ```bash
   docker compose exec -T postgres psql -U postgres -d etl_movies -v ON_ERROR_STOP=1 -Atc "SET default_transaction_read_only = on; SELECT status, run_id, release_version_id FROM task6.run ORDER BY started_at;"
   ```
 
-  期望（计划）：两行，`succeeded|<真实_run_id_1>|rv0001` 与 `reused|<真实_run_id_2>|rv0001`，且 `dev_pool.frozen_at` 早于首次运行完成时间。
+  期望：输出 `SET` 及两行 `succeeded|2a6b07ff00e54bb39fcf86234a366cbf|rv0001` 与 `reused|fb16afb798c046e599502af3a169dbdf|rv0001`，且 `dev_pool.frozen_at`（`13:12:56+00`）早于首次运行开始时间（`13:15:35+00`）。
 
 - [ ] T6-12 导入标注（120 部作品）并报告指标；写任务 6 → 任务 7 交接文档。关联 AC19。
   - 文件：`outputs/task6/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rv0001/eval/`（`eval_items_labeled.csv`、`metrics.json`、`metrics.md`；不入库）、`doc/task6/report.md`、`doc/handoffs/<日期>-task6-to-task7.md`（日期以实际为准）。
