@@ -184,7 +184,7 @@
 
 | 验收项 | 覆盖规则 | 状态 | 验证依据 / 观测结果位置 |
 |---|---|---|---|
-| **AC00** | 计划文件规范 | **待用户审批** | `doc/task6/spec.md` 五个板块顺序正确，R01–R39 与 AC00–AC23 一一对应 |
+| **AC00** | 计划文件规范 | **通过** | `doc/task6/spec.md` 五个板块顺序正确，R01–R39 与 AC00–AC23 一一对应，用户已审批通过 |
 | **AC01** | R01, R02 | **通过** | `tests/integration/test_task6_candidates.py`（`-k ac01`：`3 passed, 10 deselected`） |
 | **AC02** | R03–R05, R17 | **通过** | `tests/integration/test_task6_select.py`（`-k ac02`：`3 passed, 7 deselected`） |
 | **AC03** | R06, R13 | **通过** | `tests/integration/test_task6_candidates.py`（`-k imdb_link`：`1 passed, 12 deselected`） |

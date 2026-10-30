@@ -4,8 +4,8 @@
 
 命令在项目根目录直接复制运行。T6-01 至 T6-12 的命令均已实际运行核对。每项 AC 的复核命令见 [checklist](checklist.md)。
 
-- [ ] T6-00 计划：spec、design、tasks、checklist。关联 AC00。
-  - 完成情况：2026-10-30 AI 文档检查通过（五个板块、R01–R39、AC00–AC23 一一对应，每条规则都有 AC，审查修复任务 T6-08 至 T6-12 已纳入）；待用户审批。
+- [x] T6-00 计划：spec、design、tasks、checklist。关联 AC00。
+  - 完成情况：2026-10-30 AI 文档检查通过（五个板块、R01–R39、AC00–AC23 一一对应，每条规则都有 AC，审查修复任务 T6-08 至 T6-12 已纳入）；同日用户审批通过。
 
   ```bash
   grep -n "^## " doc/task6/spec.md

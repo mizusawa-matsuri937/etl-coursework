@@ -14,7 +14,7 @@ docker compose --profile test run --rm etl-test pytest -q tests
 
 ## AC00 计划文件规范
 
-- [ ] 2026-10-30 AI 文档检查通过（五个板块、R01–R39、AC00–AC23 一一对应）；待用户审批。
+- [x] 2026-10-30 AI 文档检查通过（五个板块、R01–R39、AC00–AC23 一一对应）；同日用户审批通过。
 
 ```bash
 grep -n "^## " doc/task6/spec.md
