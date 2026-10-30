@@ -26,13 +26,13 @@ grep -c "^- R[0-9][0-9] \[" doc/task6/spec.md
 
 ## AC01 输入版本与处理对象
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（夹具含两个任务 4 映射版本与两个人物映射版本、只经 `contains` 出现的成员作品、非参与匹配的剧集商品）。选择记录数等于作品数、旧版本多出的作品无记录、换人物映射版本后线索候选不产生。
 
 ```bash
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_candidates.py -k "inputs or scope"
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_candidates.py -k "ac01"
 ```
 
-期望（计划）：选中的案例全部通过。
+期望：`3 passed`。
 
 ## AC02 日期语义分离与精度
 
@@ -46,23 +46,23 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC03 IMDb 关联作品的年份候选
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（movie / tvMovie / video 三种 `titleType` 各一条候选，带快照、文件、行号、任务 4 关联依据、来源获取与抽取时间、置信度；`startYear` 为 NULL 的不产生候选）。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_candidates.py -k "imdb_link"
 ```
 
-期望（计划）：选中的案例全部通过。
+期望：`1 passed`。
 
 ## AC04 任务 5 升级线索的使用与记录
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（未被占用的线索候选、`shared_tconst` 与质量问题、合集成员与多 `tconst` 只记录、`hint_ambiguous`；任务 4、任务 5 的表行数不变）。
 
 ```bash
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_candidates.py -k "hint"
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_candidates.py -k "hint or task4_and_task5"
 ```
 
-期望（计划）：选中的案例全部通过，含 `shared_tconst` 与任务 4、任务 5 表不变的断言。
+期望：`4 passed`。
 
 ## AC05 人物共现反查
 
@@ -86,13 +86,13 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC07 商品标题年份候选
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（每个商品一条候选带原值、定位与断言 ID；一致 → `page_reported`、不一致 → `title_years_disagree`、单一 → `page_reported`）。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_candidates.py -k "title_year"
 ```
 
-期望（计划）：选中的案例全部通过。
+期望：`3 passed`。
 
 ## AC08 择优顺序、状态与分歧
 

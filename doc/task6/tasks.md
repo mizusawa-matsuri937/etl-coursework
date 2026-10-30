@@ -13,15 +13,15 @@
 
   期望：只有 `目标、范围、规则、AC测试、假设` 五行。
 
-- [ ] T6-01 迁移 501、运行审计与锁、IMDb 关联、线索（含被占用 `tconst`）与商品标题年份三类候选。关联 AC01、AC03、AC04、AC07。
+- [x] T6-01 迁移 501、运行审计与锁、IMDb 关联、线索（含被占用 `tconst`）与商品标题年份三类候选。关联 AC01、AC03、AC04、AC07。
   - 文件：`sql/501_task6_schema.sql`、`src/etl_task6/{run,rules,candidates}.py`、`tests/unit/test_task6_rules.py`、`tests/integration/{_task6_helpers,test_task6_candidates}.py`、`tests/fixtures/task6/`。
-  - 完成情况：未执行。
+  - 完成情况：2026-10-30 完成。迁移 501（含 `release_selection`、`release_version` 全部表结构）、输入键与阶段键、运行审计、咨询锁、三类候选与线索处理记录；夹具世界（任务 4 匹配用 t4r2，与正式库 map0002 同规则）与预期值说明。单元 14 项 + 集成 13 项通过；全量 718 passed（任务 1–5 的 691 项不变）。实现中的修订见 design 文末（`release_candidate` 补 `confidence`/`rule_version` 列、`number_guard` 允许 NULL、线索阶段键动态取人物映射版本的规则版本、评论时间与共现结果的幂等重写）。
 
   ```bash
   docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task6_rules.py tests/integration/test_task6_candidates.py
   ```
 
-  期望（计划）：全部通过，数量在实现后填写。
+  期望：`27 passed`。
 
 - [ ] T6-02 人物共现反查（评分、标题与编号条件、唯一性、`shared_tconst`）与评论年份提及（抽取、计票、消歧）。关联 AC05、AC06。
   - 文件：`src/etl_task6/{cooccur,review_years}.py`、`tests/integration/test_task6_cooccur.py`、`tests/fixtures/task6/`（IMDb 演职员与人物、含正文的评论）。
