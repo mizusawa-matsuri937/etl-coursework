@@ -77,10 +77,10 @@ def make_world(conn: psycopg.Connection, make_settings, tmp_path: Path, *, name:
     records = []
     plan, quarantine = w6.review_plan(), w6.quarantined_plan()
     for p in products:
-        if p.asin in quarantine:                             # 只写隔离记录（score=6），商品进清单但没有有效评论
+        if p.asin in quarantine:                             # 只写隔离记录（含 NUL 字节），商品进清单但没有有效评论
             for j, (iso, text) in enumerate(quarantine[p.asin]):
                 records.append(bf.record(product=p.asin.encode(), user=f"Q{j}_{p.asin}".encode(),
-                                         time=str(_iso_to_unix(iso)).encode(), text=text.encode(), score=b"6"))
+                                         time=str(_iso_to_unix(iso)).encode(), text=text.encode() + b"\x00", score=b"6"))
             continue
         for j, (iso, text) in enumerate(plan.get(p.asin, [])):
             records.append(bf.record(product=p.asin.encode(), user=f"U{j}_{p.asin}".encode(),

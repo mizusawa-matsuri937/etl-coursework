@@ -412,3 +412,11 @@
 ## 实现中的修订（T6-03，2026-10-30）
 
 8. **`product_dates` 页面标签键补 section**：标签字典的键原为 `(asin, ordinal)`，而 `task3.page_field` 的 `ordinal` 是 section 内序号，title / byline / detail_bullets 的行同为 ordinal 1 相互覆盖，导致 14 条商品日期断言全部读不到标签、误判 `unknown_date_label`（`product_release_date` 表为空，先前测试只断言“剧集无行”与“release_date 全 NULL”，恰好没暴露）。改为 `(asin, section, ordinal)` 三元组。测试覆盖：`test_ac02_semantics_and_precision`（A 的两个商品日期与标记）。
+
+## 实现中的修订（T6-04，2026-10-30）
+
+9. **`reviews.movie_review_times` 正确收集多商品前两早评论**：作品层计算第二早评论时，原实现仅将最早商品的评论与其余商品的第二早评论比较，漏掉了其余商品自身的最早评论（例如商品 1 最早 2000-12-01，商品 2 最早 2001-03-02、第二早 2001-05-10 时，第二早应为 2001-03-02 而不是 2001-05-10）。改为收集各 edition 商品的所有前两早评论候选统一排序取第 2 条。测试覆盖：`test_ac10_movie_earliest_and_second`。
+10. **`bounds.build_bounds` 上界评估范围覆盖全部有评论或商品发售日期的作品**：原实现仅遍历有评论或有 `media_release` 的作品，对于仅有 `Date First Available`（`listing_first_available`）且无评论的作品未写入评估记录；按 R23 要求其仍是有发售日期的作品，写入评估记录（`has_review_evidence = False`、`has_media_evidence = False`、`chosen_evidence = None`）。测试覆盖：`test_ac11_listing_first_available_not_media_bound`。
+11. **夹具隔离评论与反例修正**：
+    - `_task6_helpers.py`：原夹具通过 `score=b"6"` 试图生成隔离评论，但任务 1 中分值错误为警告而非隔离，导致隔离评论误入 `review_staging`；改为向正文字节尾部追加 `\x00`（`NUL_BYTE` 错误），确保正确进入 `quarantine_record` 且不入有效评论。测试覆盖：`test_ac10_movie_without_reviews`、`test_ac11_m4_media_before_release_year`（避免 CLS001 混入评论矛盾）。
+    - `world.py`：`B0T6ANC001` 补充 365 天内的第二条评论满足 B3，使反例专门针对 B5（1970 早于 1997）。测试覆盖：`test_ac11_b5_ancient_review_time`。

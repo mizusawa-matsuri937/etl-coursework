@@ -49,13 +49,16 @@ def build_bounds(conn: psycopg.Connection, ctx: RunContext, rules: RuleSet, *, b
             "WHERE extraction_id = %s AND t4_mapping_version_id = %s", (i.extraction_id, i.t4_mapping_version_id)):
         reviews[movie] = (earliest, rid, asin, second, count, reviewed, editions)
     media: dict[str, tuple] = {}
-    for movie, asin, value, precision_, flags, assertion_id in conn.execute(
-            "SELECT pm.movie_id, d.asin, d.value_date, d.precision, d.flags, d.assertion_id "
+    all_media_movies: set[str] = set()
+    for movie, asin, value, precision_, flags, assertion_id, kind in conn.execute(
+            "SELECT pm.movie_id, d.asin, d.value_date, d.precision, d.flags, d.assertion_id, d.kind "
             "FROM task6.product_release_date d JOIN task4.product_movie pm ON pm.mapping_version_id = %s "
             "AND pm.asin = d.asin AND pm.member_ordinal = 0 AND pm.relation_type = 'edition' "
-            "WHERE d.extraction_id = %s AND d.parser_version = %s AND d.kind = 'media_release' "
+            "WHERE d.extraction_id = %s AND d.parser_version = %s "
             "ORDER BY d.value_date, d.assertion_id", (i.t4_mapping_version_id, i.extraction_id, i.parser_version)):
-        media.setdefault(movie, []).append((asin, value, precision_, list(flags or []), assertion_id))
+        all_media_movies.add(movie)
+        if kind == "media_release":
+            media.setdefault(movie, []).append((asin, value, precision_, list(flags or []), assertion_id))
     # 最早评论后 365 天内的评论数（评论证据的置信度分档）
     dense: dict[str, int] = {}
     for movie, n in conn.execute(
@@ -78,7 +81,7 @@ def build_bounds(conn: psycopg.Connection, ctx: RunContext, rules: RuleSet, *, b
         conn.execute("DELETE FROM task6.bound_evidence WHERE release_version_id = %s", (rv,))
         conn.execute("DELETE FROM task6.bound_assessment WHERE release_version_id = %s", (rv,))
         conn.execute("DELETE FROM task6.inferred_release_bound WHERE release_version_id = %s", (rv,))
-        for movie in sorted(set(reviews) | set(media)):
+        for movie in sorted(set(reviews) | all_media_movies):
             passed: list[tuple[str, str, str]] = []
             has_review = movie in reviews
             has_media = movie in media and bool(media[movie])

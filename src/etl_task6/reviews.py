@@ -92,12 +92,17 @@ def movie_review_times(conn: psycopg.Connection, ctx: RunContext) -> dict[str, i
                      (i.extraction_id, i.t4_mapping_version_id))
         for movie, products in sorted(per_movie.items()):
             ordered = sorted(products, key=lambda x: (x[1], x[0]))
-            earliest_asin = ordered[0][0]
-            times = sorted([(ordered[0][1], ordered[0][2])] + [(x[3], None) for x in ordered if x[3] is not None])
-            second = times[1][0] if len(times) > 1 else None
+            all_times = []
+            for x in ordered:
+                all_times.append((x[1], x[2], x[0]))
+                if x[3] is not None:
+                    all_times.append((x[3], None, x[0]))
+            all_times.sort(key=lambda t: (t[0], t[2]))
+            earliest_asin = all_times[0][2]
+            second = all_times[1][0] if len(all_times) > 1 else None
             reviewed = sum(1 for x in ordered if x[4])
             count = sum(x[4] for x in ordered)
-            rows.append((i.extraction_id, i.t4_mapping_version_id, movie, ordered[0][1], "day", ordered[0][2],
+            rows.append((i.extraction_id, i.t4_mapping_version_id, movie, all_times[0][0], "day", all_times[0][1],
                          earliest_asin, second, count, reviewed, len(world.edition_asins.get(movie, ())), ctx.run_id))
         copy_rows(conn, "task6.movie_review_time", MOVIE_COLUMNS, rows)
     return {"movies": len(rows)}

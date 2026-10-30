@@ -106,43 +106,43 @@ docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task6_
 
 ## AC09 商品发售日期与标记
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（`Release date` / `Publication date` → `media_release`，`Date First Available` → `listing_first_available`；`jan_first_suspect` 与 `after_review_period` 标记；原标签、原值、精度 day 与页面定位保留；日期值不进入年份候选与选择记录）。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_product_dates.py
 ```
 
-期望（计划）：全部通过。
+期望：`6 passed`。
 
 ## AC10 最早评论时间
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（作品 J 最早 2000-12-01、第二早 2001-03-02、评论数 3、有评论商品数 2；合集评论只在商品层不进成员作品；隔离评论不计入有效评论，K 无评论行）。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_reviews.py
 ```
 
-期望（计划）：全部通过。
+期望：`4 passed`。
 
 ## AC11 两种上界证据与推断上界
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（B1–B5 与 M1–M4 条件反例分别记录；两者都成立取较早者；1 月 1 日降为 year 精度；仅上架日期无推断上界；上界早于上映年份记录 `bound_before_release_year` 且不影响年份与状态）。
 
 ```bash
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_bounds.py -k "condition or media or override or contradiction"
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_bounds.py -k "ac11"
 ```
 
-期望（计划）：选中的案例全部通过。
+期望：`9 passed, 2 deselected`。
 
 ## AC12 预售、合集与跨版本的报告
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（多版本作品跨版本最早评论早于全部发售日取评论为上界；合集商品评论数在商品层统计不进成员作品）。
 
 ```bash
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_bounds.py -k "presale or collection or cross_edition"
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_bounds.py -k "ac12"
 ```
 
-期望（计划）：选中的案例全部通过。
+期望：`2 passed, 9 deselected`。
 
 ## AC13 版本、重跑复用与版本差异
 

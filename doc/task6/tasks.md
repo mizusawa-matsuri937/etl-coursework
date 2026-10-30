@@ -43,15 +43,15 @@
 
   期望：`10 passed`。
 
-- [ ] T6-04 商品发售日期与标记、商品层与作品层最早评论、评论与发售日期两种上界证据、推断上界、预售合集跨版本计数。关联 AC09、AC10、AC11、AC12。
+- [x] T6-04 商品发售日期与标记、商品层与作品层最早评论、评论与发售日期两种上界证据、推断上界、预售合集跨版本计数。关联 AC09、AC10、AC11、AC12。
   - 文件：`src/etl_task6/{product_dates,reviews,bounds}.py`、`tests/integration/test_task6_{product_dates,reviews,bounds}.py`。
-  - 完成情况：未执行。
+  - 完成情况：2026-10-30 完成。商品发售日期分类与可疑标记、商品层与作品层最早评论计算、两种上界证据评估、推断上界与上界早于上映年份质量问题；预售、合集与跨版本数据面准备。集成 21 项通过；全量 760 passed。修复作品层第二早评论跨商品候选排序、上界评估覆盖仅有上架日期的作品，以及夹具隔离评论识别，记入 design 修订第 9–11 条。
 
   ```bash
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_product_dates.py tests/integration/test_task6_reviews.py tests/integration/test_task6_bounds.py
   ```
 
-  期望（计划）：全部通过。
+  期望：`21 passed`。
 
 - [ ] T6-05 分步骤运行与分批恢复、重跑复用、报告与实例、两个查询、只读核对、DAG、真实 scheduler 端到端、运行手册。关联 AC13、AC14、AC15、AC16。
   - 文件：`src/etl_task6/{runner,pipeline,report,query,check}.py`、`dags/amazon_movies_task6_release.py`、`scripts/seed_task6_e2e.py`、`tests/integration/test_task6_{runs,dag,report}.py`、`doc/task6/runbook.md`。

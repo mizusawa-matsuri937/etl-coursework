@@ -186,7 +186,7 @@ REVIEWS = {
                     ("2000-07-07", "it was made in 1950")],
     "B0T6ONB001": [("2002-01-05", "Okay film."), ("2002-06-01", "Bought the DVD later.")],
     "B0T6SPR001": [("2001-01-01", "Only one review here.")],
-    "B0T6ANC001": [("1970-01-01", "Saw this long ago.")],
+    "B0T6ANC001": [("1970-01-01", "Saw this long ago."), ("1970-02-01", "Second review within 365 days.")],
     "B0T6ERS001": [("1999-12-01", "Wait, this is out already?"), ("2000-02-02", "Great action.")],
     "B0T6BOT001": [("2005-02-01", "Solid drama."), ("2005-03-15", "Recommended.")],
     "B0T6CRM001": [("2000-01-01", "Loved it."), ("2000-06-01", "Same here.")],
