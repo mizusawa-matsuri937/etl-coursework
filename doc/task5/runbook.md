@@ -76,7 +76,7 @@ docker compose exec -T airflow-scheduler airflow dags list-import-errors
 
 2026-10-30 实测：三次（加可选的重试）运行结果与上述期望一致（`t5_e2e_ok1` success、`t5_e2e_rerun1` success 且 `reused`、`t5_e2e_missing1` failed、`t5_e2e_transient1` success），随后已回到正常配置。
 
-## 3. 正式运行（T5-07，由用户另行安排）
+## 3. 正式运行（T5-07，2026-10-30 已完成）
 
 ### 3.1 运行前后各取一次任务 4 表行数（核对“未被写入”）
 
@@ -89,6 +89,8 @@ docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT 'pro
 ```bash
 python3 scripts/run_dag_e2e.py --dag-id amazon_movies_task5_person --run-id t5_full_1 --conf '{"imdb_snapshot_id":"imdb_2026-10-29"}' --timeout 7200
 ```
+
+迁移 `401` 由 `check_inputs` 步骤应用，不需要手动执行。2026-10-30 实测：`t5_full_1c` 整个 DAG 8 分 47 秒（提及 9 秒、外部 ID 105 秒、归并 225 秒、MoviePerson 176 秒），同参数重跑约 12 秒且为 `reused`；人物映射版本 `pmap0001`，结果数字见 [checklist](checklist.md) 的 AC14。如果修了影响途径一候选的代码，已有批次标记不会重新判定，要清空 `task5`（`DROP SCHEMA task5 CASCADE`，并删除 `public.schema_migration` 里 `version = '401'` 的行）后换新的 run id 重跑；其他情况直接换 run id 重跑即可续跑。
 
 抽取默认取最近一次全量清单（`f1e8b845…`），任务 4 映射版本默认 `map0002`，规范化 `t5n1`，规则默认 `t5r1`（其他版本用 `rule_version` 参数）。同参数重跑（换 run id）为 `reused`。`limit` 只限制提及阶段的商品数，之后的步骤会失败、不生成人物映射版本，仅用于试跑。
 

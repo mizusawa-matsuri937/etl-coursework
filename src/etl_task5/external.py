@@ -127,7 +127,14 @@ def credit_candidates(mention: tuple, members: list[tuple], credits: dict[str, l
             if level is None:
                 continue
             out.append((CreditCand(tconst, row[1], names.X_LEVEL[level], row[2] in ROLE_CATEGORIES[role]), row))
-    return out
+    # 同一 IMDb 人物在同一作品里可能有多行（既是导演又是演员，或同类别多个序号）：按人物只算一位演职员，
+    # 取与提及同角色的那一行，再取序号最小的；否则候选的类别（来自后一行）与跨角色标记（来自前一行）会互相矛盾
+    best: dict[tuple[str, str], tuple[CreditCand, tuple]] = {}
+    for cand, row in out:
+        k = (cand.tconst, cand.nconst)
+        if k not in best or (not best[k][0].same_role, best[k][1][4]) > (not cand.same_role, row[4]):
+            best[k] = (cand, row)
+    return list(best.values())
 
 
 def _credits(conn: psycopg.Connection, ctx: RunContext, tconsts: list[str]) -> dict[str, list[tuple]]:
@@ -339,6 +346,16 @@ def _link_filmography_batch(conn: psycopg.Connection, ctx: RunContext, batch_no:
                         order = {"primary": 0, "original": 1, "aka": 2}
                         if prev is None or order[source] < order[prev[0]]:
                             info[(nconst, tconst, member)] = (source, line, fyear, tkey, year)
+            # 合集的几个成员标题键相同（如两碟都叫 “Lower Depths”）时命中同一部作品：同一 (人物, 作品) 只算一次，
+            # 归属到序号最小的成员，其余成员记入证据（唯一键里没有成员序号；这不是“年表里有多部同名作品”）
+            kept: dict[tuple[str, str], int] = {}
+            also: dict[tuple[str, str], list[int]] = defaultdict(list)
+            for (nconst, tconst, member) in sorted(info):
+                if (nconst, tconst) in kept:
+                    also[(nconst, tconst)].append(member)
+                else:
+                    kept[(nconst, tconst)] = member
+            info = {k: v for k, v in info.items() if kept[(k[0], k[1])] == k[2]}
             for (nconst, tconst, member), (source, line, fyear, tkey, year) in sorted(info.items()):
                 pname, birth, death, _l = people.get(nconst, (None, None, None, None))
                 theirs = names.parse(pname).disambiguator if pname else None
@@ -353,6 +370,8 @@ def _link_filmography_batch(conn: psycopg.Connection, ctx: RunContext, batch_no:
                 evidence = {"member_ordinal": member, "imdb_start_year": fyear, "title_year": year,
                             "title_key_line_no": line, "snapshot": i.imdb_snapshot_id,
                             "name_line_no": people.get(nconst, (None,) * 4)[3]}
+                if also.get((nconst, tconst)):
+                    evidence["also_members"] = also[(nconst, tconst)]
                 cand_rows.append((i.extraction_id, key, m[0], FILMOGRAPHY, tconst, nconst, m[1], "X1", False, movie,
                                   anchor.get(nconst), tkey, source, Jsonb(evidence)))
                 verdicts[(m[0], tconst, nconst)] = verdict

@@ -84,6 +84,19 @@ def test_credits_batch_rerun_adds_nothing(conn, cw):
     assert conn.execute("SELECT count(*) FROM task5.link_decision").fetchone()[0] == before
 
 
+def test_credits_person_who_is_director_and_actor_of_the_work_gets_one_same_role_candidate_per_mention(
+        conn, make_settings, tmp_path):
+    """同一 nconst 在作品里既是导演又是演员时，每条提及只写一条候选，且保存的类别、跨角色标记取同角色那一行（正式库核对暴露过不一致）。"""
+    w = make_world(conn, make_settings, tmp_path, links.dual_products(), links.DUAL_IMDB)
+    run_links(conn, w)
+    rows = conn.execute("SELECT m.role_class, c.category, c.cross_role, d.tier, d.reason "
+                        "FROM task5.link_candidate c JOIN task5.link_decision d USING (link_candidate_id) "
+                        "JOIN task5.person_mention m ON m.mention_key = c.mention_key "
+                        "WHERE c.route = 'credits' AND c.nconst = 'nm0001101' ORDER BY m.role_class").fetchall()
+    assert [(r[0], r[1], r[2], r[3], r[4]) for r in rows] == [
+        ("actor", "actor", False, "auto", "unique_in_credits"), ("director", "director", False, "auto", "unique_in_credits")]
+
+
 # ---------------------------------------------------------------- AC04
 
 F = "B0T5F00"
@@ -177,6 +190,18 @@ def test_filmography_collection_member_title_hit_is_attributed_to_the_member(con
     ev = conn.execute("SELECT evidence FROM task5.link_candidate WHERE tconst = 'tt0002021' AND route = 'filmography'"
                       ).fetchone()[0]
     assert ev["member_ordinal"] == 2                                          # 命中第二个成员 Quiet Hall
+
+
+def test_filmography_collection_members_with_the_same_title_key_hit_one_work_once(conn, make_settings, tmp_path):
+    """两个成员同名且命中同一部作品时，只写一条候选（归属序号最小的成员，另一成员记入证据），仍判 auto，不当成多部同名作品。"""
+    w = make_world(conn, make_settings, tmp_path, links.film_twin_members_products(), links.FILM_IMDB)
+    run_links(conn, w)
+    rows = conn.execute("SELECT c.tconst, c.nconst, d.tier, d.reason, c.evidence FROM task5.link_candidate c "
+                        "JOIN task5.link_decision d USING (link_candidate_id) JOIN task5.person_mention m "
+                        "ON m.mention_key = c.mention_key WHERE c.route = 'filmography' AND m.asin = %s",
+                        (f"{F}K02",)).fetchall()
+    assert [(r[0], r[1], r[2], r[3]) for r in rows] == [("tt0002021", "nm0002001", "auto", "filmography_title_match")]
+    assert rows[0][4]["member_ordinal"] == 1 and rows[0][4]["also_members"] == [2]
 
 
 def test_filmography_runs_after_credits_and_records_the_verified_set_hash(conn, fw):

@@ -465,7 +465,22 @@ IMDb 一侧对 `primary_name` 走同一流程（R09）。
 | 全量运行 | 10 分钟以内 | IMDb 只读关联作品的约 4.7 万行演职员与已核实人物的年表；全局步骤在内存中完成；规划估算脚本读取年表与标题键约 1 分钟 |
 | schema `task5` | 1 GB 以内 | 以上行数与 jsonb 证据 |
 
-实测在 T5-07 补记，估计与实测分开写。
+**实测（2026-10-30，T5-07，正式库经 Airflow 全量运行 `t5_full_1c`，Colima 虚拟机 7.7 GiB 内存）**，与上表的估计分开写：
+
+| 项目 | 实测 | 与估计比较 |
+|---|---|---|
+| 人物提及 | 56,809 条（resolvable 53,250、placeholder 633、ambiguous 2,926） | 与估计一致 |
+| 外部 ID 候选 | 途径一 29,868 条，途径二 1,695 条 | 途径一在估计内；途径二比规划估算（411 条自动）多，因为 R04 含详情要点演员、合集成员也参与（自动 1,286） |
+| 跨作品候选 | 21,871 个候选、21,905 条判定；35 个块溢出 | 落在估计范围的低端（N3、N4 候选需要合作者才进入复核，不会像 N1 那样大量产生） |
+| 迭代 | 4 轮（新增自动边 1,193、25、1、0） | 在估计的 2–4 轮内 |
+| 步骤耗时（Airflow 任务） | check_inputs 1 秒；mentions 9 秒；link_external 105 秒；resolve 225 秒；movie_person 176 秒；verify 2 秒；finalize_report 3 秒；整个 DAG 8 分 47 秒 | 在“10 分钟以内”的估计内；MoviePerson 一步占 176 秒，估计里没有单列 |
+| 内存峰值（`docker stats` 每 10 秒取样） | scheduler 容器（任务进程所在）约 1.07 GiB，postgres 容器约 1.41 GiB；CPU 峰值约 180%（scheduler）、120%（postgres） | 无估计，7.7 GiB 内充足 |
+| schema `task5` | 280 MB（最大的表 `person_decision` 44 MB、`person_mention` 35 MB、`person_group` 30 MB） | 远小于 1 GB |
+| 业务库与磁盘 | `etl_movies` 共 29 GB（任务 1–4 为主）；宿主机可用 179 GiB | 无影响 |
+| 重跑（`reused`） | 整个 DAG 约 12 秒（`t5_full_2`；脚本含轮询 16.7 秒），目标表行数不变 | — |
+| 导出文件 | `outputs/task5/<抽取>/pmap0001/` 下评价表 61 KB、抽查表 21 KB、待复核队列 3.3 MB（17,782 行）、每个 run_key 目录 8 个文件 | 无估计 |
+
+首次尝试因两个缺陷中断（见“实现中的修订（T5-07）”），上表只取修复后的完整运行。
 
 ## 异常与恢复
 
@@ -563,3 +578,49 @@ IMDb 一侧对 `primary_name` 走同一流程（R09）。
 - **簇抽查**：从评价池（所有组的姓氏键都不在开发池）里取跨至少两个作品单位的人物，先取合作者佐证产生的人物最多 5 个（占用各自桶的名额），再按桶补足，不足时桶间互补；标注取值 `same_person` / `mixed`，`mixed` 须在混入的提及行填 `outlier`。
 - **草稿**：导出时同时写 `eval_pairs_draft.csv`（多 `ai_label`、`ai_doubt`、`ai_reason` 三个空列），导入时多余的列忽略；评价集按人物映射版本唯一（`ev_<pmap>`），已导出后不重新抽样，`--force` 只重写文件。
 - 复用 `etl_task4.evaluate` 的 `prf`、`EvalError`、CSV 读写；指标里的待复核率与复核覆盖率取自 `report.build_summary`。
+
+## 规则调整记录（T5-07）
+
+2026-10-30，正式库首次全量运行（`t5r1`，`pmap0001`）之后、导出评价表之前，按“评价设计”冻结开发池并只在开发池上观察。观察由 AI 完成（查询库里的判定与特征，抽读例子），没有用户标注，所以不是评价，也算不出 Precision。
+
+**开发池**：全部 resolvable 提及有 14,173 个姓氏键，按 `md5` 排序的前 20% 即 2,835 个冻结进 `task5.dev_pool`。跨作品候选里任一侧姓氏键在开发池的有 4,209 个（两侧都在的 4,126 个），这 4,209 个就是观察对象：
+
+| 观察 | 数字 |
+|---|---|
+| 判定档 | auto 281（全是 `co_credit`）、review 3,563（`same_name_no_corroboration` 3,352、`role_differs` 127、`name_order_or_middle` 62、`weak_name_only` 22）、reject 365（`weak_name_only` 263、`different_external_id` 99、`era_conflict` 2、`incompatible_name` 1） |
+| 硬冲突（含 reject 之外的候选） | `different_external_id` 99、`era_conflict` 21 |
+| 自动合并的佐证 | 250 个只靠 2–6 位同名合作者（没有已核实或已合成的合作者），31 个含已核实或已合成的合作者；5 个出现在第 2 轮之后；105 个自动合并的名字本来就满足稀有条件 |
+| W = 1 的同名对 | 224 个（`same_name_no_corroboration`，正好卡在 `auto_w_min = 2` 的边界），其中 48 个两边都稀有 |
+| 稀有度开关打开会改变的 | 48 个 review → auto（其中 7 个发行商开关也会升级） |
+| 发行商开关打开会改变的 | 22 个 review → auto（其中 15 个只有发行商开关会升级） |
+| 全量（所有候选，R40 的报告值） | 稀有度会改变 197 个，发行商会改变 107 个 |
+
+**例子阅读**（AI，不是标注）：自动合并按“页面作品数 ≥ 4”随机读了 22 个，都是知名演员的多部作品，合作者重合（Frank Oz、Greta Garbo、Joseph Cotten、Lee Van Cleef 等），没有发现明显误合并；其中名字有 6 个 IMDb 同名人的 Roy Rogers 靠 2 位同名合作者（Dale Evans、George Hayes）合并，是唯一让我觉得有风险的一个，留给评价层 S2 检验。稀有度开关会升级的 48 个读了前 25 个：多数是同一导演或演员的搭档（Chris Weitz 与 Paul Weitz、Joanne Woodward 与 Paul Newman、Kelly Hu 与 Andrzej Bartkowiak 等），看起来合理；Jennifer Ashton 的两部同名影片 “Ride” 无法判断。
+
+**结论：不调整，保持 `t5r1`，稀有度与发行商开关关闭，不生成 `t5r2`，也不重跑。** 理由：
+
+1. **没有标注就没有精确度证据。** 开发池上只有 AI 观察，没有对错标签；48 个候选“看起来合理”不能证明升级后的精确度，而误合并会在迭代里放大（见“已知局限”）。
+2. **稀有度信号在开发池上无法检验。** `rare` 要求 IMDb 中同名的人不超过 1 个，所以两边关联到不同 `nconst` 的对（已知的不同人，开发池里 99 个）不可能满足它；两边是同一 `nconst` 的对直接合并、不是候选。已知的不同人和已知的同一人都无法拿来检验这个信号，只能靠独立标注，而评价样本的 S2 层只有 10 对，也不足以单独检验一类新规则。
+3. **改动面很小，不值得冒险。** 全量只有 197 个（稀有度）和 107 个（发行商）候选会变，开发池里 48 与 22 个；已作为特征记录在每条判定里，以后有标注数据时可以不重新抽取、只升规则版本重算（R22、H15）。用户 2026-10-30 的选择也是“先只记录”。
+4. **其余默认值也没有改动的依据。** `auto_w_min = 2` 与分值：开发池里 281 个自动合并读起来都合理，且 224 个 W = 1 的候选中 176 个不是稀有名，降到 1 会把它们全部升为自动，没有证据支持；年代容差 5 年只拦下 21 个明显冲突；`year_tolerance = 1`、`block_limit` 与 `c4_block_limit` 没有观察到问题（块溢出 35 块，只影响复核档）。
+
+评价表在 `t5r1` 冻结后导出。如果 T5-08 的用户标注显示合作者佐证或稀有度有明显问题，再升规则版本，并在报告里注明“评价集已被看过，不再独立”。
+
+## 实现中的修订（T5-07，2026-10-30）
+
+正式库的首次全量运行暴露了两个测试库夹具没有覆盖的缺陷，修复后加测试：
+
+1. **合集的两个成员标题键相同时作品年表候选重复（`link_external` 失败，`UniqueViolation`）。** 例子：合集 `B0000A02TW` 的成员 1、2 都叫 “Lower Depths”，同时命中已核实人物年表里的同一部作品 `tt0027336`；候选唯一键（阶段键、提及、途径、`tconst`、`nconst`）不含成员序号，同一提及写入了两行。修复（`external.py` 的 `_link_filmography_batch`）：同一（人物，作品）命中多个成员时只写一条候选，归属到序号最小的成员，其余成员序号记入 `evidence.also_members`；这与“年表里有多部同名作品”（不同 `tconst`，仍判复核）不同，所以判定不变。测试 `test_filmography_collection_members_with_the_same_title_key_hit_one_work_once`。
+2. **同一 IMDb 人物在同一作品里既是导演又是演员时，途径一候选的类别与跨角色标记互相矛盾（只读核对报 214 个不满足 R12 的自动外部 ID）。** 例子：演员 Michael Worth 同时是该片导演，`title_director` 与 `title_principal` 各有一行；`credit_candidates` 用后一行的类别、前一行的 `cross_role` 写候选，结果出现类别为 actor、`cross_role` 为真的自动关联。判定本身没错（按同角色那一行判定为 `unique_in_credits`），但保存的证据自相矛盾。修复（`credit_candidates`）：同一（作品，`nconst`）只保留一行，优先与提及同角色的，再取序号最小的；同类别多个序号的同一个人也只算一位演职员（此前会被算成两位而判 `multiple_in_credits`，现在判 `auto`）。测试 `test_credits_person_who_is_director_and_actor_of_the_work_gets_one_same_role_candidate_per_mention`。
+3. **实例选择**（`report.examples`）：不合并实例此前先挑硬冲突、再挑同名，结果混入 “Keri Russell / Kurt Russell” 这样只是姓相同的对；改为先挑严格键相同（N1）的，再挑硬冲突的，候选也按此排序后再取前 800 个，例子换成 “Paul Guilfoyle / Paul Guilfoyle”（`nm0002116` 与 `nm0002117`，年代冲突）、“Bruce Lee”、“Federico Fellini”（年代冲突）等。现有 18 项报告测试仍通过。
+
+**运行经过**（正式库只写了 `task5` 与迁移 401 的登记）：
+
+| Airflow run id | 结果 |
+|---|---|
+| `t5_full_1` | `link_external` 失败（缺陷 1），已提交的批次保留 |
+| `t5_full_1b` | 修缺陷 1 后重跑，全部完成，`verify` 失败（缺陷 2，214 个） |
+| `t5_full_1c` | 修缺陷 2 后清空 `task5`（`DROP SCHEMA task5 CASCADE` 与删除 `public.schema_migration` 的 `401` 行，由 `check_inputs` 重新应用迁移）从头重跑，成功；这是正式结果，人物映射版本 `pmap0001` |
+| `t5_full_2`、`t5_full_3` | 同参数重跑，`reused`；`t5_full_3` 在修改实例选择之后运行，所以导出目录里的实例以它为准 |
+
+缺陷 2 会改变途径一的候选，已有的批次标记不会重新判定，所以修复后必须清空 `task5` 从头重跑，不能续跑。清空只涉及 `task5` schema 与它的迁移登记，任务 1–4 的表在清空前后的行数完全相同。

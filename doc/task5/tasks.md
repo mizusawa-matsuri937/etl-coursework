@@ -1,8 +1,8 @@
 # 任务 5 开发任务（人物姓名归一与消歧）
 
-状态：2026-10-29 编写计划；2026-10-30 按用户要求加入作品年表反查、合作者佐证迭代、稀有度与发行商特征、待复核队列，AC 重新编号为 AC00–AC17。2026-10-30 用户审批通过计划，开始实现。分支 `task5-person-identity`（从 `main` 的 `bf5b19d` 建立），未提交。
+状态：2026-10-29 编写计划；2026-10-30 按用户要求加入作品年表反查、合作者佐证迭代、稀有度与发行商特征、待复核队列，AC 重新编号为 AC00–AC17。2026-10-30 用户审批通过计划，开始实现。分支 `task5-person-identity`（从 `main` 的 `bf5b19d` 建立）。T5-01 至 T5-07 已完成（T5-07 于 2026-10-30 在正式库经 Airflow 全量运行）；T5-08 等用户标注。
 
-命令在项目根目录直接复制运行。T5-01 至 T5-06 的命令已实际运行核对；标注“（计划）”的命令依赖尚未实现的代码，期望值是预定口径，实现后实际运行核对再改写。每项 AC 的复核命令见 [checklist](checklist.md)。
+命令在项目根目录直接复制运行。T5-01 至 T5-07 的命令已实际运行核对（zsh）；标注“（计划）”的命令依赖尚未完成的步骤，期望值是预定口径，完成后实际运行核对再改写。每项 AC 的复核命令见 [checklist](checklist.md)。
 
 - [x] T5-00 计划：spec、design、tasks、checklist。关联 AC00。
   - 完成情况：2026-10-30 AI 文档检查通过（五个板块、R01–R47、AC00–AC17 一一对应，每条规则都有 AC）；用户已确认 H01–H04，提出 H13–H15 的加强方向；2026-10-30 用户审批通过计划全文，其余假设按建议执行。
@@ -25,13 +25,13 @@
 
 - [x] T5-02 外部 ID：途径一（关联作品演职员的兼容等级与判定）、途径二（已核实人物的作品年表反查、任务 4 升级线索）。关联 AC03、AC04。
   - 文件：`src/etl_task5/external.py`、`tests/integration/test_task5_external.py`。
-  - 完成情况：2026-10-30 通过：`tests/integration/test_task5_external.py` 21 项（AC03 `-k credits` 14 项、AC04 `-k filmography` 8 项）。
+  - 完成情况：2026-10-30 通过：`tests/integration/test_task5_external.py` 原 21 项；T5-07 因正式库暴露的两个缺陷增加 2 项，共 23 项（AC03 `-k credits` 15 项、AC04 `-k filmography` 9 项）。
 
   ```bash
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task5_external.py
   ```
 
-  期望：`21 passed`。
+  期望：`23 passed`。
 
 - [x] T5-03 作品内人物组、跨作品候选与判定、合作者佐证迭代、稀有度与发行商特征及开关、聚类与一致性、`person_id`、规范姓名、别名、人物映射版本、人工纠正与待复核队列。关联 AC05、AC06、AC07。
   - 文件：`src/etl_task5/{rules,resolve,cluster,review}.py`、`tests/unit/test_task5_rules.py`、`tests/integration/test_task5_resolve.py`。
@@ -73,15 +73,27 @@
 
   期望：`8 passed`。
 
-- [ ] T5-07 正式库：经 Airflow 全量运行，冻结开发池并在开发池上调整默认值、决定稀有度与发行商开关，冻结规则版本，只读核对，导出实例、查询结果与待复核队列，导出评价表与簇抽查表。关联 AC14、AC16、AC17。
-  - 文件：`src/etl_task5/{rules,check}.py`（如有规则调整）、`doc/task5/design.md`（“规则调整记录”、资源实测）、README、交接文档。
-  - 完成情况：未执行。
+- [x] T5-07 正式库：经 Airflow 全量运行，冻结开发池并在开发池上调整默认值、决定稀有度与发行商开关，冻结规则版本，只读核对，导出实例、查询结果与待复核队列，导出评价表与簇抽查表。关联 AC14、AC16、AC17。
+  - 文件：`src/etl_task5/{external,report}.py`（两个缺陷修复与实例排序）、`tests/integration/test_task5_external.py`、`tests/fixtures/task5/links.py`、`doc/task5/design.md`（资源实测、规则调整记录、T5-07 修订）、README。
+  - 完成情况：2026-10-30 通过：正式库 `t5_full_1c` 经 Airflow 8 分 47 秒成功（先后修复两个缺陷并加测试），56,809 条提及 → 29,635 个人物，核对 `exit=0`，任务 4 行数不变，重跑 `reused`，开发池观察后保持 `t5r1`。评价表、簇抽查表与待复核队列已导出，AI 草稿已生成未导入；691 项测试通过。
 
   ```bash
   docker compose --profile crawl run --rm -T crawler python -m etl_task5.check > /dev/null; echo "exit=$?"
   ```
 
-  期望（计划）：`exit=0`，输出 JSON 的 `"problems": []`。
+  期望：`exit=0`（输出 JSON 的 `"problems": []`）。
+
+  ```bash
+  docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT status, airflow_run_id, person_mapping_version_id FROM task5.run ORDER BY started_at"
+  ```
+
+  期望：三行 `succeeded|t5_full_1c|pmap0001`、`reused|t5_full_2|pmap0001`、`reused|t5_full_3|pmap0001`。
+
+  ```bash
+  ls outputs/task5/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/pmap0001/eval
+  ```
+
+  期望：`LABELING.md`、`cluster_sample.csv`、`cluster_sample_draft.csv`、`eval_pairs.csv`、`eval_pairs_draft.csv`（草稿的 `ai_label` 等列由 AI 填写，`label`、`cluster_label` 空着等用户填；规则见 [runbook](runbook.md) 第 7 节）。
 
 - [ ] T5-08 用户标注 120 对评价样本与 20 个人物，导入并报告指标。关联 AC15。
   - 文件：`outputs/task5/<抽取>/<人物映射版本>/eval/`（`eval_pairs.csv`、`cluster_sample.csv` 与 AI 预标注草稿 `*_draft.csv`；不入库）。

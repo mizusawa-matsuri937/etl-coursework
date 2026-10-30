@@ -28,6 +28,8 @@
 ## `resolve.py`：归并（AC05、AC06、AC07）
 
 - `case_products()`（前缀 `B0T5R00`）：A 同一作品两个版本；B 导演兼演员；C 两部作品同名演员、无合作者；D 两位同名合作者；E 同名但两个 nconst；F 年代冲突（nconst 1980 年出生，页面作品 1950 年）；G 链（X 无 ID，Y、Z 各关联不同 nconst，三者有共同合作者）；H “J. Smith” 对 “John Smith”。
+- `film_twin_members_products()`（T5-07 加入，前缀 `B0T5F00`，复用 `FILM_IMDB`）：在 V01、V02、U01 之外加合集 K02 “Quiet Hall / Quiet Hall (Twin Disc)”，两个成员标题键相同、都命中 Ava Verified 年表里的 tt0002021；预期只有一条候选（auto，成员序号 1，`also_members` 为 [2]）。
+- `DUAL_IMDB` / `dual_products()`（T5-07 加入，商品 `B0T5L00E01`）：tt0001101 的导演 nm0001101（Dual Person）同时是该片演员；页面导演和演员各写 Dual Person，预期两条提及各有一条同角色候选（类别与提及角色一致，`cross_role` 为假，auto）。
 - `iter_products()`（前缀 `B0T5I00`）：作品 P、Q、R 关联 IMDb，P–Q 共同的已核实演员 Vee One/Two，P–R 共同的 Vee Three/Four；同名演员 Ann Alpha 三部都有，Bea Bee 只在 Q、R 且没有其他共同点。预期迭代 3 轮，合并边 2、1、0。
 - `switch_products()`（前缀 `B0T5S00`）：稀有名 + 同名合作者的一对（Rora Rare / Shared Mate），发行商相同的一对（Pam Pub）。
 

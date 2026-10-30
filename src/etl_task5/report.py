@@ -300,7 +300,7 @@ def _person_card(conn: psycopg.Connection, m: dict[str, Any], pid: str, limit: i
 
 def examples(conn: psycopg.Connection, pmap: str, n: int = EXAMPLES_PER_KIND) -> dict[str, Any]:
     """至少 n 组别名合并和 n 组同名或近似名不合并的实例（数据不足时有多少给多少），每组附原始署名、作品、外部 ID 或冲突证据
-    与源记录定位。选择是确定性的：已有用户标注的优先，其次有外部 ID / 硬冲突的，最后按 md5 排序；标注结论只在用户标注过时才写。"""
+    与源记录定位。选择是确定性的：已有用户标注的优先，其次严格键相同（同名）的，再其次有硬冲突的，最后按 md5 排序；标注结论只在用户标注过时才写。"""
     m = pmap_row(conn, pmap)
     p = {"eid": m["extraction_id"], "key": m["link_key"], "rv": m["rule_version"], "v": pmap}
     labels = _labels(conn, m["extraction_id"])
@@ -336,7 +336,8 @@ def examples(conn: psycopg.Connection, pmap: str, n: int = EXAMPLES_PER_KIND) ->
             JOIN task5.mention_person pb ON pb.person_mapping_version_id = %(v)s AND
                  pb.mention_key = split_part(f.group_b, '|', 2)
             WHERE f.tier IN ('review', 'reject') AND pa.person_id <> pb.person_id
-            ORDER BY md5(f.person_candidate_id::text) LIMIT 800""", p).fetchall()
+            ORDER BY (f.features->>'n_level' = 'N1') DESC, (f.tier = 'reject' AND cardinality(f.veto) > 0) DESC,
+                     md5(f.person_candidate_id::text) LIMIT 800""", p).fetchall()
 
     def label_of(a: str, b: str) -> dict[str, Any] | None:
         for lab in reversed(labels):
@@ -347,7 +348,7 @@ def examples(conn: psycopg.Connection, pmap: str, n: int = EXAMPLES_PER_KIND) ->
     def rank(r) -> tuple:
         lab = label_of(r[7], r[8])
         hard = bool(r[3]) and r[1] == "reject"
-        return (not (lab and lab["label"] == "different"), lab is None, not hard, r[6].get("n_level") != "N1", r[1] != "reject")
+        return (not (lab and lab["label"] == "different"), lab is None, r[6].get("n_level") != "N1", not hard, r[1] != "reject")
 
     chosen = sorted(rows, key=rank)[:n]
     briefs = mention_briefs(conn, m, sorted({k for r in chosen for k in (r[7], r[8])}))
@@ -361,7 +362,7 @@ def examples(conn: psycopg.Connection, pmap: str, n: int = EXAMPLES_PER_KIND) ->
                          "right": {**briefs[kb], "person_id": pb, "nconst": (feats.get("external") or {}).get("b")}})
     return {"person_mapping_version_id": pmap, "rule_version": m["rule_version"], "per_kind_target": n,
             "alias_merges": merged, "not_merged": unmerged,
-            "note": "选择是确定性的：已由用户标注的优先，其次有外部 ID 或硬冲突的，最后按 md5 排序；annotation 为空表示未标注"}
+            "note": "选择是确定性的：已由用户标注的优先，其次严格键相同（同名）的，再其次有硬冲突的，最后按 md5 排序；annotation 为空表示未标注"}
 
 
 def render_examples(ex: dict[str, Any]) -> str:

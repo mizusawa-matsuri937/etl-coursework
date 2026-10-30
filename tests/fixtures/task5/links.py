@@ -111,3 +111,28 @@ def film_products():
         P("B0T5F00K01", "collection", "Mirror Lake / Quiet Hall (Double Feature) [DVD]", actors=("Ava Verified",),
           **wrong),
     ]
+
+
+def film_twin_members_products():
+    """正式库全量运行暴露的情形：合集的两个成员标题键相同（两碟同名），同时命中已核实人物年表里的同一部作品。"""
+    from _task4_helpers import P
+
+    return film_products()[:3] + [
+        P("B0T5F00K02", "collection", "Quiet Hall / Quiet Hall (Twin Disc) [DVD]", actors=("Ava Verified",),
+          directors=("Wrong Person",))]
+
+
+# 正式库全量运行暴露的情形：同一 IMDb 人物在同一作品里既是导演又是演员（title_director 与 title_principal 各一行）
+DUAL_IMDB = dict(
+    basics=[["tt0001101", "movie", "Dual Credit", "Dual Credit", "0", "2001", N, "100", "Drama"]],
+    akas=[],
+    crew=[["tt0001101", "nm0001101", N]],
+    principals=[["tt0001101", "1", "nm0001101", "actor", N, N], ["tt0001101", "2", "nm0001102", "actress", N, N]],
+    names=_names([("nm0001101", "Dual Person", 1950), ("nm0001102", "Other Actress", 1960)]),
+)
+
+
+def dual_products():
+    from _task4_helpers import P
+
+    return [P("B0T5L00E01", "movie", "Dual Credit (2001)", directors=("Dual Person",), actors=("Dual Person", "Other Actress"))]

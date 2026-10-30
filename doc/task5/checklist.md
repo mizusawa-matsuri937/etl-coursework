@@ -1,8 +1,8 @@
 # 任务 5 AC 完成情况（人物姓名归一与消歧）
 
-状态：2026-10-29 编写计划；2026-10-30 按用户要求加强没有 IMDb 关联作品的跨作品人物匹配，AC 重新编号为 AC00–AC17。2026-10-30 用户审批通过计划；AC01–AC13 已用合成夹具通过（T5-01 至 T5-06），AC14–AC17 针对正式库，未执行（T5-07、T5-08）。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-10-29 编写计划；2026-10-30 按用户要求加强没有 IMDb 关联作品的跨作品人物匹配，AC 重新编号为 AC00–AC17。2026-10-30 用户审批通过计划；AC01–AC13 已用合成夹具通过（T5-01 至 T5-06）；AC14、AC16、AC17 于同日在正式库通过（T5-07）；AC15 等用户标注（T5-08），未执行。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
-复核方法：以下命令都在项目根目录直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询。标注“（计划）”的命令依赖尚未实现的代码或测试，期望值是预定口径，实现后实际运行核对再改写（包括 `-k` 选择器与通过数）。
+复核方法：以下命令都在项目根目录直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询。标注“（计划）”的命令依赖尚未完成的步骤，期望值是预定口径，完成后实际运行核对再改写。AC14、AC16、AC17 的命令已于 2026-10-30 在 zsh 中原样运行核对。
 
 一次跑全部测试：
 
@@ -10,7 +10,7 @@
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望：2026-10-30 完成 T5-06 后为 `689 passed`（任务 1–4 的 505 项不变，任务 5 新增 184 项）。
+期望：2026-10-30 完成 T5-07 后为 `691 passed`（任务 1–4 的 505 项不变，任务 5 共 186 项；T5-07 因正式库暴露的两个缺陷新增 2 项）。
 
 ## AC00 计划文件规范
 
@@ -52,7 +52,7 @@ docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task5_
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task5_external.py -k "credits"
 ```
 
-期望：`14 passed, 7 deselected`。
+期望：`15 passed, 8 deselected`（T5-07 新增 1 项：同一人物既是导演又是演员）。
 
 ## AC04 外部人物 ID：作品年表反查与任务 4 升级线索
 
@@ -62,7 +62,7 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task5_external.py -k "filmography"
 ```
 
-期望：`8 passed, 13 deselected`。
+期望：`9 passed, 14 deselected`（T5-07 新增 1 项：合集两个成员标题键相同）。
 
 ## AC05 同作品归并与跨作品消歧
 
@@ -157,13 +157,55 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC14 正式库全量运行
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过：经 Airflow 全量运行 `t5_full_1c`（8 分 47 秒）；56,809 条提及 → 29,635 个人物，核对 `exit=0`、`problems: []`，任务 4 的表行数前后相同，重跑为 `reused`。正式运行此前有两次失败尝试（`t5_full_1` 与 `t5_full_1b`），缺陷与修复见 [design](design.md)“实现中的修订（T5-07）”。
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task5.check > /dev/null; echo "exit=$?"
 ```
 
-期望（计划）：`exit=0`；输出 JSON 的 `"problems": []`。逐项只读查询（按途径的外部 ID、迭代轮数、任务 4 升级线索数、任务 4 表未被写入）在 T5-07 实际运行后补写。
+期望：`exit=0`。
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task5.check 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['problems'], d['persons'], d['mentions_expected'], d['auto_links_credits'], d['auto_links_filmography'], d['auto_pair_decisions'], len(d['rounds']), d['movie_person_rows'])"
+```
+
+期望：`[] 29635 56809 28903 1286 1671 4 50027`（无问题；人物数；提及数；途径一与途径二的自动外部 ID；自动合并边；迭代轮数；MoviePerson 行数）。
+
+```bash
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT 'product_movie', count(*) FROM task4.product_movie UNION ALL SELECT 'movie', count(*) FROM task4.movie UNION ALL SELECT 'merge_decision', count(*) FROM task4.merge_decision UNION ALL SELECT 'mapping_version', count(*) FROM task4.mapping_version"
+```
+
+期望：`product_movie|17852`、`movie|17268`、`merge_decision|70424`、`mapping_version|2`，与运行前取的基线逐行相同（`check` 的输出 `t4_table_rows` 列出任务 4 全部 14 张表的行数，运行前后也相同）。
+
+```bash
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT status, count(*) FROM task5.person GROUP BY status ORDER BY status"
+```
+
+期望：`external_verified|13233`、`page_only|10371`、`review_pending|6031`（待复核人物占 20.35%）。
+
+```bash
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT c.route || '/' || d.tier, count(*) FROM task5.link_candidate c JOIN task5.link_decision d USING (link_candidate_id) GROUP BY 1 ORDER BY 1"
+```
+
+期望：`credits/auto|28903`、`credits/review|965`、`filmography/auto|1286`、`filmography/review|409`（按途径的外部 ID：作品演职员 28,903 条提及，作品年表 1,286 条）。
+
+```bash
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT round, new_auto_edges FROM task5.iteration_round ORDER BY round"
+```
+
+期望：`1|1193`、`2|25`、`3|1`、`4|0`（迭代 4 轮，第 4 轮没有新增即停止；合作者佐证并入 2,284 条提及）。
+
+```bash
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT count(*) FROM task5.t4_upgrade_hint"
+```
+
+期望：`335`（任务 4 升级线索，只记录）。
+
+```bash
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT status, airflow_run_id, person_mapping_version_id FROM task5.run ORDER BY started_at"
+```
+
+期望：`succeeded|t5_full_1c|pmap0001`、`reused|t5_full_2|pmap0001`、`reused|t5_full_3|pmap0001`；`SELECT (SELECT count(*) FROM task5.person_mention), (SELECT count(*) FROM task5.link_decision), (SELECT count(*) FROM task5.person), (SELECT count(*) FROM task5.movie_person)` 重跑前后都是 `56809|31563|29635|50027`。
 
 ## AC15 用户标注与指标
 
@@ -177,20 +219,44 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task5.evaluate 
 
 ## AC16 正式实例与查询
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过：报告列出 5 组别名合并（含 Tim Robbins、Rubén Blades）与 5 组同名不合并（Paul Guilfoyle、Bruce Lee、Federico Fellini、Marc Lawrence、Charles Lane，都有外部 ID 冲突或年代冲突），每组带原始署名、作品、外部 ID 或冲突证据与页面快照定位；用户尚未标注，所以实例都注明“未标注”（T5-08 之后优先取用户标注的）。两个查询在正式库返回非空结果。
 
 ```bash
-docker compose --profile crawl run --rm -T crawler python -m etl_task5.report examples
+docker compose --profile crawl run --rm -T crawler python -m etl_task5.report examples 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['alias_merges']), len(d['not_merged'])); print([(e['canonical_name'], e['external_id']['nconst']) for e in d['alias_merges']]); print([(e['left']['raw'], e['right']['raw'], e['reason']) for e in d['not_merged']])"
 ```
 
-期望（计划）：至少 5 组别名合并、5 组同名或近似名不合并，每组有源记录定位；`query person` 与 `query director` 的复核命令在 T5-07 用正式库中的实际 ID 补写。
+期望：第一行 `5 5`；第二行 `[('Olivia de Havilland', 'nm0000014'), ('Tim Robbins', 'nm0000209'), ('David Brian', 'nm0108406'), ('Rubén Blades', 'nm0001952'), ('Farrah Fawcett', 'nm0000396')]`；第三行 `[('Paul Guilfoyle', 'Paul Guilfoyle', 'different_external_id'), ('Bruce Lee', 'Bruce Lee', 'era_conflict'), ('Federico Fellini', 'Federico Fellini', 'era_conflict'), ('Marc Lawrence', 'Marc Lawrence', 'different_external_id'), ('Charles Lane', 'Charles Lane', 'different_external_id')]`。完整实例（含源记录定位）在 `outputs/task5/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/pmap0001/t5_full_3/examples.md` 与 `pmap0001/examples.json`。
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task5.query person ps_e29f65eda4d251ef 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['found'], d['canonical_name'], d['external_id']['nconst'], [a['alias'] for a in d['aliases']], d['mentions_total'], len(d['works']), len(d['decision_chain']))"
+```
+
+期望：`True Tim Robbins nm0000209 ['Tim Robbins', 'Robbins, Tim'] 8 5 5`（有倒序别名的人物：原始署名 8 条、5 部作品、决策链 5 条）。
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task5.query director "Alfred Hitchcock" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['matched_persons'], [(p['person_id'], p['status'], len(p['works'])) for p in d['persons']])"
+```
+
+期望：`5 [('ps_1c22cf4d8a2a9b3d', 'review_pending', 1), ('ps_3e754811ebc66e3b', 'review_pending', 1), ('ps_886f4b237a4c4f5e', 'external_verified', 16), ('ps_d5d249d5e3f4df44', 'review_pending', 1), ('ps_ff05ed7834fc4018', 'review_pending', 0)]`（同名的 5 个人物分别列出：有 `nm0000033` 的一个、四个待复核；这是 R17 的预期行为：没有外部 ID 的同名导演不凭姓名合并）。
 
 ## AC17 迁移、测试与仓库内容
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过：迁移版本含 `401`；全部测试 `691 passed`（任务 1–4 的 505 项不变）；`git ls-files` 没有 IMDb 文件、导出、评价表与 `.env`（`outputs/` 在 `.gitignore` 中）。
 
 ```bash
 docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT string_agg(version, ',' ORDER BY version) FROM public.schema_migration"
 ```
 
-期望（计划）：`001,101,102,103,201,301,302,401`（2026-10-30 计划时实际为 `001,101,102,103,201,301,302`）；另跑全部测试与 `git ls-files`，仓库中没有 IMDb 文件、导出、评价表与 `.env`。
+期望：`001,101,102,103,201,301,302,401`。
+
+```bash
+docker compose --profile test run --rm etl-test pytest -q tests
+```
+
+期望：`691 passed`（含若干 Airflow 弃用警告）。
+
+```bash
+git ls-files | grep -Ei '(^|/)\.env$|^outputs/|eval_pairs|cluster_sample|review_queue|name\.basics|title\.(basics|akas|crew|principals|ratings)|\.tsv(\.gz)?$|movies\.txt'; echo "grep-exit=$?"
+```
+
+期望：没有匹配行，只有 `grep-exit=1`；`git check-ignore -v outputs/task5/x.csv` 输出 `.gitignore:16:/outputs/	outputs/task5/x.csv`。
