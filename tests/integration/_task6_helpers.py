@@ -64,6 +64,45 @@ def _movie_of(conn: psycopg.Connection, mapping: str, asin: str, ordinal: int = 
                         "AND member_ordinal = %s", (mapping, asin, ordinal)).fetchone()[0]
 
 
+def clone_mapping(conn: psycopg.Connection, world: World, asin: str, new_id: str = "map9002",
+                  new_pmap: str = "pmap9002") -> tuple[str, str]:
+    """复制任务 4 映射版本与配套的任务 5 人物映射版本，并把一个商品从它所在的作品里拆出来成为单独的新作品。"""
+    old = world.mapping
+    conn.execute(
+        "INSERT INTO task4.mapping_version (mapping_version_id, extraction_id, run_id, input_key, t3_rule_version, "
+        "parser_version, norm_version, rule_version, imdb_snapshot_id, human_set_hash, counts) "
+        "SELECT %s, extraction_id, run_id, input_key || '|alt', t3_rule_version, parser_version, norm_version, "
+        "rule_version, imdb_snapshot_id, human_set_hash, counts FROM task4.mapping_version WHERE mapping_version_id = %s",
+        (new_id, old))
+    conn.execute("INSERT INTO task4.movie_identity (anchor_key, movie_id, created_run) SELECT 'asin:' || %s, "
+                 "'mv_00000000000000aa', run_id FROM task4.mapping_version WHERE mapping_version_id = %s", (asin, old))
+    conn.execute("INSERT INTO task4.movie (mapping_version_id, movie_id, status, anchor_key, tconst, display_title, "
+                 "edition_count, contains_count) SELECT %s, movie_id, status, anchor_key, tconst, display_title, "
+                 "edition_count, contains_count FROM task4.movie WHERE mapping_version_id = %s", (new_id, old))
+    conn.execute("INSERT INTO task4.movie (mapping_version_id, movie_id, status, anchor_key, display_title, edition_count) "
+                 "VALUES (%s, 'mv_00000000000000aa', 'page_only', 'asin:' || %s, 'Split Off', 1)", (new_id, asin))
+    conn.execute("INSERT INTO task4.product_movie (mapping_version_id, asin, member_ordinal, movie_id, relation_type, basis) "
+                 "SELECT %s, asin, member_ordinal, CASE WHEN asin = %s THEN 'mv_00000000000000aa' ELSE movie_id END, "
+                 "relation_type, 'singleton' FROM task4.product_movie WHERE mapping_version_id = %s", (new_id, asin, old))
+    conn.execute("INSERT INTO task4.product_match_status (mapping_version_id, asin, status, reason) SELECT %s, asin, "
+                 "status, reason FROM task4.product_match_status WHERE mapping_version_id = %s", (new_id, old))
+    # 配套的任务 5 人物映射版本与升级线索
+    conn.execute(
+        "INSERT INTO task5.person_mapping_version (person_mapping_version_id, extraction_id, run_id, input_key, "
+        "t4_mapping_version_id, parser_version, norm_version, rule_version, imdb_snapshot_id, human_set_hash, counts) "
+        "SELECT %s, extraction_id, run_id, input_key || '|alt', %s, parser_version, norm_version, "
+        "rule_version, imdb_snapshot_id, human_set_hash, counts FROM task5.person_mapping_version WHERE person_mapping_version_id = %s",
+        (new_pmap, new_id, world.pmap_with_hints))
+    old_stage_key = f"{old}|{PARSER_VERSION}|t5n1|t5r1|{world.sid}"
+    new_stage_key = f"{new_id}|{PARSER_VERSION}|t5n1|t5r1|{world.sid}"
+    conn.execute(
+        "INSERT INTO task5.t4_upgrade_hint (extraction_id, stage_key, asin, member_ordinal, tconst, mention_keys, link_decision_ids, mention_count) "
+        "SELECT extraction_id, %s, asin, member_ordinal, tconst, mention_keys, link_decision_ids, mention_count "
+        "FROM task5.t4_upgrade_hint WHERE stage_key = %s",
+        (new_stage_key, old_stage_key))
+    return new_id, new_pmap
+
+
 def make_world(conn: psycopg.Connection, make_settings, tmp_path: Path, *, name: str = "a",
                date: str = "2026-10-31") -> World:
     """装一个任务 6 世界：合成抽取 → 任务 3 结构 → IMDb → 任务 4 匹配 → 形态改造 → 任务 5 线索 → 清空 task6。"""

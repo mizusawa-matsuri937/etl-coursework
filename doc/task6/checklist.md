@@ -146,43 +146,43 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC13 版本、重跑复用与版本差异
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（同一输入重跑为 `reused` 不新增数据行只增审计；规则变更保留前置抽取阶段、复用未受影响阶段；映射变更生成独立上映信息版本并支持差异比较）。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_runs.py -k "reused or version or diff"
 ```
 
-期望（计划）：选中的案例全部通过。
+期望：`3 passed, 3 deselected`。
 
 ## AC14 分批恢复与锁
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（候选与共现阶段批次故障注入后恢复重跑无遗漏无重复；并发抽取锁互斥阻断）。
 
 ```bash
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_runs.py -k "batch or lock"
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_runs.py -k "ac14"
 ```
 
-期望（计划）：选中的案例全部通过。
+期望：`3 passed, 3 deselected`。
 
 ## AC15 Airflow DAG
 
-- [ ] 未执行。真实 scheduler 端到端为可选复核，步骤见 runbook（计划，T6-05 编写）。
+- [x] 2026-10-30 通过（DAG 任务拓扑与触发规则正确；真实 scheduler 端到端通过：`t6_e2e_ok1` 成功、`t6_e2e_rerun1` 复用、`t6_e2e_missing1` 阻断退出码 1）。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_dag.py
 ```
 
-期望（计划）：全部通过。
+期望：`6 passed, 8 warnings`。
 
 ## AC16 报告、实例与查询
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（统计包含全貌口径；实例覆盖 10 类场景；`query movie` 与 `query gaps` 正确输出；导出的 6 个 CSV 与报告文件哈希完整记录）。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_report.py
 ```
 
-期望（计划）：全部通过。
+期望：`5 passed`。
 
 ## AC17 评价工具
 

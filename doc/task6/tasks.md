@@ -53,15 +53,15 @@
 
   期望：`21 passed`。
 
-- [ ] T6-05 分步骤运行与分批恢复、重跑复用、报告与实例、两个查询、只读核对、DAG、真实 scheduler 端到端、运行手册。关联 AC13、AC14、AC15、AC16。
+- [x] T6-05 分步骤运行与分批恢复、重跑复用、报告与实例、两个查询、只读核对、DAG、真实 scheduler 端到端、运行手册。关联 AC13、AC14、AC15、AC16。
   - 文件：`src/etl_task6/{runner,pipeline,report,query,check}.py`、`dags/amazon_movies_task6_release.py`、`scripts/seed_task6_e2e.py`、`tests/integration/test_task6_{runs,dag,report}.py`、`doc/task6/runbook.md`。
-  - 完成情况：未执行。端到端用 `compose.e2e.yaml`，做完必须 `docker compose up -d` 回到正常配置；不在正式库触发 DAG。
+  - 完成情况：2026-10-30 完成。分批中断与重跑恢复（AC14）、并发锁、重跑复用与规则/映射版本切换（AC13）、DAG 依赖与门禁（AC15）、报告导出与实例查询（AC16）全部通过；端到端使用 `compose.e2e.yaml` 在真实 scheduler 上验证成功（`t6_e2e_ok1` 成功、`t6_e2e_rerun1` 复用、`t6_e2e_missing1` 阻断），并在完成后切回正常配置。
 
   ```bash
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_runs.py tests/integration/test_task6_dag.py tests/integration/test_task6_report.py
   ```
 
-  期望（计划）：全部通过；端到端步骤与结果写入 runbook。
+  期望：`17 passed, 8 warnings`。真实 scheduler 端到端均符合预期。
 
 - [ ] T6-06 评价工具：开发池冻结、七层评价表与 AI 草稿模板导出、标注导入、指标。关联 AC17。
   - 文件：`src/etl_task6/evaluate.py`、`tests/integration/test_task6_evaluate.py`、`doc/task6/runbook.md`（评价一节）。
