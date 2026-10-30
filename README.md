@@ -30,7 +30,7 @@ ETL作业模板/
 └── doc/
     ├── request-template.md   # 公共请求模板
     ├── handoffs/             # 任务间交接文档（新对话先读最新一份，见 CLAUDE.md）
-    ├── task6/                # 任务 6（补全上映信息）：spec（R01–R35、AC00–AC18）、design、tasks、checklist 已编写，待用户审批；实现未开始
+    ├── task6/                # 任务 6（补全上映信息）：spec（R01–R39、AC00–AC20）、design、tasks、checklist 已编写，待用户审批；实现未开始
     ├── task5/                # 任务 5（人物姓名归一与消歧）：spec（R01–R47、AC00–AC17）、design、tasks、checklist 已编写并经用户审批；T5-01 至 T5-08 已实现并在正式库全量运行、导入标注（见 tasks）
     ├── task4/                # 任务 4（定义并识别同一电影）：spec（R01–R42、AC00–AC17）、design、tasks、checklist、runbook；T4-01 至 T4-08 于 2026-10-29 完成；当前规则 t4r2
     ├── task3/                # 任务 3（电影页面筛选）：spec、design、tasks、checklist、runbook；T3-00 至 T3-06 于 2026-10-29 完成；当前规则 t3r2
@@ -141,5 +141,6 @@ docker compose --profile test run --rm etl-test pytest -q tests   # 单元 + 集
 | 2026-10-30 | 完成 T5-08：导入标注（AI 预标注草稿，付林轩核查后全部采纳作为正式标注，未改判；含 2 对 unsure、8 对 AI 存疑）120 对与 20 个人物；自动合并 Precision 1.000、Recall 0.706、F1 0.828（TP 60、FP 0、FN 25、TN 33，计入 118 对），误合并 0，漏合并 25（S4 18、S5 5、S6 2，均为系统不按名字合并的同名或近似名），簇抽查混入 0，人工复核覆盖率 0%、待复核率 20.4%；`check` 通过，任务 4 表行数不变；局限：正式标签来自 AI 预标注，AI 与系统用相似证据，指标可能偏乐观；本地提交，未推送 |
 | 2026-10-30 | 任务 5 收尾：新增交接文档 `doc/handoffs/2026-10-30-task5-to-task6.md`（作业有任务 6“补全上映信息”）；导入标注后用 `report export --run-key t5_final_labeled` 重新导出实例（5 组别名合并标 `same`、5 组不合并标 `different`），修正 checklist AC16 与 tasks 中导入标注前的过时表述；691 项测试通过；任务 5 待经 PR 合并到 `main` |
 | 2026-10-30 | 任务 5 经 PR #5 合并到 `main`（`1625ad9`）；从 `main` 新建分支 `task6-release-info`，编写任务 6（补全上映信息）的 spec（R01–R35、AC00–AC18）、design、tasks、checklist；用户确认只做 IMDb 首次公开发行年份、最早评论时间做条件性上界、任务 5 升级线索纳入作候选、120 部作品分层 + AI 预标注（H01–H04），其余假设待审批；规划时只读探查正式库（8,659 部作品，估算有年份 4,786、无候选 3,873）；实现未开始 |
+| 2026-10-30 | 按用户要求为无候选作品补充来源：只读探查评估了人物共现反查、评论正文年份、商品描述年份、标题末尾年份、任务 4 复核档候选与商品发售日期上界；计划改为加入人物共现反查（模拟：已关联商品上唯一命中 4,287 个全部正确）、被占用 `tconst` 的线索、评论年份只作消歧、商品发售日期作第二种上界，无候选估算 3,873 → 约 3,165；spec 改为 R01–R39、AC00–AC20，评价改为七层；待用户审批，实现未开始 |
 
 本目录已初始化独立 Git 仓库，当前分支为 `main`，跟踪 `origin/main`。GitHub 公开仓库为 [mizusawa-matsuri937/etl-coursework](https://github.com/mizusawa-matsuri937/etl-coursework)。任务 1 经 PR #1 合并到 `main`；任务 2 经 [PR #2](https://github.com/mizusawa-matsuri937/etl-coursework/pull/2) 于 2026-10-29 合并到 `main`（合并提交 `9594985`）；任务 3 经 [PR #3](https://github.com/mizusawa-matsuri937/etl-coursework/pull/3) 于 2026-10-29 合并到 `main`（合并提交 `c547c27`）。任务 4 经 [PR #4](https://github.com/mizusawa-matsuri937/etl-coursework/pull/4) 于 2026-10-29 合并到 `main`（合并提交 `df0d7af`）。任务 5 经 [PR #5](https://github.com/mizusawa-matsuri937/etl-coursework/pull/5) 于 2026-10-30 合并到 `main`（合并提交 `1625ad9`）。没有阶段标签。
