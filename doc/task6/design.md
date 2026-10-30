@@ -435,14 +435,14 @@
    - `run.Inputs.stage_key("cooccur")`：原实现只拼入常量 `COOCCUR_PARAM_VERSION`（`"t6c1"`），未包含 `RuleSet` 的 `cooccur_director_points`、`cooccur_actor_points`、`cooccur_min_score`。改为从 `ruleset(self.rule_version)` 读取这三个参数拼入阶段键（如 `f"{COOCCUR_PARAM_VERSION}:{r.cooccur_director_points}:{r.cooccur_actor_points}:{r.cooccur_min_score}"`），确保只改 B3 天数等下游参数时 `cooccur` 仍复用，而修改共现评分参数时触发 `cooccur` 重算。
 4. **报告统计、版本差异、只读查询、核对脚本与 DAG 警告（修复 ISSUE-06、ISSUE-09、ISSUE-10、ISSUE-12，关联 R24、R27、R30、R33、R34、AC22）**：
    - `report.py`：
-     - 将 `source_ref->>'titleType'` 修正为 `source_ref->>'title_type'`；
+     - 将 `source_ref->>'titleType'` 修正为 `COALESCE(source_ref->>'title_type', source_ref->>'titleType', 'null')`；
      - 用独立 `SELECT COUNT(*)` 统计 `candidate_shared_count`，不直接对 `LIMIT 20` 的样本列表取 `len()`；
-     - 当显式传入 `--run-id` 且在 `task6.run` 中查不到时直接抛出 `ValueError`（拒绝用虚假的 `run_id` 覆盖报告元数据）；未传 `--run-id` 按 `release_version_id` 查找时限定 `AND status = 'succeeded' ORDER BY started_at DESC LIMIT 1`，防止取到 `counts` 只有 `{"reused_run": ...}` 的二次复用运行；
-     - 查询 `release_candidate`、`hint_use`、`cooccur_score`、`cooccur_result`、`review_year_mention`、`product_release_date` 时均按该版本对应的 `stage_key` / `parser_version` 过滤；
-     - `diff_versions` 对 `release_selection` 与 `inferred_release_bound` 均改为 `FULL OUTER JOIN`，完整报告跨版本新增或移除的作品与推断上界。
-   - `query.py`：`query_movie` 补充查询 `task6.product_review_time`（返回 `product_reviews` 列表），在 `cooccur.scores` 中补充返回 `matched_title_key`、`matched_asin`、`key_source`、`title_key_source_line`、`number_guard_detail`，并为各阶段表查询加上 `stage_key` / `parser_version` 过滤。
-   - `check.py`：去掉永假的 `s.release_year::text = b.bound_time::text` 条件，改为核查非 `missing` 选择记录的 `selected_candidate_id` 存在且年份一致，以及 `cooccur_matched` 作品对应的 `cooccur_score.passed = true` 且 `cooccur_result.outcome IN ('unique', 'resolved_by_review_year')`。
-   - `dags/amazon_movies_task6_release.py`：优先从 `airflow.sdk.exceptions` 导入 `AirflowFailException`，消除 Airflow 3 弃用警告。
+     - 当显式传入 `--run-id` 且在 `task6.run` 中查不到时直接抛出 `ValueError`（拒绝用虚假的 `run_id` 覆盖报告元数据）；未传 `--run-id` 按 `release_version_id` 查找时限定 `AND status = 'succeeded' ORDER BY started_at DESC LIMIT 1`，防止取到 `counts` 只有 `{"reused_run": ...}` 的二次复用运行；提供 `build_report` 与 `build_and_write_report`，默认目录名取真实 `succeeded` 的 `run_id`（不再硬编码 `"t6_full_1"`）；
+     - 查询 `release_candidate`、`hint_use`、`cooccur_score`、`cooccur_result`、`review_year_mention`、`product_release_date` 以及导出 CSV 时均按该版本对应的 `stage_key` / `parser_version` 过滤；
+     - `diff_versions` 对 `release_selection`（含关联 `release_candidate` 提取采用的 `tconst`）与 `inferred_release_bound` 均改为 `FULL OUTER JOIN`，完整报告跨版本新增或移除的作品、状态/年份/`tconst` 变化与推断上界变化。
+   - `query.py`：`query_movie` 补充查询 `task6.product_review_time`（返回 `product_review_time` 与 `product_reviews` 列表），在 `cooccur.scores` / `cooccur_score` 中补充返回 `matched_title_key`、`matched_asin`、`key_source` / `match_key_source`、`title_key_source_line`、`number_guard_detail`、`product_title_key`、`shared_tconst`，并为各阶段表查询加上 `stage_key` / `parser_version` 过滤。
+   - `check.py`：去掉永假的 `s.release_year::text = b.bound_time::text` 条件，改为比较年份数值与上界时间年份部分（`EXTRACT(YEAR FROM b.bound_time)::int` 与 `s.release_year`，结合 `status` 与候选来源检查），并校验 `cooccur_matched` 作品在当前共现阶段键下存在 `passed = TRUE` 的 `task6.cooccur_score` 记录且 `cooccur_result.outcome IN ('unique', 'resolved_by_review_year')`。
+   - `dags/amazon_movies_task6_release.py`：优先从 `airflow.sdk.exceptions` 导入 `AirflowFailException`（带兼容回退），消除 Airflow 3 弃用警告。
 5. **评价集分层、盲测导出与非循环 AI 草稿（修复 ISSUE-01、ISSUE-02、ISSUE-03、ISSUE-11，关联 R36–R39、AC23）**：
    - `evaluate._classify_movie_stratum`：改为读取 `source_ref.get("title_type")`、`disagreement.get("year_diff_1")`、`disagreement.get("year_disagreement")`、`disagreement.get("tconst_disagreement")`。
    - `evaluate._fetch_product_details`：改为关联 `task4.field_assertion`（`entity_type = 'product_edition' AND field_name = 'title'`）读取每个 ASIN 的原始商品标题 `raw_value`（保留括号里的年份供 `E5` 标注核查）。

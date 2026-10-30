@@ -98,18 +98,18 @@
   docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task6_rules.py tests/integration/test_task6_cooccur.py tests/integration/test_task6_runs.py -k "ac21 or cooccur or stage_key"
   ```
 
-  期望：`16 passed, 18 deselected`。
+  期望：`16 passed, 19 deselected`。
 
-- [ ] T6-09 修复报告统计、版本差异、只读查询、核对脚本与 DAG 弃用警告（审查 ISSUE-06、ISSUE-09、ISSUE-10、ISSUE-12）。关联 AC13、AC15、AC16、AC22。
+- [x] T6-09 修复报告统计、版本差异、只读查询、核对脚本与 DAG 弃用警告（审查 ISSUE-06、ISSUE-09、ISSUE-10、ISSUE-12）。关联 AC13、AC15、AC16、AC22。
   - 文件：`src/etl_task6/{report,query,check}.py`、`dags/amazon_movies_task6_release.py`、`tests/integration/test_task6_{report,runs,dag}.py`。
   - 目标：（1）`report.py` 修正 `source_ref->>'title_type'`、独立 `COUNT(*)` 统计 `candidate_shared_count`（不被 `LIMIT 20` 截断）、校验真实 `run_id` 并在按版本回退时限定 `status = 'succeeded'`、各阶段表查询补齐当前版本的 `stage_key`/`parser_version` 过滤、`diff_versions` 改为 `FULL OUTER JOIN` 覆盖跨版本增删作品与上界；（2）`query.py` 的 `query_movie` 补充商品层 `product_review_time` 与 `cooccur_score` 标题匹配证据字段，并按 `stage_key`/`parser_version` 过滤；（3）`check.py` 移除 `release_year::text = bound_time::text` 永假条件，改为核查候选引用一致性与 `cooccur_score.passed = true`；（4）`dags/amazon_movies_task6_release.py` 优先从 `airflow.sdk.exceptions` 导入 `AirflowFailException` 消除弃用警告；（5）补充对应集成测试。
-  - 完成情况：未执行。
+  - 完成情况：2026-10-30 完成。`report.py` 修正 `COALESCE(source_ref->>'title_type', source_ref->>'titleType', 'null')`、用独立 `COUNT(*)` 查询 `candidate_shared_count`、各阶段表查询与 CSV 导出补齐 `stage_key`/`parser_version` 过滤、`_resolve_run` 校验真实 `run_id` 并按 `status = 'succeeded'` 解析最新成功运行（提供 `build_report` 与 `build_and_write_report`，不再硬编码 `t6_full_1`）、`diff_versions` 改为 `FULL OUTER JOIN` 覆盖新增/移除作品、`tconst` 变化及推断上界变化；`query.py` 补齐 `product_review_time` 及 `cooccur_score` 的 `match_key_source`、`matched_title_key`、`product_title_key`、`shared_tconst`；`check.py` 改为比较 `EXTRACT(YEAR FROM b.bound_time)::int` 与 `s.release_year`（结合 `status`/候选来源校验）并核查 `cooccur_matched` 在当前共现阶段键下存在 `passed = TRUE` 的 `cooccur_score`；`dags/amazon_movies_task6_release.py` 优先从 `airflow.sdk.exceptions` 导入 `AirflowFailException`。全量 789 passed（任务 1–5 的 691 项不减少）。
 
   ```bash
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_report.py tests/integration/test_task6_runs.py tests/integration/test_task6_dag.py
   ```
 
-  期望（计划）：全部通过，且 `test_task6_dag.py` 中来自 `amazon_movies_task6_release.py` 的弃用警告消除。
+  期望：`23 passed, 7 warnings`（且 `test_task6_dag.py` 中来自 `amazon_movies_task6_release.py` 的弃用警告已消除）。
 
 - [ ] T6-10 修复评价分层键名、盲测导出与非循环 AI 预标注草稿（审查 ISSUE-01、ISSUE-02、ISSUE-03、ISSUE-11）。关联 AC17、AC23。
   - 文件：`src/etl_task6/evaluate.py`、`tests/integration/test_task6_evaluate.py`、`doc/task6/runbook.md`。

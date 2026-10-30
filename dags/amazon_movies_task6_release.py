@@ -12,7 +12,10 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta
 
-from airflow.exceptions import AirflowFailException
+try:
+    from airflow.sdk.exceptions import AirflowFailException
+except ImportError:
+    from airflow.exceptions import AirflowFailException
 from airflow.sdk import DAG, Param, get_current_context, task
 
 RETRIES = int(os.environ.get("ETL_TASK_RETRIES", "2"))

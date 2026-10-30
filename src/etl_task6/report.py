@@ -21,6 +21,7 @@ from etl_task1.db import connect
 from etl_task2.crawl.crawler import latest_full_extraction
 
 from .check import latest_rv, rv_row
+from .run import RunInputs
 
 SUMMARY_VERSION = "task6-release-summary-1"
 ALL_PRODUCTS_TOTAL = 253059
@@ -38,12 +39,62 @@ def _ratio(n: int, d: int) -> float | None:
     return round(n / d, 6) if d else None
 
 
-def build_summary(conn: psycopg.Connection, rv: str) -> dict[str, Any]:
+def _inputs_for_row(row: dict[str, Any]) -> RunInputs:
+    return RunInputs(
+        extraction_id=row["extraction_id"],
+        t4_mapping_version_id=row["t4_mapping_version_id"],
+        t5_person_mapping_version_id=row["t5_person_mapping_version_id"],
+        imdb_snapshot_id=row["imdb_snapshot_id"],
+        parser_version=row["parser_version"],
+        rule_version=row["rule_version"],
+    )
+
+
+def _resolve_run(conn: psycopg.Connection, rv: str, run_id: str | None = None) -> tuple[str, dict[str, Any]]:
+    """解析并校验上映信息版本对应的真实成功运行（run_id, run_counts）。
+    显式传入不存在的 run_id 时报错拒绝；未传时按版本查找最新的 status = 'succeeded' 运行（跳过 reused）。"""
+    if run_id is not None:
+        r = conn.execute(
+            "SELECT run_id, status, release_version_id, counts FROM task6.run WHERE run_id = %s",
+            (run_id,),
+        ).fetchone()
+        if r is None:
+            raise ValueError(f"运行 {run_id!r} 在 task6.run 中不存在")
+        if r[2] != rv:
+            raise ValueError(f"运行 {run_id!r} 属于上映信息版本 {r[2]!r}，而非 {rv!r}")
+        if r[1] == "reused":
+            reused_from = (r[3] or {}).get("reused_run")
+            if reused_from:
+                orig = conn.execute(
+                    "SELECT run_id, counts FROM task6.run WHERE run_id = %s AND status = 'succeeded'",
+                    (reused_from,),
+                ).fetchone()
+                if orig:
+                    return r[0], dict(orig[1] or {})
+        return r[0], dict(r[3] or {})
+    r = conn.execute(
+        "SELECT run_id, counts FROM task6.run WHERE release_version_id = %s AND kind = 'release' "
+        "AND status = 'succeeded' ORDER BY started_at DESC LIMIT 1",
+        (rv,),
+    ).fetchone()
+    if r is not None:
+        return r[0], dict(r[1] or {})
+    v = rv_row(conn, rv)
+    return v["run_id"], {}
+
+
+def build_summary(conn: psycopg.Connection, rv: str, *, run_id: str | None = None) -> dict[str, Any]:
     """汇总上映信息版本的全貌统计（R33）。"""
     row = rv_row(conn, rv)
+    actual_run_id, run_counts = _resolve_run(conn, rv, run_id)
+    inputs = _inputs_for_row(row)
     eid = row["extraction_id"]
     t4 = row["t4_mapping_version_id"]
     pv = row["parser_version"]
+    cand_key = inputs.stage_key("candidates")
+    cooc_key = inputs.stage_key("cooccur")
+    rvy_key = inputs.stage_key("review_years")
+
     def one(sql: str, *a: Any) -> Any:
         params: tuple | list
         if len(a) == 1 and isinstance(a[0], (tuple, list)):
@@ -79,42 +130,48 @@ def build_summary(conn: psycopg.Connection, rv: str) -> dict[str, Any]:
         "ON s.release_version_id = %s AND s.movie_id = pm.movie_id WHERE pm.mapping_version_id = %s "
         "AND pm.relation_type = 'edition' AND s.status != 'missing'", rv, t4)
 
-    # 候选
+    # 候选（按当前版本的 candidates 与 cooccur 阶段键过滤）
     candidate_counts = dict(conn.execute(
         "SELECT source, count(*) FROM task6.release_candidate WHERE extraction_id = %s "
-        "GROUP BY 1 ORDER BY 1", (eid,)).fetchall())
+        "AND stage_key IN (%s, %s) GROUP BY 1 ORDER BY 1", (eid, cand_key, cooc_key)).fetchall())
     title_types = dict(conn.execute(
-        "SELECT source_ref->>'titleType', count(*) FROM task6.release_candidate "
-        "WHERE extraction_id = %s AND source = 'imdb_t4_link' GROUP BY 1 ORDER BY 1", (eid,)).fetchall())
+        "SELECT COALESCE(source_ref->>'title_type', source_ref->>'titleType', 'null'), count(*) "
+        "FROM task6.release_candidate WHERE extraction_id = %s AND stage_key = %s "
+        "AND source = 'imdb_t4_link' GROUP BY 1 ORDER BY 1", (eid, cand_key)).fetchall())
 
-    # 线索处理
+    # 线索处理（按当前版本的 candidates 阶段键过滤；candidate_shared_count 用独立 COUNT(*) 查询）
     hint_actions = dict(conn.execute(
-        "SELECT action, count(*) FROM task6.hint_use WHERE extraction_id = %s "
-        "GROUP BY 1 ORDER BY 1", (eid,)).fetchall())
+        "SELECT action, count(*) FROM task6.hint_use WHERE extraction_id = %s AND stage_key = %s "
+        "GROUP BY 1 ORDER BY 1", (eid, cand_key)).fetchall())
+    candidate_shared_count = one(
+        "SELECT count(*) FROM task6.hint_use WHERE extraction_id = %s AND stage_key = %s "
+        "AND action = 'candidate_shared'", eid, cand_key)
     shared_hints = [
         {"asin": r[0], "tconst": r[1], "owner_movie_id": r[2]}
         for r in conn.execute(
             "SELECT asin, tconst, owner_movie_id FROM task6.hint_use WHERE extraction_id = %s "
-            "AND action = 'candidate_shared' ORDER BY asin LIMIT 20", (eid,)).fetchall()
+            "AND stage_key = %s AND action = 'candidate_shared' ORDER BY asin LIMIT 20",
+            (eid, cand_key)).fetchall()
     ]
 
-    # 共现反查
+    # 共现反查（按当前版本的 cooccur 阶段键过滤）
     cooccur_outcomes = dict(conn.execute(
         "SELECT outcome, count(*) FROM task6.cooccur_result WHERE extraction_id = %s "
-        "GROUP BY 1 ORDER BY 1", (eid,)).fetchall())
+        "AND stage_key = %s GROUP BY 1 ORDER BY 1", (eid, cooc_key)).fetchall())
     shared_cooccur_count = one(
-        "SELECT count(*) FROM task6.cooccur_result WHERE extraction_id = %s "
-        "AND owner_movie_id IS NOT NULL", eid)
+        "SELECT count(*) FROM task6.cooccur_result WHERE extraction_id = %s AND stage_key = %s "
+        "AND owner_movie_id IS NOT NULL", eid, cooc_key)
     title_guard_excluded = one(
         "SELECT count(DISTINCT movie_id) FROM task6.cooccur_score WHERE extraction_id = %s "
-        "AND title_ok IS FALSE", eid)
+        "AND stage_key = %s AND title_ok IS FALSE", eid, cooc_key)
     number_guard_excluded = one(
         "SELECT count(DISTINCT movie_id) FROM task6.cooccur_score WHERE extraction_id = %s "
-        "AND number_guard IS FALSE", eid)
+        "AND stage_key = %s AND number_guard IS FALSE", eid, cooc_key)
 
-    # 评论提及
+    # 评论提及（按当前版本的 review_years 阶段键过滤）
     review_mentions_movies = one(
-        "SELECT count(DISTINCT movie_id) FROM task6.review_year_mention WHERE extraction_id = %s", eid)
+        "SELECT count(DISTINCT movie_id) FROM task6.review_year_mention WHERE extraction_id = %s "
+        "AND stage_key = %s", eid, rvy_key)
 
     # 商品发售日期
     dates_by_kind = dict(conn.execute(
@@ -148,8 +205,8 @@ def build_summary(conn: psycopg.Connection, rv: str) -> dict[str, Any]:
         "WHERE b.release_version_id = %s AND s.status = 'missing'", rv)
     bounds_before_year = dict(conn.execute(
         "SELECT detail->>'evidence', count(*) FROM task6.quality_issue "
-        "WHERE issue_code = 'bound_before_release_year' AND extraction_id = %s "
-        "GROUP BY 1 ORDER BY 1", (eid,)).fetchall())
+        "WHERE issue_code = 'bound_before_release_year' AND extraction_id = %s AND run_id = %s "
+        "GROUP BY 1 ORDER BY 1", (eid, row["run_id"])).fetchall())
 
     # 证据未通过条件
     failed_checks = dict(conn.execute(
@@ -168,14 +225,20 @@ def build_summary(conn: psycopg.Connection, rv: str) -> dict[str, Any]:
         "AND t.earliest_review_time IS NOT NULL AND NOT EXISTS ("
         "SELECT 1 FROM task6.product_release_date d JOIN task4.product_movie pm ON pm.mapping_version_id = t.t4_mapping_version_id "
         "AND pm.asin = d.asin AND pm.member_ordinal = 0 AND pm.relation_type = 'edition' "
-        "WHERE d.extraction_id = t.extraction_id AND pm.movie_id = t.movie_id AND d.kind = 'media_release' "
-        "AND d.value_date <= t.earliest_review_time::date)", eid, t4)
+        "WHERE d.extraction_id = t.extraction_id AND d.parser_version = %s AND pm.movie_id = t.movie_id "
+        "AND d.kind = 'media_release' AND d.value_date <= t.earliest_review_time::date)", eid, t4, pv)
 
     return {
         "summary_version": SUMMARY_VERSION,
         "release_version_id": rv,
+        "run_id": actual_run_id,
+        "stage_counts": run_counts,
         "extraction_id": eid,
         "t4_mapping_version_id": t4,
+        "t5_person_mapping_version_id": row["t5_person_mapping_version_id"],
+        "parser_version": pv,
+        "rule_version": row["rule_version"],
+        "imdb_snapshot_id": row["imdb_snapshot_id"],
         "movies": {
             "total": total_movies,
             "edition_movies": edition_movies,
@@ -199,15 +262,20 @@ def build_summary(conn: psycopg.Connection, rv: str) -> dict[str, Any]:
             "title_types": title_types,
             "year_disagreement": one(
                 "SELECT count(*) FROM task6.quality_issue WHERE issue_code = 'year_disagreement' "
-                "AND extraction_id = %s", eid),
+                "AND extraction_id = %s AND run_id = %s", eid, row["run_id"]),
             "tconst_disagreement": one(
                 "SELECT count(*) FROM task6.quality_issue WHERE issue_code = 'tconst_disagreement' "
-                "AND extraction_id = %s", eid),
+                "AND extraction_id = %s AND run_id = %s", eid, row["run_id"]),
         },
         "hint_use": {
             "actions": hint_actions,
-            "candidate_shared_count": len(shared_hints),
+            "candidate_shared_count": candidate_shared_count,
             "candidate_shared_top": shared_hints,
+        },
+        "shared_tconst_summary": {
+            "candidate_shared_count": candidate_shared_count,
+            "cooccur_shared_count": shared_cooccur_count,
+            "sample_shared_hints": shared_hints,
         },
         "cooccur": {
             "outcomes": cooccur_outcomes,
@@ -252,6 +320,7 @@ def examples(conn: psycopg.Connection, rv: str) -> dict[str, list[dict[str, Any]
     row = rv_row(conn, rv)
     eid = row["extraction_id"]
     t4 = row["t4_mapping_version_id"]
+    pv = row["parser_version"]
 
     def _sample_status(st: str, limit: int = 3):
         res = []
@@ -306,9 +375,9 @@ def examples(conn: psycopg.Connection, rv: str) -> dict[str, list[dict[str, Any]
                 "FROM task6.release_selection s JOIN task4.movie m ON m.mapping_version_id = %s "
                 "AND m.movie_id = s.movie_id JOIN task4.product_movie pm ON pm.mapping_version_id = m.mapping_version_id "
                 "AND pm.movie_id = s.movie_id AND pm.member_ordinal = 0 AND pm.relation_type = 'edition' "
-                "JOIN task6.product_release_date d ON d.extraction_id = %s AND d.asin = pm.asin "
+                "JOIN task6.product_release_date d ON d.extraction_id = %s AND d.parser_version = %s AND d.asin = pm.asin "
                 "WHERE s.release_version_id = %s AND s.status != 'missing' "
-                "ORDER BY md5(s.movie_id) LIMIT %s", (t4, eid, rv, limit)).fetchall():
+                "ORDER BY md5(s.movie_id) LIMIT %s", (t4, eid, pv, rv, limit)).fetchall():
             res.append({
                 "movie_id": mid, "title": title, "release_year": year, "asin": d_asin,
                 "product_date": d_date.isoformat(), "kind": d_kind,
@@ -330,10 +399,16 @@ def examples(conn: psycopg.Connection, rv: str) -> dict[str, list[dict[str, Any]
 
 
 def export_files(conn: psycopg.Connection, rv: str, directory: Path,
-                 examples_data: dict[str, Any] | None = None) -> dict[str, str]:
+                 examples_data: dict[str, Any] | None = None, *,
+                 run_id: str | None = None) -> dict[str, str]:
     """导出所有报告文件与数据 CSV，返回 文件名 -> SHA256 哈希。"""
     directory.mkdir(parents=True, exist_ok=True)
-    summary_data = build_summary(conn, rv)
+    row = rv_row(conn, rv)
+    inputs = _inputs_for_row(row)
+    cand_key = inputs.stage_key("candidates")
+    cooc_key = inputs.stage_key("cooccur")
+    pv = row["parser_version"]
+    summary_data = build_summary(conn, rv, run_id=run_id)
     if examples_data is None:
         examples_data = examples(conn, rv)
 
@@ -371,21 +446,21 @@ def export_files(conn: psycopg.Connection, rv: str, directory: Path,
     files["release_candidates.csv"] = _export_query_csv(
         "SELECT candidate_id, movie_id, source, source_key, raw_value, value_year, precision, semantic, "
         "flags, shared_with_movie_id, confidence, rule_version FROM task6.release_candidate "
-        "WHERE extraction_id = %s ORDER BY candidate_id",
-        (summary_data["extraction_id"],),
+        "WHERE extraction_id = %s AND stage_key IN (%s, %s) ORDER BY candidate_id",
+        (summary_data["extraction_id"], cand_key, cooc_key),
         ["candidate_id", "movie_id", "source", "source_key", "raw_value", "value_year", "precision", "semantic",
          "flags", "shared_with_movie_id", "confidence", "rule_version"])
 
     files["cooccur.csv"] = _export_query_csv(
         "SELECT movie_id, outcome, chosen_tconst, passed_tconsts, owner_movie_id "
-        "FROM task6.cooccur_result WHERE extraction_id = %s ORDER BY movie_id",
-        (summary_data["extraction_id"],),
+        "FROM task6.cooccur_result WHERE extraction_id = %s AND stage_key = %s ORDER BY movie_id",
+        (summary_data["extraction_id"], cooc_key),
         ["movie_id", "outcome", "chosen_tconst", "passed_tconsts", "owner_movie_id"])
 
     files["product_release_dates.csv"] = _export_query_csv(
         "SELECT asin, kind, label_raw, raw_value, value_date, precision, flags, section, page_ordinal "
-        "FROM task6.product_release_date WHERE extraction_id = %s ORDER BY asin, assertion_id",
-        (summary_data["extraction_id"],),
+        "FROM task6.product_release_date WHERE extraction_id = %s AND parser_version = %s ORDER BY asin, assertion_id",
+        (summary_data["extraction_id"], pv),
         ["asin", "kind", "label_raw", "raw_value", "value_date", "precision", "flags", "section", "page_ordinal"])
 
     files["bounds.csv"] = _export_query_csv(
@@ -396,8 +471,8 @@ def export_files(conn: psycopg.Connection, rv: str, directory: Path,
 
     files["hint_use.csv"] = _export_query_csv(
         "SELECT asin, member_ordinal, tconst, movie_id, action, owner_movie_id "
-        "FROM task6.hint_use WHERE extraction_id = %s ORDER BY asin, member_ordinal",
-        (summary_data["extraction_id"],),
+        "FROM task6.hint_use WHERE extraction_id = %s AND stage_key = %s ORDER BY asin, member_ordinal",
+        (summary_data["extraction_id"], cand_key),
         ["asin", "member_ordinal", "tconst", "movie_id", "action", "owner_movie_id"])
 
     # 写入文件并记录哈希
@@ -407,6 +482,26 @@ def export_files(conn: psycopg.Connection, rv: str, directory: Path,
         digests[name] = reporting.file_digest(directory / name)
 
     return digests
+
+
+build_report = build_summary
+
+
+def build_and_write_report(conn: psycopg.Connection, rv: str | None = None,
+                           output_dir: Path = Path("outputs"), *,
+                           extraction_id: str | None = None,
+                           run_id: str | None = None,
+                           run_key: str | None = None) -> tuple[dict[str, Any], Path, dict[str, str]]:
+    """生成统计并写出报告目录；默认按当前上映信息版本查找最新成功运行的真实 run_id，不再硬编码 t6_full_1。"""
+    eid = extraction_id or (rv_row(conn, rv)["extraction_id"] if rv else latest_full_extraction(conn))
+    resolved_rv = rv or latest_rv(conn, eid)
+    actual_run_id, _ = _resolve_run(conn, resolved_rv, run_id)
+    effective_key = run_key or actual_run_id
+    directory = run_dir(output_dir, eid, resolved_rv, effective_key)
+    summary_data = build_summary(conn, resolved_rv, run_id=run_id)
+    ex = examples(conn, resolved_rv)
+    digests = export_files(conn, resolved_rv, directory, ex, run_id=run_id)
+    return summary_data, directory, digests
 
 
 def render_markdown(s: dict[str, Any]) -> str:
@@ -470,20 +565,77 @@ def render_examples_markdown(ex: dict[str, list[dict[str, Any]]]) -> str:
 
 
 def diff_versions(conn: psycopg.Connection, old_rv: str, new_rv: str) -> list[tuple[str, str, str, str]]:
-    """列出两个版本之间选择记录或推断上界变化的作品与原因（R27）。"""
-    diffs = []
-    for mid, o_st, o_yr, n_st, n_yr, o_r, n_r in conn.execute(
-            "SELECT o.movie_id, o.status, o.release_year, n.status, n.release_year, o.reason, n.reason "
-            "FROM task6.release_selection o JOIN task6.release_selection n ON n.movie_id = o.movie_id "
-            "WHERE o.release_version_id = %s AND n.release_version_id = %s AND "
-            "(o.status != n.status OR o.release_year IS DISTINCT FROM n.release_year)", (old_rv, new_rv)).fetchall():
-        diffs.append((mid, f"{o_st}({o_yr})", f"{n_st}({n_yr})", f"选择变化：{o_r} -> {n_r}"))
-    for mid, o_t, o_e, n_t, n_e in conn.execute(
-            "SELECT o.movie_id, o.bound_time, o.chosen_evidence, n.bound_time, n.chosen_evidence "
-            "FROM task6.inferred_release_bound o JOIN task6.inferred_release_bound n ON n.movie_id = o.movie_id "
-            "WHERE o.release_version_id = %s AND n.release_version_id = %s AND "
-            "(o.bound_time != n.bound_time OR o.chosen_evidence != n.chosen_evidence)", (old_rv, new_rv)).fetchall():
-        diffs.append((mid, f"{o_e}({o_t})", f"{n_e}({n_t})", "推断上界变化"))
+    """列出两个版本之间选择记录或推断上界变化的作品与原因（R27）。
+    覆盖版本 A 与版本 B 的作品并集（FULL OUTER JOIN），统计新增/移除作品、状态变化、年份变化、tconst 变化以及推断上界变化。"""
+    diffs: list[tuple[str, str, str, str]] = []
+    imdb_sources = ("imdb_t4_link", "imdb_t5_hint", "imdb_t6_cooccur")
+    for mid, o_st, o_yr, o_tc, o_r, n_st, n_yr, n_tc, n_r in conn.execute(
+            """
+            WITH o AS (
+                SELECT s.movie_id, s.status, s.release_year, s.reason,
+                       CASE WHEN c.source = ANY(%s) THEN c.source_key END AS tconst
+                FROM task6.release_selection s
+                LEFT JOIN task6.release_candidate c ON c.candidate_id = s.selected_candidate_id
+                WHERE s.release_version_id = %s
+            ),
+            n AS (
+                SELECT s.movie_id, s.status, s.release_year, s.reason,
+                       CASE WHEN c.source = ANY(%s) THEN c.source_key END AS tconst
+                FROM task6.release_selection s
+                LEFT JOIN task6.release_candidate c ON c.candidate_id = s.selected_candidate_id
+                WHERE s.release_version_id = %s
+            )
+            SELECT COALESCE(o.movie_id, n.movie_id) AS movie_id,
+                   o.status, o.release_year, o.tconst, o.reason,
+                   n.status, n.release_year, n.tconst, n.reason
+            FROM o FULL OUTER JOIN n ON n.movie_id = o.movie_id
+            WHERE o.movie_id IS NULL OR n.movie_id IS NULL
+               OR o.status IS DISTINCT FROM n.status
+               OR o.release_year IS DISTINCT FROM n.release_year
+               OR o.tconst IS DISTINCT FROM n.tconst
+            ORDER BY 1
+            """,
+            (list(imdb_sources), old_rv, list(imdb_sources), new_rv)).fetchall():
+        if o_st is None:
+            n_desc = f"{n_st}({n_yr}" + (f",{n_tc})" if n_tc else ")")
+            diffs.append((mid, "ABSENT", n_desc, f"新增作品：{n_r}"))
+        elif n_st is None:
+            o_desc = f"{o_st}({o_yr}" + (f",{o_tc})" if o_tc else ")")
+            diffs.append((mid, o_desc, "ABSENT", f"移除作品：{o_r}"))
+        else:
+            changes = []
+            if o_st != n_st:
+                changes.append("状态变化")
+            if o_yr != n_yr:
+                changes.append("年份变化")
+            if o_tc != n_tc:
+                changes.append(f"tconst变化({o_tc}->{n_tc})")
+            label = "、".join(changes) or "选择变化"
+            o_desc = f"{o_st}({o_yr}" + (f",{o_tc})" if o_tc != n_tc else ")")
+            n_desc = f"{n_st}({n_yr}" + (f",{n_tc})" if o_tc != n_tc else ")")
+            diffs.append((mid, o_desc, n_desc, f"选择变化（{label}）：{o_r} -> {n_r}"))
+
+    for mid, o_t, o_p, o_e, n_t, n_p, n_e in conn.execute(
+            """
+            SELECT COALESCE(o.movie_id, n.movie_id) AS movie_id,
+                   o.bound_time, o.bound_precision, o.chosen_evidence,
+                   n.bound_time, n.bound_precision, n.chosen_evidence
+            FROM (SELECT * FROM task6.inferred_release_bound WHERE release_version_id = %s) o
+            FULL OUTER JOIN (SELECT * FROM task6.inferred_release_bound WHERE release_version_id = %s) n
+              ON n.movie_id = o.movie_id
+            WHERE o.movie_id IS NULL OR n.movie_id IS NULL
+               OR o.bound_time IS DISTINCT FROM n.bound_time
+               OR o.bound_precision IS DISTINCT FROM n.bound_precision
+               OR o.chosen_evidence IS DISTINCT FROM n.chosen_evidence
+            ORDER BY 1
+            """,
+            (old_rv, new_rv)).fetchall():
+        if o_t is None:
+            diffs.append((mid, "NONE", f"{n_e}({n_t},{n_p})", "推断上界变化（新增上界）"))
+        elif n_t is None:
+            diffs.append((mid, f"{o_e}({o_t},{o_p})", "NONE", "推断上界变化（移除上界）"))
+        else:
+            diffs.append((mid, f"{o_e}({o_t},{o_p})", f"{n_e}({n_t},{n_p})", "推断上界变化"))
     return diffs
 
 
@@ -494,13 +646,15 @@ def main(argv: list[str] | None = None) -> int:
     p_sum = sub.add_parser("summary", help="打印统计 JSON")
     p_sum.add_argument("--rv", help="上映信息版本号")
     p_sum.add_argument("--extraction-id", help="抽取 ID")
+    p_sum.add_argument("--run-id", help="运行 ID（默认取该版本最新 succeeded 运行）")
 
     p_ex = sub.add_parser("examples", help="打印实例")
     p_ex.add_argument("--rv", help="上映信息版本号")
 
     p_exp = sub.add_parser("export", help="导出文件")
     p_exp.add_argument("--rv", help="上映信息版本号")
-    p_exp.add_argument("--run-key", default="manual", help="run_key")
+    p_exp.add_argument("--run-id", help="运行 ID（默认取该版本最新 succeeded 运行）")
+    p_exp.add_argument("--run-key", default=None, help="输出目录 run_key（默认取真实 run_id）")
     p_exp.add_argument("--output-dir", default="outputs", help="输出根目录")
 
     p_diff = sub.add_parser("diff", help="版本差异")
@@ -510,23 +664,25 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     s = load_settings()
     with connect(s) as conn:
-        eid = getattr(args, "extraction_id", None) or latest_full_extraction(conn)
-        rv = getattr(args, "rv", None) or latest_rv(conn, eid)
-        if args.cmd == "summary":
-            print(json.dumps(build_summary(conn, rv), ensure_ascii=False, indent=2, default=str))
-        elif args.cmd == "examples":
-            print(json.dumps(examples(conn, rv), ensure_ascii=False, indent=2, default=str))
-        elif args.cmd == "export":
-            directory = run_dir(Path(args.output_dir), eid, rv, args.run_key)
-            hashes = export_files(conn, rv, directory)
-            print(f"已导出到 {directory}")
-            for k, v in hashes.items():
-                print(f"  {k}: {v}")
-        elif args.cmd == "diff":
+        if args.cmd == "diff":
             d = diff_versions(conn, args.old_rv, args.new_rv)
             print(f"版本差异 {args.old_rv} -> {args.new_rv}：共 {len(d)} 处变化")
             for mid, before, after, reason in d:
                 print(f"  {mid}: {before} -> {after} ({reason})")
+            return 0
+        eid = getattr(args, "extraction_id", None) or latest_full_extraction(conn)
+        rv = getattr(args, "rv", None) or latest_rv(conn, eid)
+        if args.cmd == "summary":
+            print(json.dumps(build_summary(conn, rv, run_id=args.run_id), ensure_ascii=False, indent=2, default=str))
+        elif args.cmd == "examples":
+            print(json.dumps(examples(conn, rv), ensure_ascii=False, indent=2, default=str))
+        elif args.cmd == "export":
+            _, directory, hashes = build_and_write_report(
+                conn, rv, Path(args.output_dir), extraction_id=eid, run_id=args.run_id, run_key=args.run_key
+            )
+            print(f"已导出到 {directory}")
+            for k, v in hashes.items():
+                print(f"  {k}: {v}")
     return 0
 
 

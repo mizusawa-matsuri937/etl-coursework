@@ -152,7 +152,7 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_runs.py -k "reused or version or diff"
 ```
 
-期望：`3 passed, 3 deselected`。
+期望：`4 passed, 4 deselected`。
 
 ## AC14 分批恢复与锁
 
@@ -162,7 +162,7 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_runs.py -k "ac14"
 ```
 
-期望：`3 passed, 3 deselected`。
+期望：`3 passed, 5 deselected`。
 
 ## AC15 Airflow DAG
 
@@ -172,7 +172,7 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_dag.py
 ```
 
-期望：`6 passed, 8 warnings`。
+期望：`7 passed, 7 warnings`。
 
 ## AC16 报告、实例与查询
 
@@ -182,7 +182,7 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_report.py
 ```
 
-期望：`5 passed`。
+期望：`8 passed`。
 
 ## AC17 评价工具
 
@@ -268,17 +268,17 @@ git ls-files | grep -Ei '(^|/)\.env$|^outputs/|eval_items|eval_pairs|cluster_sam
 docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task6_rules.py tests/integration/test_task6_cooccur.py tests/integration/test_task6_runs.py -k "ac21"
 ```
 
-期望：`3 passed, 31 deselected`。
+期望：`3 passed, 32 deselected`。
 
 ## AC22 报告统计口径、真实 run_id、跨版本差异、血缘查询与核对强化
 
-- [ ] 未执行（计划，对应 T6-09，修复审查 ISSUE-06、ISSUE-09、ISSUE-10、ISSUE-12）。
+- [x] 2026-10-30 通过（验证 `summary.json` 的 `title_types` 与全量 `candidate_shared_count` 准确；不存在的 `--run-id` 报错拒绝；存在 `reused` 运行时按版本导出仍取 `succeeded` 运行计数，`build_and_write_report` 默认采用真实 `run_id`；`diff_versions` 用 `FULL OUTER JOIN` 覆盖增删作品、`tconst` 变化与上界变化；`query movie` 返回 `product_review_time` 与共现标题证据；`check` 比较 `EXTRACT(YEAR FROM b.bound_time)::int` 与 `s.release_year` 并校验当前共现阶段键下 `cooccur_score.passed = TRUE`；无来自 `amazon_movies_task6_release.py` 的 `AirflowFailException` 弃用警告）。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_report.py tests/integration/test_task6_runs.py tests/integration/test_task6_dag.py -k "ac22 or diff or dag"
 ```
 
-期望（计划）：全部通过，且无来自 `amazon_movies_task6_release.py` 的 `AirflowFailException` 弃用警告（验证 `summary.json` 的 `title_types` 与全量 `candidate_shared_count` 准确；不存在的 `--run-id` 报错拒绝；存在 `reused` 运行时按版本导出仍取 `succeeded` 运行计数；`diff_versions` 用 `FULL OUTER JOIN` 覆盖增删作品与上界；`query movie` 返回 `product_review_time` 与共现标题证据；`check` 无永假比较且校验 `cooccur_score.passed`）。
+期望：`12 passed, 11 deselected, 7 warnings`。
 
 ## AC23 评价分层键名修复、商品原始标题导出、盲测打乱与非循环 AI 草稿
 

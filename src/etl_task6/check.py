@@ -19,6 +19,8 @@ from etl_task1.config import load_settings
 from etl_task1.db import connect
 from etl_task2.crawl.crawler import latest_full_extraction
 
+from .run import RunInputs
+
 T1_TO_T5_TABLES = (
     ("public", "review_record"),
     ("public", "review_staging"),
@@ -68,6 +70,15 @@ def _verify(conn: psycopg.Connection, rv: str) -> dict[str, Any]:
     row = rv_row(conn, rv)
     eid = row["extraction_id"]
     t4 = row["t4_mapping_version_id"]
+    inputs = RunInputs(
+        extraction_id=eid,
+        t4_mapping_version_id=t4,
+        t5_person_mapping_version_id=row["t5_person_mapping_version_id"],
+        imdb_snapshot_id=row["imdb_snapshot_id"],
+        parser_version=row["parser_version"],
+        rule_version=row["rule_version"],
+    )
+    cooc_key = inputs.stage_key("cooccur")
     out: dict[str, Any] = {
         "release_version_id": rv, "extraction_id": eid, "t4_mapping_version_id": t4,
         "t5_person_mapping_version_id": row["t5_person_mapping_version_id"],
@@ -116,17 +127,43 @@ def _verify(conn: psycopg.Connection, rv: str) -> dict[str, Any]:
         "SELECT count(*) FROM task6.release_selection WHERE release_version_id = %s "
         "AND status = 'missing' AND (release_year IS NOT NULL OR selected_candidate_id IS NOT NULL)", rv)
 
-    # 5. 共现候选满足 R09–R10
+    # 5. 共现候选满足 R09–R10：指向 imdb_t6_cooccur 候选，且当前共现阶段键下存在 passed = TRUE 的 cooccur_score 与通过的 cooccur_result
     out["cooccur_matched_invalid"] = one(
-        "SELECT count(*) FROM task6.release_selection s JOIN task6.release_candidate c "
-        "ON c.candidate_id = s.selected_candidate_id WHERE s.release_version_id = %s "
-        "AND s.status = 'cooccur_matched' AND c.source != 'imdb_t6_cooccur'", rv)
+        """
+        SELECT count(*)
+        FROM task6.release_selection s
+        LEFT JOIN task6.release_candidate c ON c.candidate_id = s.selected_candidate_id
+        LEFT JOIN task6.cooccur_score cs ON cs.extraction_id = %s AND cs.stage_key = %s
+             AND cs.movie_id = s.movie_id AND cs.tconst = c.source_key AND cs.passed IS TRUE
+        LEFT JOIN task6.cooccur_result cr ON cr.extraction_id = %s AND cr.stage_key = %s
+             AND cr.movie_id = s.movie_id AND cr.outcome IN ('unique', 'resolved_by_review_year')
+             AND cr.chosen_tconst = c.source_key
+        WHERE s.release_version_id = %s AND s.status = 'cooccur_matched'
+          AND (c.source IS DISTINCT FROM 'imdb_t6_cooccur' OR cs.tconst IS NULL OR cr.movie_id IS NULL)
+        """,
+        eid, cooc_key, eid, cooc_key, rv)
 
-    # 6. 推断上界不写入选择记录
+    # 6. 推断上界不写入选择记录（比较年份数值与上界时间年份部分 EXTRACT(YEAR FROM b.bound_time)::int，结合 status / 候选来源检查）
     out["bounds_in_selection"] = one(
-        "SELECT count(*) FROM task6.release_selection s JOIN task6.inferred_release_bound b "
-        "ON b.release_version_id = s.release_version_id AND b.movie_id = s.movie_id "
-        "WHERE s.release_version_id = %s AND s.release_year::text = b.bound_time::text", rv)
+        """
+        SELECT count(*)
+        FROM task6.release_selection s
+        LEFT JOIN task6.release_candidate c ON c.candidate_id = s.selected_candidate_id
+        LEFT JOIN task6.inferred_release_bound b
+          ON b.release_version_id = s.release_version_id AND b.movie_id = s.movie_id
+        WHERE s.release_version_id = %s
+          AND (
+              s.status = 'inferred'
+              OR (s.release_year IS NOT NULL AND (
+                  s.selected_candidate_id IS NULL
+                  OR c.candidate_id IS NULL
+                  OR c.source NOT IN ('imdb_t4_link', 'imdb_t5_hint', 'imdb_t6_cooccur', 'amazon_title_year')
+                  OR (b.bound_time IS NOT NULL AND EXTRACT(YEAR FROM b.bound_time)::int = s.release_year
+                      AND c.value_year IS DISTINCT FROM s.release_year)
+              ))
+          )
+        """,
+        rv)
 
     # 7. 每个推断上界至少有一种成立证据
     out["bounds_without_passed_evidence"] = one(

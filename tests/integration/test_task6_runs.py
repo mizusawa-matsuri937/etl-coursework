@@ -104,6 +104,60 @@ def test_ac13_mapping_change_makes_a_new_version_and_diff_is_split_movie(conn, w
                              (new_rv,)).fetchone()[0]
     assert new_count == old_count + 1   # 拆出一部新作品
 
+    # AC22：diff_versions 通过 FULL OUTER JOIN 捕获新增作品与反向移除作品
+    diff_fwd = diff_versions(conn, old_rv, new_rv)
+    assert any(mid == "mv_00000000000000aa" and before == "ABSENT" and "新增作品" in reason
+               for mid, before, _, reason in diff_fwd)
+    diff_rev = diff_versions(conn, new_rv, old_rv)
+    assert any(mid == "mv_00000000000000aa" and after == "ABSENT" and "移除作品" in reason
+               for mid, _, after, reason in diff_rev)
+
+
+def test_ac22_diff_versions_detects_tconst_and_bound_add_remove_changes(conn, world):
+    """AC22（ISSUE-06）：diff_versions 覆盖版本 A 与版本 B 的作品并集，
+    检出采用 tconst 变化以及推断上界的新增/移除/精度变化。"""
+    first = execute_release(conn, inputs_for(world), batch_size=7)
+    old_rv = first.release_version_id
+    RULESETS["t6r_diff"] = DEFAULT_RULES.with_version("t6r_diff", b3_days=1)
+    try:
+        second = execute_release(conn, inputs_for(world, rule_version="t6r_diff"), batch_size=7)
+        new_rv = second.release_version_id
+        # 模拟一部作品在 new_rv 中采用了不同 tconst 但年份/状态不变，以及一部作品移除上界
+        sel_row = conn.execute(
+            "SELECT s.movie_id, s.selected_candidate_id, c.value_year FROM task6.release_selection s "
+            "JOIN task6.release_candidate c ON c.candidate_id = s.selected_candidate_id "
+            "WHERE s.release_version_id = %s AND s.status = 'verified' LIMIT 1",
+            (new_rv,),
+        ).fetchone()
+        bound_mid = conn.execute(
+            "SELECT movie_id FROM task6.inferred_release_bound WHERE release_version_id = %s LIMIT 1",
+            (new_rv,),
+        ).fetchone()[0]
+        with conn.transaction():
+            alt_cid = conn.execute(
+                "INSERT INTO task6.release_candidate (extraction_id, stage_key, movie_id, source, source_key, "
+                "raw_value, value_year, precision, semantic, source_ref, match_evidence, flags, confidence, "
+                "rule_version, run_id) VALUES (%s, 'alt_sk', %s, 'imdb_t4_link', 'tt9999999', %s, %s, 'year', "
+                "'first_release', '{}'::jsonb, '{}'::jsonb, '{}', 0.95, 't6r_diff', %s) "
+                "RETURNING candidate_id",
+                (world.extraction_id, sel_row[0], str(sel_row[2]), sel_row[2], second.run_id),
+            ).fetchone()[0]
+            conn.execute(
+                "UPDATE task6.release_selection SET selected_candidate_id = %s "
+                "WHERE release_version_id = %s AND movie_id = %s",
+                (alt_cid, new_rv, sel_row[0]),
+            )
+            conn.execute(
+                "DELETE FROM task6.inferred_release_bound WHERE release_version_id = %s AND movie_id = %s",
+                (new_rv, bound_mid),
+            )
+            diffs = diff_versions(conn, old_rv, new_rv)
+            assert any(mid == sel_row[0] and "tconst变化" in reason for mid, _, _, reason in diffs)
+            assert any(mid == bound_mid and after == "NONE" and "移除上界" in reason for mid, _, after, reason in diffs)
+            raise psycopg.Rollback()
+    finally:
+        RULESETS.pop("t6r_diff", None)
+
 
 def test_ac21_cooccur_rule_param_change_updates_stage_key_and_recomputes_cooccur(conn, world):
     """修改 RuleSet 的共现评分参数（如 cooccur_min_score=3）时，stage_key('cooccur') 改变并触发共现阶段重算，

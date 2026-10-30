@@ -62,6 +62,24 @@ def test_dag_file_does_not_import_etl_code_at_parse_time():
     assert "from etl_task6" not in top.replace("    from etl_task6", "")
 
 
+def test_ac22_dag_imports_airflow_fail_exception_without_deprecation_warning():
+    """AC22（ISSUE-12）：解析/执行 dags/amazon_movies_task6_release.py 时不触发 AirflowFailException 弃用警告。"""
+    pytest.importorskip("airflow")
+    import runpy
+    import warnings
+
+    dag_file = DAGS / "amazon_movies_task6_release.py"
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        runpy.run_path(str(dag_file))
+    dep_msgs = [
+        str(w.message)
+        for w in caught
+        if issubclass(w.category, (DeprecationWarning, UserWarning))
+    ]
+    assert not any("AirflowFailException" in m for m in dep_msgs), dep_msgs
+
+
 def test_dag_default_rule_version_is_registered(dag):
     from etl_task6 import CURRENT_RULE_VERSION
     from etl_task6.rules import RULESETS

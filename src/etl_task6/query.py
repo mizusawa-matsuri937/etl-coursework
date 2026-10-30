@@ -18,7 +18,10 @@ from etl_task1.config import load_settings
 from etl_task1.db import connect
 from etl_task2.crawl.crawler import latest_full_extraction
 
+from etl_task4.normalize import title_key
+
 from .check import latest_rv, rv_row
+from .run import RunInputs
 
 
 def query_movie(conn: psycopg.Connection, rv: str, movie_id: str) -> dict[str, Any]:
@@ -26,6 +29,18 @@ def query_movie(conn: psycopg.Connection, rv: str, movie_id: str) -> dict[str, A
     row = rv_row(conn, rv)
     eid = row["extraction_id"]
     t4 = row["t4_mapping_version_id"]
+    pv = row["parser_version"]
+    inputs = RunInputs(
+        extraction_id=eid,
+        t4_mapping_version_id=t4,
+        t5_person_mapping_version_id=row["t5_person_mapping_version_id"],
+        imdb_snapshot_id=row["imdb_snapshot_id"],
+        parser_version=pv,
+        rule_version=row["rule_version"],
+    )
+    cand_key = inputs.stage_key("candidates")
+    cooc_key = inputs.stage_key("cooccur")
+    rvy_key = inputs.stage_key("review_years")
 
     m_row = conn.execute(
         "SELECT display_title, tconst FROM task4.movie WHERE mapping_version_id = %s AND movie_id = %s",
@@ -41,7 +56,7 @@ def query_movie(conn: psycopg.Connection, rv: str, movie_id: str) -> dict[str, A
         "reason, confidence, disagreement FROM task6.release_selection WHERE release_version_id = %s "
         "AND movie_id = %s", (rv, movie_id)).fetchone()
 
-    # 全部候选
+    # 全部候选（按当前版本的 candidates 与 cooccur 阶段键过滤）
     candidates = [
         {"candidate_id": c[0], "source": c[1], "source_key": c[2], "raw_value": c[3], "value_year": c[4],
          "flags": list(c[5] or []), "shared_with_movie_id": c[6], "confidence": float(c[7]) if c[7] else None,
@@ -49,28 +64,61 @@ def query_movie(conn: psycopg.Connection, rv: str, movie_id: str) -> dict[str, A
         for c in conn.execute(
             "SELECT candidate_id, source, source_key, raw_value, value_year, flags, shared_with_movie_id, "
             "confidence, source_ref, match_evidence FROM task6.release_candidate WHERE extraction_id = %s "
-            "AND movie_id = %s ORDER BY candidate_id", (eid, movie_id)).fetchall()
+            "AND stage_key IN (%s, %s) AND movie_id = %s ORDER BY candidate_id",
+            (eid, cand_key, cooc_key, movie_id)).fetchall()
     ]
 
-    # 共现评分与结果
+    # 商品层 edition ASIN 及商品标题键映射
+    asins = [r[0] for r in conn.execute(
+        "SELECT asin FROM task4.product_movie WHERE mapping_version_id = %s AND movie_id = %s "
+        "AND relation_type = 'edition' ORDER BY asin", (t4, movie_id)).fetchall()]
+    asin_title_keys: dict[str, str] = {}
+    if asins:
+        for a_id, norm_v, raw_v in conn.execute(
+            "SELECT entity_id, normalized_value, raw_value FROM task4.field_assertion "
+            "WHERE extraction_id = %s AND parser_version = %s AND entity_type = 'product_edition' "
+            "AND entity_id = ANY(%s) AND field_name = 'title' "
+            "ORDER BY entity_id, assertion_id",
+            (eid, pv, asins),
+        ).fetchall():
+            if a_id not in asin_title_keys:
+                tk = norm_v or (title_key(raw_v) if raw_v else None)
+                if tk:
+                    asin_title_keys[a_id] = tk
+    fallback_product_key = title_key(title or "") if title else None
+
+    # 共现评分与结果（按当前版本的 cooccur 阶段键过滤，补齐标题键来源、商品标题键与共享标记）
     cooccur_scores = [
-        {"tconst": cs[0], "score": cs[1], "title_ok": cs[2], "number_guard": cs[3], "passed": cs[4],
-         "director_hits": cs[5], "actor_hits": cs[6]}
+        {
+            "tconst": cs[0], "score": cs[1], "title_ok": cs[2], "number_guard": cs[3], "passed": cs[4],
+            "director_hits": cs[5], "actor_hits": cs[6],
+            "matched_title_key": cs[7], "matched_asin": cs[8],
+            "key_source": cs[9], "match_key_source": cs[9],
+            "title_key_source_line": cs[10], "number_guard_detail": cs[11],
+            "product_title_key": asin_title_keys.get(cs[8]) if cs[8] else (fallback_product_key or None),
+            "shared_tconst": bool(cs[12]),
+        }
         for cs in conn.execute(
-            "SELECT tconst, score, title_ok, number_guard, passed, director_hits, actor_hits "
-            "FROM task6.cooccur_score WHERE extraction_id = %s AND movie_id = %s ORDER BY score DESC, tconst",
-            (eid, movie_id)).fetchall()
+            "SELECT cs.tconst, cs.score, cs.title_ok, cs.number_guard, cs.passed, cs.director_hits, cs.actor_hits, "
+            "cs.matched_title_key, cs.matched_asin, cs.key_source, cs.title_key_source_line, cs.number_guard_detail, "
+            "EXISTS (SELECT 1 FROM task4.movie m WHERE m.mapping_version_id = %s AND m.tconst = cs.tconst "
+            "AND m.movie_id != cs.movie_id) AS shared_tconst "
+            "FROM task6.cooccur_score cs WHERE cs.extraction_id = %s AND cs.stage_key = %s "
+            "AND cs.movie_id = %s ORDER BY cs.score DESC, cs.tconst",
+            (t4, eid, cooc_key, movie_id)).fetchall()
     ]
     cooccur_res = conn.execute(
         "SELECT outcome, chosen_tconst, passed_tconsts, owner_movie_id FROM task6.cooccur_result "
-        "WHERE extraction_id = %s AND movie_id = %s", (eid, movie_id)).fetchone()
+        "WHERE extraction_id = %s AND stage_key = %s AND movie_id = %s",
+        (eid, cooc_key, movie_id)).fetchone()
 
-    # 评论正文年份提及
+    # 评论正文年份提及（按当前版本的 review_years 阶段键过滤）
     mentions = [
         {"year": ym[0], "votes": ym[1], "patterns": dict(ym[2]) if ym[2] else {}}
         for ym in conn.execute(
             "SELECT year, votes, patterns FROM task6.review_year_mention WHERE extraction_id = %s "
-            "AND movie_id = %s ORDER BY votes DESC, year", (eid, movie_id)).fetchall()
+            "AND stage_key = %s AND movie_id = %s ORDER BY votes DESC, year",
+            (eid, rvy_key, movie_id)).fetchall()
     ]
 
     # 推断上界与证据评估
@@ -93,16 +141,29 @@ def query_movie(conn: psycopg.Connection, rv: str, movie_id: str) -> dict[str, A
     ]
 
     # 商品层日期与评论
-    asins = [r[0] for r in conn.execute(
-        "SELECT asin FROM task4.product_movie WHERE mapping_version_id = %s AND movie_id = %s "
-        "AND relation_type = 'edition' ORDER BY asin", (t4, movie_id)).fetchall()]
     product_dates = [
         {"asin": pd[0], "kind": pd[1], "label_raw": pd[2], "raw_value": pd[3], "value_date": pd[4].isoformat(),
          "precision": pd[5], "flags": list(pd[6] or [])}
         for pd in conn.execute(
             "SELECT asin, kind, label_raw, raw_value, value_date, precision, flags "
-            "FROM task6.product_release_date WHERE extraction_id = %s AND asin = ANY(%s) "
-            "ORDER BY asin, assertion_id", (eid, asins)).fetchall()
+            "FROM task6.product_release_date WHERE extraction_id = %s AND parser_version = %s "
+            "AND asin = ANY(%s) ORDER BY asin, assertion_id", (eid, pv, asins)).fetchall()
+    ]
+    product_review_times = [
+        {
+            "asin": pr[0], "product_kind": pr[1],
+            "earliest_time": pr[2].isoformat() if pr[2] else None,
+            "earliest_review_time": pr[2].isoformat() if pr[2] else None,
+            "earliest_source_review_id": pr[3],
+            "second_time": pr[4].isoformat() if pr[4] else None,
+            "second_review_time": pr[4].isoformat() if pr[4] else None,
+            "review_count": pr[5],
+        }
+        for pr in conn.execute(
+            "SELECT asin, product_kind, earliest_time, earliest_source_review_id, "
+            "second_time, review_count FROM task6.product_review_time "
+            "WHERE extraction_id = %s AND asin = ANY(%s) ORDER BY asin",
+            (eid, asins)).fetchall()
     ]
     movie_reviews = conn.execute(
         "SELECT earliest_review_time, earliest_precision, earliest_source_review_id, earliest_asin, "
@@ -123,6 +184,7 @@ def query_movie(conn: psycopg.Connection, rv: str, movie_id: str) -> dict[str, A
             if cooccur_res else None,
             "scores": cooccur_scores,
         },
+        "cooccur_score": cooccur_scores,
         "review_year_mentions": mentions,
         "bound": {
             "bound_time": bound[0].isoformat() if bound else None, "precision": bound[1] if bound else None,
@@ -137,9 +199,12 @@ def query_movie(conn: psycopg.Connection, rv: str, movie_id: str) -> dict[str, A
         } if assessment else None,
         "edition_asins": asins,
         "product_release_dates": product_dates,
+        "product_review_time": product_review_times,
+        "product_reviews": product_review_times,
         "movie_reviews": {
             "earliest_time": movie_reviews[0].isoformat() if movie_reviews and movie_reviews[0] else None,
             "precision": movie_reviews[1] if movie_reviews else None,
+            "earliest_source_review_id": movie_reviews[2] if movie_reviews else None,
             "earliest_asin": movie_reviews[3] if movie_reviews else None,
             "second_time": movie_reviews[4].isoformat() if movie_reviews and movie_reviews[4] else None,
             "review_count": movie_reviews[5] if movie_reviews else 0,
