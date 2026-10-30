@@ -186,13 +186,13 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC17 评价工具
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（评价表不含开发池作品，各层数量符合设定且不显示系统年份、状态与层；导入后年份准确率（完全一致、相差 ≤1 年）、`tconst` 正确率、缺失可查到率、上界成立率与手算一致并按层、来源与证据类型给出，“不确定”单独计数；没有推断上界时上界成立率为“无定义”）。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_evaluate.py
 ```
 
-期望（计划）：全部通过。
+期望：`4 passed`。
 
 ## AC18 正式库全量运行与只读核对
 

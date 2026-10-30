@@ -63,15 +63,15 @@
 
   期望：`17 passed, 8 warnings`。真实 scheduler 端到端均符合预期。
 
-- [ ] T6-06 评价工具：开发池冻结、七层评价表与 AI 草稿模板导出、标注导入、指标。关联 AC17。
+- [x] T6-06 评价工具：开发池冻结、七层评价表与 AI 草稿模板导出、标注导入、指标。关联 AC17。
   - 文件：`src/etl_task6/evaluate.py`、`tests/integration/test_task6_evaluate.py`、`doc/task6/runbook.md`（评价一节）。
-  - 完成情况：未执行。
+  - 完成情况：2026-10-30 完成。开发池冻结（R36）、七层评价表与 AI 草稿导出（R37）、人工标注校验导入（R39）、完全一致/相差1年年份准确率、tconst 正确率、上界成立率与缺失可查到率计算（R38）全部通过。
 
   ```bash
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_evaluate.py
   ```
 
-  期望（计划）：全部通过。
+  期望：`4 passed`。全量 781 passed。
 
 - [ ] T6-07 正式库：经 Airflow 全量运行，冻结开发池并在开发池上确认默认值，冻结规则版本，只读核对，导出报告、实例与查询结果，导出评价表并生成 AI 预标注草稿；资源实测记入 design。关联 AC18、AC20。
   - 文件：`doc/task6/design.md`（资源实测、规则调整记录）、README；`outputs/task6/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rv0001/`（不入库）。

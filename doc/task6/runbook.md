@@ -104,9 +104,39 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task6.query mov
 docker compose --profile crawl run --rm -T crawler python -m etl_task6.query gaps --status missing
 ```
 
-## 4. 评价与标注（T6-06 / T6-07）
+## 4. 评价与标注（T6-06 / T6-07 / T6-08）
 
-- 冻结开发池：`python -m etl_task6.evaluate freeze`
-- 导出评价表：`python -m etl_task6.evaluate export`
-- 导入正式标注（T6-08）：`python -m etl_task6.evaluate import <labeled.csv>`
-- 计算指标：`python -m etl_task6.evaluate metrics`
+评价设计遵守 spec R36–R39 与 AC17、AC19。开发池按 `md5(movie_id)` 排序取前 20% 作品冻结入 `task6.dev_pool`，只用于观察默认值是否需微调，评价池不含开发池作品。导出 120 部作品分七层（E1–E7），导出表不含系统年份、状态、层与上界（避免锚定）。AI 只在草稿副本 `eval_items_draft.csv` 里给出预标注建议，标注必须由人工审核确认后导入。
+
+1. 冻结开发池（按 `md5(movie_id)` 排序的前 20% 作品，只做一次）：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task6.evaluate freeze
+```
+
+2. 导出评价表与 AI 预标注草稿（120 部作品，七层抽样）：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task6.evaluate export
+```
+
+文件导出至 `outputs/task6/<抽取>/<上映信息版本>/eval/`：
+- `eval_items.csv`：供人工核验与导入的正式评价表（不含系统判定）。
+- `eval_items_draft.csv`：供 AI 给出预标注建议的草稿模板（含 `ai_true_year`、`ai_tconst_label`、`ai_doubt`、`ai_reason`）。
+- `LABELING.md`：标注口径说明。
+
+3. 标注导入（T6-08 执行，由付林轩核对后导入）：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task6.evaluate import /opt/etl/outputs/task6/<抽取>/<上映信息版本>/eval/eval_items_labeled.csv --annotator 付林轩
+```
+
+导入会校验字段合法性，并检测矛盾项（`tconst_label = same` 但真实年份与 IMDb 记录年份相差大于 1 年），写入 `task6.eval_label`。
+
+4. 计算指标与输出报告：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task6.evaluate metrics
+```
+
+计算完全一致年份准确率、相差 ≤1 年准确率、`tconst` 匹配正确率（按来源与总体）、推断上界成立率（按证据类型与总体）、缺失作品可查到率，不确定单独计数，结果写回 `metrics.json` 与 `metrics.md`。
