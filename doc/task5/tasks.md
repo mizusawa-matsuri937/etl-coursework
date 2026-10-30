@@ -2,7 +2,7 @@
 
 状态：2026-10-29 编写计划；2026-10-30 按用户要求加入作品年表反查、合作者佐证迭代、稀有度与发行商特征、待复核队列，AC 重新编号为 AC00–AC17。2026-10-30 用户审批通过计划，开始实现。分支 `task5-person-identity`（从 `main` 的 `bf5b19d` 建立）。T5-01 至 T5-08 已完成（T5-07 于 2026-10-30 在正式库经 Airflow 全量运行；T5-08 同日导入 AI 预标注、付林轩核查后全部采纳的标注，自动合并 P 1.000、R 0.706、F1 0.828）；各阶段已本地提交，尚未推送。
 
-命令在项目根目录直接复制运行。T5-01 至 T5-07 的命令已实际运行核对（zsh）；标注“（计划）”的命令依赖尚未完成的步骤，期望值是预定口径，完成后实际运行核对再改写。每项 AC 的复核命令见 [checklist](checklist.md)。
+命令在项目根目录直接复制运行。T5-01 至 T5-08 的命令已实际运行核对（zsh），没有尚未运行的计划命令。每项 AC 的复核命令见 [checklist](checklist.md)。
 
 - [x] T5-00 计划：spec、design、tasks、checklist。关联 AC00。
   - 完成情况：2026-10-30 AI 文档检查通过（五个板块、R01–R47、AC00–AC17 一一对应，每条规则都有 AC）；用户已确认 H01–H04，提出 H13–H15 的加强方向；2026-10-30 用户审批通过计划全文，其余假设按建议执行。
@@ -75,7 +75,7 @@
 
 - [x] T5-07 正式库：经 Airflow 全量运行，冻结开发池并在开发池上调整默认值、决定稀有度与发行商开关，冻结规则版本，只读核对，导出实例、查询结果与待复核队列，导出评价表与簇抽查表。关联 AC14、AC16、AC17。
   - 文件：`src/etl_task5/{external,report}.py`（两个缺陷修复与实例排序）、`tests/integration/test_task5_external.py`、`tests/fixtures/task5/links.py`、`doc/task5/design.md`（资源实测、规则调整记录、T5-07 修订）、README。
-  - 完成情况：2026-10-30 通过：正式库 `t5_full_1c` 经 Airflow 8 分 47 秒成功（先后修复两个缺陷并加测试），56,809 条提及 → 29,635 个人物，核对 `exit=0`，任务 4 行数不变，重跑 `reused`，开发池观察后保持 `t5r1`。评价表、簇抽查表与待复核队列已导出，AI 草稿已生成未导入；691 项测试通过。
+  - 完成情况：2026-10-30 通过：正式库 `t5_full_1c` 经 Airflow 8 分 47 秒成功（先后修复两个缺陷并加测试），56,809 条提及 → 29,635 个人物，核对 `exit=0`，任务 4 行数不变，重跑 `reused`，开发池观察后保持 `t5r1`。评价表、簇抽查表与待复核队列已导出，AI 预标注草稿已生成（T5-08 再导入）；691 项测试通过。
 
   ```bash
   docker compose --profile crawl run --rm -T crawler python -m etl_task5.check > /dev/null; echo "exit=$?"
@@ -93,7 +93,7 @@
   ls outputs/task5/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/pmap0001/eval
   ```
 
-  期望：`LABELING.md`、`cluster_sample.csv`、`cluster_sample_draft.csv`、`eval_pairs.csv`、`eval_pairs_draft.csv`（草稿的 `ai_label` 等列由 AI 填写，`label`、`cluster_label` 空着等用户填；规则见 [runbook](runbook.md) 第 7 节）。
+  期望：`LABELING.md`、`cluster_sample.csv`、`cluster_sample_draft.csv`、`cluster_sample_labeled.csv`、`eval_pairs.csv`、`eval_pairs_draft.csv`、`eval_pairs_labeled.csv`、`metrics.json`、`metrics.md`（T5-08 之后的完整内容；T5-07 结束时只有前两个原始导出、两份草稿和 `LABELING.md`，草稿的 `ai_label` 等列由 AI 填写；规则见 [runbook](runbook.md) 第 7 节）。
 
 - [x] T5-08 导入标注（120 对评价样本与 20 个人物）并报告指标。关联 AC15。
   - 文件：`outputs/task5/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/pmap0001/eval/`（`eval_pairs_labeled.csv`、`cluster_sample_labeled.csv`、`metrics.json`、`metrics.md`；不入库）。

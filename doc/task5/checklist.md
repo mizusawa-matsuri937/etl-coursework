@@ -2,7 +2,7 @@
 
 状态：2026-10-29 编写计划；2026-10-30 按用户要求加强没有 IMDb 关联作品的跨作品人物匹配，AC 重新编号为 AC00–AC17。2026-10-30 用户审批通过计划；AC01–AC13 已用合成夹具通过（T5-01 至 T5-06）；AC14、AC16、AC17 于同日在正式库通过（T5-07）；AC15 于同日通过（T5-08）：标注来自 AI 预标注，付林轩核查后全部采纳并署名导入，不是用户独立逐条标注，指标可能偏乐观。AC00–AC17 均已有证据；AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
-复核方法：以下命令都在项目根目录直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询。标注“（计划）”的命令依赖尚未完成的步骤，期望值是预定口径，完成后实际运行核对再改写。AC14、AC16、AC17 的命令已于 2026-10-30 在 zsh 中原样运行核对。
+复核方法：以下命令都在项目根目录直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询。AC14–AC17 的命令已于 2026-10-30 在 zsh 中原样运行核对（AC16 的实例在导入标注后重新核对，见该节）。
 
 一次跑全部测试：
 
@@ -257,13 +257,13 @@ docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT 'pro
 
 ## AC16 正式实例与查询
 
-- [x] 2026-10-30 通过：报告列出 5 组别名合并（含 Tim Robbins、Rubén Blades）与 5 组同名不合并（Paul Guilfoyle、Bruce Lee、Federico Fellini、Marc Lawrence、Charles Lane，都有外部 ID 冲突或年代冲突），每组带原始署名、作品、外部 ID 或冲突证据与页面快照定位；用户尚未标注，所以实例都注明“未标注”（T5-08 之后优先取用户标注的）。两个查询在正式库返回非空结果。
+- [x] 2026-10-30 通过：报告列出 5 组别名合并（含 Tim Robbins、Rubén Blades）与 5 组同名不合并（Paul Guilfoyle、Bruce Lee、Federico Fellini、Marc Lawrence、Charles Lane，都有外部 ID 冲突或年代冲突），每组带原始署名、作品、外部 ID 或冲突证据与页面快照定位；T5-08 导入标注后重新核对：实例改为优先取已标注的，5 组别名合并都标 `same`、5 组不合并都标 `different`（标注人付林轩，来源是 AI 预标注经核查采纳，见 AC15）。两个查询在正式库返回非空结果。
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task5.report examples 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['alias_merges']), len(d['not_merged'])); print([(e['canonical_name'], e['external_id']['nconst']) for e in d['alias_merges']]); print([(e['left']['raw'], e['right']['raw'], e['reason']) for e in d['not_merged']])"
 ```
 
-期望：第一行 `5 5`；第二行 `[('Olivia de Havilland', 'nm0000014'), ('Tim Robbins', 'nm0000209'), ('David Brian', 'nm0108406'), ('Rubén Blades', 'nm0001952'), ('Farrah Fawcett', 'nm0000396')]`；第三行 `[('Paul Guilfoyle', 'Paul Guilfoyle', 'different_external_id'), ('Bruce Lee', 'Bruce Lee', 'era_conflict'), ('Federico Fellini', 'Federico Fellini', 'era_conflict'), ('Marc Lawrence', 'Marc Lawrence', 'different_external_id'), ('Charles Lane', 'Charles Lane', 'different_external_id')]`。完整实例（含源记录定位）在 `outputs/task5/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/pmap0001/t5_full_3/examples.md` 与 `pmap0001/examples.json`。
+期望：第一行 `5 5`；第二行 `[('Josh Lucas', 'nm0524197'), ('Robert Duvall', 'nm0000380'), ('John Turturro', 'nm0001806'), ('Julianne Moore', 'nm0000194'), ('Lawrence Dane', 'nm0199325')]`；第三行 `[('Paul Guilfoyle', 'Paul Guilfoyle', 'different_external_id'), ('Charles Lane', 'Charles Lane', 'different_external_id'), ('David Bradley', 'David Bradley', 'different_external_id'), ('John Vernon', 'John Vernon', 'different_external_id'), ('Robert Taylor', 'Robert Taylor', 'different_external_id')]`（导入标注前的实例是 Olivia de Havilland、Tim Robbins 等与 Bruce Lee、Federico Fellini 等，选择规则优先取已标注的实例，所以 T5-08 之后换了一批）。含标注结论与源记录定位的完整实例在 `outputs/task5/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/pmap0001/t5_final_labeled/examples.md`（导入标注后用 `report export --run-key t5_final_labeled` 重新导出；`t5_full_3/examples.md` 与 `pmap0001/examples.json` 是导入前的版本，实例标“未标注”）。
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task5.query person ps_e29f65eda4d251ef 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['found'], d['canonical_name'], d['external_id']['nconst'], [a['alias'] for a in d['aliases']], d['mentions_total'], len(d['works']), len(d['decision_chain']))"
