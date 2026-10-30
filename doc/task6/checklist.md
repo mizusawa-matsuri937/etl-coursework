@@ -1,8 +1,8 @@
 # 任务 6 AC 完成情况（补全上映信息）
 
-状态：2026-10-30 编写计划；同日按用户要求补充来源，AC 重新编号为 AC00–AC20；待用户审批，实现未开始。AC00 已做 AI 文档检查，待用户审批后勾选；AC01–AC20 均未执行。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-10-30 编写计划；同日按用户要求补充来源；完成 T6-01 至 T6-07 初版后经独立审查（见 [review](review.md)），新增审查修复验收 AC21–AC23，并将受审查问题影响的 AC18、AC20 重置为待复核；待用户审批后执行修复。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
-复核方法：以下命令都在项目根目录直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询。除 AC00 与 AC20 的仓库检查外，命令都是**（计划）**：选择器与期望在实现后按实际运行结果改写，改写前不得勾选。
+复核方法：以下命令都在项目根目录直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询。未执行的修复验收命令标注为**（计划）**：选择器与期望在实现后按实际运行结果改写，改写前不得勾选。
 
 一次跑全部测试（计划）：
 
@@ -14,7 +14,7 @@ docker compose --profile test run --rm etl-test pytest -q tests
 
 ## AC00 计划文件规范
 
-- [ ] 2026-10-30 AI 文档检查通过（五个板块、R01–R39、AC00–AC20 一一对应）；待用户审批。
+- [ ] 2026-10-30 AI 文档检查通过（五个板块、R01–R39、AC00–AC23 一一对应）；待用户审批。
 
 ```bash
 grep -n "^## " doc/task6/spec.md
@@ -196,71 +196,54 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC18 正式库全量运行与只读核对
 
-- [x] 2026-10-30 通过（只读核对退出码 0、无问题；五种状态合计 8,659，verified 4,473、hint_matched 293、cooccur_matched 690、page_reported 48、missing 3,155；只包含年份无日期无伪造；推断上界 6,978 条；重跑为 reused）。
+- [ ] 待 T6-08 至 T6-10 修复完成后，在 T6-11 清空 `task6` 重跑并重新核对（2026-10-30 初版运行 `8ec587275f974c1489b7f903a1976a98` 暴露共现反查排序与单实词误挂、报告 `title_types`/`candidate_shared_count` 统计失真及开发池晚于全量运行冻结等问题，见 [review](review.md)）。
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task6.check > /dev/null; echo "exit=$?"
 ```
 
-期望：`exit=0`（输出 JSON 的 `"problems": []`）。
+期望（计划）：`exit=0`（输出 JSON 的 `"problems": []`）。
 
 ```bash
-docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT status, count(*) FROM task6.release_selection WHERE release_version_id = 'rv0001' GROUP BY status ORDER BY status"
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT status, count(*) FROM task6.release_selection WHERE release_version_id = 'rv0001' GROUP BY status ORDER BY status"
 ```
 
-期望：
-```
-cooccur_matched|690
-hint_matched|293
-missing|3155
-page_reported|48
-verified|4473
-```
-合计 8,659。
+期望（计划）：五种状态合计 8,659（初版为 `cooccur_matched|690`、`hint_matched|293`、`missing|3155`、`page_reported|48`、`verified|4473`，T6-11 重跑后按实际更新）。
 
 ```bash
-docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT count(*) FROM task6.release_selection WHERE release_date IS NOT NULL OR precision <> 'year'"
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT count(*) FROM task6.release_selection WHERE release_date IS NOT NULL OR precision <> 'year'"
 ```
 
 期望：`0`。
 
 ```bash
-docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT chosen_evidence, count(*) FROM task6.inferred_release_bound WHERE release_version_id = 'rv0001' GROUP BY 1 ORDER BY 1"
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT chosen_evidence, count(*) FROM task6.inferred_release_bound WHERE release_version_id = 'rv0001' GROUP BY 1 ORDER BY 1"
 ```
 
-期望：
-```
-media_release|3963
-review|3015
-```
-合计 6,978。
+期望（计划）：`media_release` 与 `review` 两行（初版为 `3963` 与 `3015`，T6-11 重跑后按实际更新）。
 
 ```bash
-docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT status, airflow_run_id, release_version_id FROM task6.run ORDER BY started_at"
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT status, run_id, release_version_id FROM task6.run ORDER BY started_at"
 ```
 
-期望：
-```
-succeeded|t6_full_1|rv0001
-reused|t6_full_2|rv0001
-```
+期望（计划）：两行，`succeeded|<真实_run_id_1>|rv0001` 与 `reused|<真实_run_id_2>|rv0001`。
 
 ## AC19 评价标注与指标
 
-- [ ] 未执行；需要付林轩核查 AI 草稿后导入。
+- [ ] 未执行；待 T6-10 / T6-11 重新导出盲测评价集与非循环 AI 草稿、付林轩核查后于 T6-12 导入。
 
 ```bash
-docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT annotator, year_label, count(*) FROM task6.eval_label GROUP BY 1, 2 ORDER BY 2"
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT annotator, year_label, count(*) FROM task6.eval_label GROUP BY 1, 2 ORDER BY 2"
 ```
 
 期望（计划）：标注人 `付林轩`，`known` 与 `unsure` 合计 120。
 
 ## AC20 迁移、测试与仓库内容
 
-- [x] 2026-10-30 通过（迁移包含 001–501，无跳号无多余版本；outputs、eval、.env、tsv 均未入库，grep-exit=1）。
+- [ ] 待 T6-08 至 T6-11 修复与新增测试全部完成后复核（初版迁移 001–501、受限文件未入库已核实通过）。
 
 ```bash
-docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT string_agg(version, ',' ORDER BY version) FROM public.schema_migration"
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT string_agg(version, ',' ORDER BY version) FROM public.schema_migration"
 ```
 
 期望：`001,101,102,103,201,301,302,401,501`。
@@ -269,10 +252,40 @@ docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT stri
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望：`781 passed, 64 warnings`。
+期望（计划）：全部通过（含 T6-08 至 T6-10 新增回归测试），任务 1–5 的 691 项不减少。
 
 ```bash
 git ls-files | grep -Ei '(^|/)\.env$|^outputs/|eval_items|eval_pairs|cluster_sample|review_queue|name\.basics|title\.(basics|akas|crew|principals|ratings)|\.tsv(\.gz)?$|movies\.txt'; echo "grep-exit=$?"
 ```
 
 期望：`grep-exit=1`。
+
+## AC21 共现反查排序、续集编号回退、单实词别名保护与阶段键重算
+
+- [ ] 未执行（计划，对应 T6-08，修复审查 ISSUE-04、ISSUE-05、ISSUE-08）。
+
+```bash
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task6_rules.py tests/integration/test_task6_cooccur.py tests/integration/test_task6_runs.py -k "ac21"
+```
+
+期望（计划）：全部通过（验证 `_title_keys_of` 按 `primary → original → aka` 排序；带编号续集作品不因排在前面的无编号 `aka` 提前 `break` 误杀；单实词别名不跨作品子集匹配含其他额外核心实词的长标题；修改 `RuleSet` 共现参数后 `stage_key("cooccur")` 变化并触发重算）。
+
+## AC22 报告统计口径、真实 run_id、跨版本差异、血缘查询与核对强化
+
+- [ ] 未执行（计划，对应 T6-09，修复审查 ISSUE-06、ISSUE-09、ISSUE-10、ISSUE-12）。
+
+```bash
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_report.py tests/integration/test_task6_runs.py tests/integration/test_task6_dag.py -k "ac22 or diff or dag"
+```
+
+期望（计划）：全部通过，且无来自 `amazon_movies_task6_release.py` 的 `AirflowFailException` 弃用警告（验证 `summary.json` 的 `title_types` 与全量 `candidate_shared_count` 准确；不存在的 `--run-id` 报错拒绝；存在 `reused` 运行时按版本导出仍取 `succeeded` 运行计数；`diff_versions` 用 `FULL OUTER JOIN` 覆盖增删作品与上界；`query movie` 返回 `product_review_time` 与共现标题证据；`check` 无永假比较且校验 `cooccur_score.passed`）。
+
+## AC23 评价分层键名修复、商品原始标题导出、盲测打乱与非循环 AI 草稿
+
+- [ ] 未执行（计划，对应 T6-10，修复审查 ISSUE-01、ISSUE-02、ISSUE-03、ISSUE-11）。
+
+```bash
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_evaluate.py -k "ac23 or ac17"
+```
+
+期望（计划）：全部通过（验证 `tvMovie`/`video`/`year_diff_1`/`year_disagreement`/`tconst_disagreement` 的 `verified` 作品均分入 `E2`；`eval_items.csv` 的 `product_titles` 保留任务 4 商品原始标题中的括号年份；`item_id` 按 `md5(movie_id)` 全局打乱不泄露分层与状态；`eval_items_draft.csv` 独立比对生成且不读取系统采用年份或推断上界、`missing` 作品不填入禁用来源年份；`metrics` 完整断言 `by_stratum`、`by_source` 与 `bounds_by_evidence`）。

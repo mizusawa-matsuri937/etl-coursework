@@ -1,6 +1,6 @@
 # 任务 6 设计思路（补全上映信息）
 
-状态：2026-10-30 编写计划；同日用户认为无候选作品偏多，要求补充来源，本文加入“无候选作品的补充来源”一节，以及人物共现反查、评论年份提及、被占用 `tconst` 的线索、商品发售日期上界的设计，规则编号随 spec 改为 R01–R39；仍待用户审批，实现未开始，实现中的修订将记在文末。需求、可观察行为与 AC 以 [spec](spec.md) 为准；本文说明怎么实现、为什么这样选。择优顺序、置信度、共现反查的分数与条件、评论计票门槛、B3 的天数与上界置信度分档都是**规划默认值**（规则版本 `t6r1`），只在开发池上调整、评价表导出前冻结；资源数字都是**估计**，实测在 T6-07 补记。规划时的数字来自 2026-10-30 正式库只读查询与只读探查脚本（下文标“实测”或“模拟”），正式数字以 AC18 为准。
+状态：2026-10-30 编写计划；同日用户认为无候选作品偏多，要求补充来源，本文加入“无候选作品的补充来源”一节，以及人物共现反查、评论年份提及、被占用 `tconst` 的线索、商品发售日期上界的设计，规则编号随 spec 改为 R01–R39。同日完成 T6-01 至 T6-07 初版实现后经独立审查（见 [review](review.md)），本文文末补充“审查发现与修复设计（T6-08 至 T6-11）”，待用户审批后执行修复。需求、可观察行为与 AC 以 [spec](spec.md) 为准；本文说明怎么实现、为什么这样选。择优顺序、置信度、共现反查的分数与条件、评论计票门槛、B3 的天数与上界置信度分档都是**规划默认值**（规则版本 `t6r1`），只在开发池上调整、评价表导出前冻结；资源数字都是**估计**，实测在 T6-07 / T6-11 补记。规划时的数字来自 2026-10-30 正式库只读查询与只读探查脚本（下文标“实测”或“模拟”），正式数字以 AC18 为准。
 
 ## 整体思路
 
@@ -348,8 +348,8 @@
 |---|---|---|---|
 | 年份候选 | 约 5,600 条 | 5,795 行 | 包含直接关联 4,473、线索 293、共现候选 873、标题年份 156 |
 | 共现评分记录 | 数万行 | 188,980 行 (`cooccur_score`) | 4,186 部非关联作品的得分扫描，其中 871 部唯一命中、3 部经年份消歧 |
-| 共现反查内存与耗时 | 1–2 分钟 | 约 24 秒 | 快照只读预载与严格键内存哈希，未发生 OOM |
-| 评论年份提及 | 约 2.9 万条提及、3,700 部作品 | 8,814 条提及、2,765 部作品 | 规划估算包含全部文本提及，实测严格按 4 位独立年份正则并按作品计票 |
+| 共现反查内存与耗时 | 1–2 分钟 | 44.39 秒（初版 `8ec58727…` 实测，修复后在 T6-11 更新） | 快照流式扫描 `imdb.name` 全量 2,050,319 行并按待反查作品页面姓名键过滤，未发生 OOM |
+| 评论年份提及 | 约 2.9 万条提及、3,700 部作品 | 8,814 条提及、2,765 部作品 | 规划估算包含全部文本提及，实测严格按 `t6m1` 四类固定模式抽取并按作品每评论每年份等权计 1 票 |
 | 线索处理记录 | 335 行 | 294 行 (`hint_use`) | 候选 253、共享 40、合集成员 1 |
 | 商品发售日期 | 约 9,600 行 | 9,558 行 (`product_release_date`) | 实体发售 7,834、上架日期 1,724 |
 | 商品层评论 | 约 9,600 行 | 9,578 行 (`product_review_time`) | 覆盖 8,461 部有评论的电影作品 |
@@ -420,3 +420,33 @@
 11. **夹具隔离评论与反例修正**：
     - `_task6_helpers.py`：原夹具通过 `score=b"6"` 试图生成隔离评论，但任务 1 中分值错误为警告而非隔离，导致隔离评论误入 `review_staging`；改为向正文字节尾部追加 `\x00`（`NUL_BYTE` 错误），确保正确进入 `quarantine_record` 且不入有效评论。测试覆盖：`test_ac10_movie_without_reviews`、`test_ac11_m4_media_before_release_year`（避免 CLS001 混入评论矛盾）。
     - `world.py`：`B0T6ANC001` 补充 365 天内的第二条评论满足 B3，使反例专门针对 B5（1970 早于 1997）。测试覆盖：`test_ac11_b5_ancient_review_time`。
+
+## 审查发现与修复设计（T6-08 至 T6-11，2026-10-30）
+
+针对独立审查报告（[review](review.md)）发现的 12 项问题（ISSUE-01 至 ISSUE-12），按模块对症制定如下修复方案：
+
+1. **共现反查标题键排序与完整遍历（修复 ISSUE-04，关联 R09、R10、AC21）**：
+   - `cooccur._title_keys_of`：原 SQL `ORDER BY tconst, key_source, aka_ordering` 按 ASCII 字母序把 `'aka'` 排在 `'original'` 与 `'primary'` 之前，导致正式库 1,581 条标题命中 100% 记为 `aka`。改为 `ORDER BY tconst, CASE key_source WHEN 'primary' THEN 1 WHEN 'original' THEN 2 ELSE 3 END, aka_ordering, source_line`。
+   - `cooccur.score_movies`：原双层循环在遇到第一个满足 `cooccur_title_ok(tk, p)` 的 `(tk, p)` 对时，即使 `cooccur_number_guard(tk, p)` 为 `False` 也立即 `break`，导致带编号续集（如 `mv_02f5be7f1018409b` 对应 `tt0132451`，先命中无编号别名 `curse of the puppet master`）跳过后面带编号的合法键 `puppet master 6` 而被误杀。改为：先遍历寻找同时满足 `cooccur_title_ok(tk, p)` **且** `cooccur_number_guard(tk, p)` 的首个 `(tk, p)` 对；若存在则 `title_ok = True, guard_ok = True`；若不存在任何同时满足两者的键，但存在仅满足 `cooccur_title_ok` 的键，则记录首个 `title_ok = True, guard_ok = False` 的排除证据。
+2. **共现反查单实词别名保护（修复 ISSUE-05，关联 R09、AC21）**：
+   - `rules.cooccur_title_ok`：原逻辑仅判断 `words <= content_words(product_key)`，导致 IMDb 单实词简称/外文别名（如 `legend`、`wallace`、`beatles`、`gambler`）跨作品子集匹配同一导演/主演的另一部含更多核心实词的作品（如 `New Legend of Shaolin`、`Wallace and Gromit: The Wrong Trousers`、`Beatles' Biggest Secrets`、`Kenny Rogers The Gambler: The Adventure Continues`）。
+   - 修复为：定义载体与说明词扩展集 `COOCCUR_EXTRA_ALLOWED`（如 `movie`, `film`, `theatrical`, `version`, `cut`, `directors`, `director`, `unrated`, `remastered`, `restored`, `anniversary`, `collectors`, `collector`, `limited`, `deluxe`, `series`, `presents`, `starring`, `featuring`, `subtitles`, `english`, `spanish`, `french`, `ntsc`, `pal`, `region`, `authentic`, `us`, `import`, `exclusive`, `amazon`, `com`, `video`, `home`, `entertainment`, `pictures`, `studios`, `classic`, `classics`, `feature`, `pack`, `combo`, `disc`, `set`, `box`, `wide`, `fullscreen`）；当 `len(words) == 1` 且 `len(p_words) > 1` 时，要求商品标题多出的实词 `p_words - words` 全部属于 `COOCCUR_EXTRA_ALLOWED`，否则判定 `cooccur_title_ok = False`。
+3. **共现阶段键纳入 `RuleSet` 评分参数（修复 ISSUE-08，关联 R27、R28、AC21）**：
+   - `run.Inputs.stage_key("cooccur")`：原实现只拼入常量 `COOCCUR_PARAM_VERSION`（`"t6c1"`），未包含 `RuleSet` 的 `cooccur_director_points`、`cooccur_actor_points`、`cooccur_min_score`。改为从 `ruleset(self.rule_version)` 读取这三个参数拼入阶段键（如 `f"{COOCCUR_PARAM_VERSION}:{r.cooccur_director_points}:{r.cooccur_actor_points}:{r.cooccur_min_score}"`），确保只改 B3 天数等下游参数时 `cooccur` 仍复用，而修改共现评分参数时触发 `cooccur` 重算。
+4. **报告统计、版本差异、只读查询、核对脚本与 DAG 警告（修复 ISSUE-06、ISSUE-09、ISSUE-10、ISSUE-12，关联 R24、R27、R30、R33、R34、AC22）**：
+   - `report.py`：
+     - 将 `source_ref->>'titleType'` 修正为 `source_ref->>'title_type'`；
+     - 用独立 `SELECT COUNT(*)` 统计 `candidate_shared_count`，不直接对 `LIMIT 20` 的样本列表取 `len()`；
+     - 当显式传入 `--run-id` 且在 `task6.run` 中查不到时直接抛出 `ValueError`（拒绝用虚假的 `run_id` 覆盖报告元数据）；未传 `--run-id` 按 `release_version_id` 查找时限定 `AND status = 'succeeded' ORDER BY started_at DESC LIMIT 1`，防止取到 `counts` 只有 `{"reused_run": ...}` 的二次复用运行；
+     - 查询 `release_candidate`、`hint_use`、`cooccur_score`、`cooccur_result`、`review_year_mention`、`product_release_date` 时均按该版本对应的 `stage_key` / `parser_version` 过滤；
+     - `diff_versions` 对 `release_selection` 与 `inferred_release_bound` 均改为 `FULL OUTER JOIN`，完整报告跨版本新增或移除的作品与推断上界。
+   - `query.py`：`query_movie` 补充查询 `task6.product_review_time`（返回 `product_reviews` 列表），在 `cooccur.scores` 中补充返回 `matched_title_key`、`matched_asin`、`key_source`、`title_key_source_line`、`number_guard_detail`，并为各阶段表查询加上 `stage_key` / `parser_version` 过滤。
+   - `check.py`：去掉永假的 `s.release_year::text = b.bound_time::text` 条件，改为核查非 `missing` 选择记录的 `selected_candidate_id` 存在且年份一致，以及 `cooccur_matched` 作品对应的 `cooccur_score.passed = true` 且 `cooccur_result.outcome IN ('unique', 'resolved_by_review_year')`。
+   - `dags/amazon_movies_task6_release.py`：优先从 `airflow.sdk.exceptions` 导入 `AirflowFailException`，消除 Airflow 3 弃用警告。
+5. **评价集分层、盲测导出与非循环 AI 草稿（修复 ISSUE-01、ISSUE-02、ISSUE-03、ISSUE-11，关联 R36–R39、AC23）**：
+   - `evaluate._classify_movie_stratum`：改为读取 `source_ref.get("title_type")`、`disagreement.get("year_diff_1")`、`disagreement.get("year_disagreement")`、`disagreement.get("tconst_disagreement")`。
+   - `evaluate._fetch_product_details`：改为关联 `task4.field_assertion`（`entity_type = 'product_edition' AND field_name = 'title'`）读取每个 ASIN 的原始商品标题 `raw_value`（保留括号里的年份供 `E5` 标注核查）。
+   - `evaluate.export_eval_set`：各层按配额抽样（不足时按 `E1 → E7` 补足）后，按 `(_md5(x["movie_id"]), x["movie_id"])` 全局排序再分配 `it_0001`–`it_0120`（`task6.eval_item` 仍记录真实 `stratum` 供导入后算分，但导出的 `eval_items.csv` 与 `eval_items_draft.csv` 行顺序与 `item_id` 不再按层扎堆，彻底消除行号区间对分层、状态和上界有无的泄露）。
+   - `evaluate._generate_ai_draft`：彻底移除对 `item["system_year"]`、`item["status"]`、`item["bound_year"]` 的读取，改为只根据作品标题、商品原始标题断言、页面导演/演员断言以及候选 `tconst` 在 `imdb.title` / `imdb.title_director` / `imdb.title_principal` / `task4.imdb_title_key` 中的公开记录做独立核查：
+     - 若有 `tconst`：查询 `imdb.title` 的 `primary_title`、`original_title`、`start_year` 及演职员姓名，独立检查商品标题与演职员是否与该 `tconst` 吻合；吻合时填 `ai_true_year = str(start_year)`、`ai_tconst_label = "same"`、`ai_doubt = False`；若标题或演职员存在冲突（如单实词错配或年份冲突），标 `ai_tconst_label = "different"` 或 `ai_doubt = True`；
+     - 若无 `tconst`：从商品原始标题断言中用正则提取括号四位年份 `(19xx|20xx)`，若各商品括号年份一致则填入 `ai_true_year`、`ai_tconst_label = "na"`；否则保持 `ai_true_year = ""`、`ai_tconst_label = "na"`、`ai_doubt = True`，提示人工核查（严禁用 `product_release_date`、`movie_review_time`、`review_year_mention` 或 `inferred_release_bound` 填充 `ai_true_year`）。
