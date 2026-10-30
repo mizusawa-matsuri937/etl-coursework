@@ -1,8 +1,8 @@
 # 任务 6 开发任务（补全上映信息）
 
-状态：2026-10-30 编写计划；同日按用户要求加入人物共现反查、评论年份提及、被占用 `tconst` 的线索与商品发售日期上界。同日完成 T6-01 至 T6-07 初版实现后经独立审查（见 [review](review.md)），针对审查发现的 12 项问题新增修复任务 T6-08 至 T6-11（原导入标注任务顺延为 T6-12）与回归验收 AC21–AC23；同日已完成 T6-08 至 T6-11 全部修复、测试与正式库清空重跑，T6-12 待付林轩复核评价草稿后执行。分支 `task6-release-info`（从 `main` 的 `1625ad9` 建立）。每完成一个任务本地提交一次；不推送。
+状态：2026-10-30 编写计划；同日按用户要求加入人物共现反查、评论年份提及、被占用 `tconst` 的线索与商品发售日期上界。同日完成 T6-01 至 T6-07 初版实现后经独立审查（见 [review](review.md)），针对审查发现的 12 项问题新增修复任务 T6-08 至 T6-11（原导入标注任务顺延为 T6-12）与回归验收 AC21–AC23；同日已完成 T6-08 至 T6-12 全部修复、测试、正式库清空重跑、付林轩审核标注导入与交接文档编写。分支 `task6-release-info`（从 `main` 的 `1625ad9` 建立）。每完成一个任务本地提交一次；不推送。
 
-命令在项目根目录直接复制运行。T6-01 至 T6-11 的命令已实际运行核对；T6-12 的命令标注为**（计划）**：待人工核查标注后执行。每项 AC 的复核命令见 [checklist](checklist.md)。
+命令在项目根目录直接复制运行。T6-01 至 T6-12 的命令均已实际运行核对。每项 AC 的复核命令见 [checklist](checklist.md)。
 
 - [ ] T6-00 计划：spec、design、tasks、checklist。关联 AC00。
   - 完成情况：2026-10-30 AI 文档检查通过（五个板块、R01–R39、AC00–AC23 一一对应，每条规则都有 AC，审查修复任务 T6-08 至 T6-12 已纳入）；待用户审批。
@@ -139,12 +139,12 @@
 
   期望：输出 `SET` 及两行 `succeeded|2a6b07ff00e54bb39fcf86234a366cbf|rv0001` 与 `reused|fb16afb798c046e599502af3a169dbdf|rv0001`，且 `dev_pool.frozen_at`（`13:12:56+00`）早于首次运行开始时间（`13:15:35+00`）。
 
-- [ ] T6-12 导入标注（120 部作品）并报告指标；写任务 6 → 任务 7 交接文档。关联 AC19。
-  - 文件：`outputs/task6/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rv0001/eval/`（`eval_items_labeled.csv`、`metrics.json`、`metrics.md`；不入库）、`doc/task6/report.md`、`doc/handoffs/<日期>-task6-to-task7.md`（日期以实际为准）。
-  - 完成情况：未执行；需在 T6-11 重新生成非循环 AI 草稿并经付林轩核查后再导入。
+- [x] T6-12 导入标注（120 部作品）并报告指标；写任务 6 → 任务 7 交接文档。关联 AC19。
+  - 文件：`outputs/task6/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rv0001/eval/`（`eval_items_labeled.csv`、`metrics.json`、`metrics.md`；不入库）、`doc/task6/report.md`、`doc/handoffs/2026-10-30-task6-to-task7.md`。
+  - 完成情况：2026-10-30 完成。付林轩核查非循环 AI 预标注草稿后全部采纳并导入（120 部作品：`known` 75、`unsure` 45，标注人 `付林轩`，矛盾数 0）；年份准确率 1.000（75/75，完全一致与相差 ≤1 年均为 100.0%）、`tconst` 正确率 0.9692（63/65，`same` 63、`different` 2）、推断上界成立率 1.000（53/53，`media_release` 40/40、`review` 13/13）、缺失可查到率 0.000（0/40）。已写入 `doc/task6/report.md` 与 `doc/handoffs/2026-10-30-task6-to-task7.md`。
 
   ```bash
   docker compose --profile crawl run --rm -T crawler python -m etl_task6.evaluate metrics
   ```
 
-  期望（计划）：输出年份准确率（按层、来源与总体）、`tconst` 正确率（按来源）、缺失可查到率、上界成立率（按证据类型）与不确定数，标注人为付林轩。
+  期望：输出 JSON（`labeled_total: 120`、`annotators: ["付林轩"]`、`year_accuracy.overall.exact_rate: 1.0`、`tconst_accuracy.overall.rate: 0.9692`、`bound_validity.overall.rate: 1.0`）并保存 `metrics.md`。

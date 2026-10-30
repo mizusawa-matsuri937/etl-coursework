@@ -1,8 +1,8 @@
 # 任务 6 AC 完成情况（补全上映信息）
 
-状态：2026-10-30 编写计划；同日按用户要求补充来源；完成 T6-01 至 T6-07 初版后经独立审查（见 [review](review.md)），新增审查修复验收 AC21–AC23，并于同日完成 T6-08 至 T6-11 全部修复、测试与正式库清空重跑（AC01–AC18、AC20–AC23 均已验证通过，AC19 待付林轩复核评价草稿后于 T6-12 导入）。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-10-30 编写计划；同日按用户要求补充来源；完成 T6-01 至 T6-07 初版后经独立审查（见 [review](review.md)），新增审查修复验收 AC21–AC23，并于同日完成 T6-08 至 T6-12 全部修复、测试、正式库清空重跑与付林轩审核标注导入（AC01–AC23 全部通过）。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
-复核方法：以下命令都在项目根目录直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询。未执行的修复验收命令标注为**（计划）**：选择器与期望在实现后按实际运行结果改写，改写前不得勾选。
+复核方法：以下命令都在项目根目录直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询。
 
 一次跑全部测试：
 
@@ -230,13 +230,13 @@ docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default
 
 ## AC19 评价标注与指标
 
-- [ ] 未执行；T6-11 已重新导出盲测评价集 `eval_items.csv`（120 部，`t6_eval_0001`–`t6_eval_0120`）与非循环 AI 草稿 `eval_items_draft.csv`，待付林轩核查后于 T6-12 导入（当前 `task6.eval_label` 为 0 行）。
+- [x] 2026-10-30 通过（付林轩核查非循环 AI 预标注草稿后全部采纳导入 120 部作品：`known` 75、`unsure` 45，标注人 `付林轩`；年份准确率 1.000、`tconst` 正确率 0.9692、推断上界成立率 1.000、缺失可查到率 0.000；局限与交接文档 `doc/handoffs/2026-10-30-task6-to-task7.md` 已写入）。
 
 ```bash
 docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT annotator, year_label, count(*) FROM task6.eval_label GROUP BY 1, 2 ORDER BY 2"
 ```
 
-期望（计划）：标注人 `付林轩`，`known` 与 `unsure` 合计 120。
+期望：输出 `SET` 及两行 `付林轩|known|75` 与 `付林轩|unsure|45`（合计 120）。
 
 ## AC20 迁移、测试与仓库内容
 

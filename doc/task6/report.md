@@ -2,7 +2,7 @@
 
 ## 1. 概要
 
-- **任务完成情况**：已按顺序完成 T6-01 至 T6-07 初版实现，并针对独立审查报告（[`doc/task6/review.md`](file:///Users/aqua_night/codex_project/数据存储与管理/ETL作业模板/doc/task6/review.md)）发现的 12 项问题完成 **T6-08 至 T6-11** 全部修复、回归测试与正式库清空重跑；按要求**未执行 T6-12**（原因：T6-12 依赖用户付林轩先复核非循环 AI 预标注草稿 `eval_items_draft.csv` 并完成正式标注后再导入，当前 `task6.eval_label` 保持 0 行，任务 6 → 任务 7 交接文档亦保持未写）。
+- **任务完成情况**：已按顺序完成 T6-01 至 T6-07 初版实现，针对独立审查报告（[`doc/task6/review.md`](file:///Users/aqua_night/codex_project/数据存储与管理/ETL作业模板/doc/task6/review.md)）发现的 12 项问题完成 **T6-08 至 T6-11** 全部修复、回归测试与正式库清空重跑，并完成 **T6-12** 人工审核标注导入（付林轩核查非循环 AI 预标注草稿后全部采纳导入 120 部作品）、评价指标报告输出与任务 6 → 任务 7 交接文档（[`doc/handoffs/2026-10-30-task6-to-task7.md`](file:///Users/aqua_night/codex_project/数据存储与管理/ETL作业模板/doc/handoffs/2026-10-30-task6-to-task7.md)）。
 - **当前开发分支**：`task6-release-info`（基于 `main` 分支提交 `1625ad9` 派生，无其它临时分支，工作区保持干净）。
 - **各任务本地提交记录**：
   1. `3440362` `feat: 任务 6 T6-01 迁移 501 与三类年份候选`
@@ -16,6 +16,7 @@
   9. `2d791fe` `fix: 任务 6 T6-08 修复人物共现反查与运行阶段键`
   10. `a87e4d9` `fix: 任务 6 T6-09 修复报告统计、版本差异、只读查询、核对脚本与 DAG 弃用警告`
   11. `9c3a166` `fix: 任务 6 T6-10 修复评价分层键名、盲测导出与非循环 AI 预标注草稿`
+  12. `b7e7271` `docs: 任务 6 T6-11 正式库清空重跑、重导产物并修正文档失实数据`
 
 ---
 
@@ -71,7 +72,11 @@
 
 ### T6-11：正式库清空 `task6` 重跑、重导产物并修正文档（AC18、AC20；修复 ISSUE-07）
 - **修改文件**：`doc/task6/{design,report,tasks,checklist,runbook}.md`、`README.md`；导出目录 `outputs/task6/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rv0001/`（不入库）。
-- **内容与覆盖**：清空正式库 `task6` 前后核对任务 1–5 全部 9 张主表行数不变；在全量运行前先冻结 `task6.dev_pool`（1,732 部，`13:12:56+00`）；通过 Airflow 触发 `t6_full_1`（真实 `run_id = 2a6b07ff00e54bb39fcf86234a366cbf`）完成全量运行，触发 `t6_full_2`（真实 `run_id = fb16afb798c046e599502af3a169dbdf`）验证全部阶段 `reused`；运行 `python -m etl_task6.check` 确认退出码 0、`"problems": []`；重新导出真实 `run_id` 报告与 120 部盲测评价集 `eval_items.csv`、非循环 AI 预标注草稿 `eval_items_draft.csv`（`task6.eval_label` 保持 0 行）；全面核对并修正文档数字与命令期望。
+- **内容与覆盖**：清空正式库 `task6` 前后核对任务 1–5 全部 9 张主表行数不变；在全量运行前先冻结 `task6.dev_pool`（1,732 部，`13:12:56+00`）；通过 Airflow 触发 `t6_full_1`（真实 `run_id = 2a6b07ff00e54bb39fcf86234a366cbf`）完成全量运行，触发 `t6_full_2`（真实 `run_id = fb16afb798c046e599502af3a169dbdf`）验证全部阶段 `reused`；运行 `python -m etl_task6.check` 确认退出码 0、`"problems": []`；重新导出真实 `run_id` 报告与 120 部盲测评价集 `eval_items.csv`、非循环 AI 预标注草稿 `eval_items_draft.csv`；全面核对并修正文档数字与命令期望。
+
+### T6-12：人工审核标注导入、评价指标报告与交接文档（AC19）
+- **修改/新增文件**：`doc/task6/{report,tasks,checklist}.md`、`doc/handoffs/2026-10-30-task6-to-task7.md`、`README.md`；导出目录 `outputs/task6/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rv0001/eval/`（`eval_items_labeled.csv`、`metrics.json`、`metrics.md`；不入库）。
+- **内容与覆盖**：付林轩对 120 部盲测样本的非循环 AI 预标注草稿核查通过后生成正式标注文件 `eval_items_labeled.csv`（SHA256 `39b4a22c59a0f06b6832afb0831fce4053dd5e394f57456efc2d3ee3f34abe7d`），导入 `task6.eval_label`（标注人 `付林轩`，`known` 75、`unsure` 45，矛盾数 0）；计算并导出正式评价指标；编写任务 6 → 任务 7 交接文档。
 
 ---
 
@@ -150,11 +155,28 @@
 | `task5.person` | 29,635 | 29,635 | 完全一致 |
 | `task5.movie_person` | 50,027 | 50,027 | 完全一致 |
 
-### 3.8 评价集盲测导出与非循环 AI 草稿说明（待 T6-12 人工复核导入）
+### 3.8 评价集盲测导出、人工审核标注导入与正式指标（T6-12，AC19）
 - **评价集 `ev_rv0001`**：从排除开发池（1,732 部）后的评价池（6,927 部）中按七层严格抽样 **120 部**（`E1: 15, E2: 15, E3: 15, E4: 20, E5: 15, E6: 20, E7: 20`，各层候选充足，`filled: 0`）。
 - **盲测防泄露**：抽样后按 `md5(movie_id)` 全局确定性打乱再顺序分配 `t6_eval_0001`–`t6_eval_0120`；`eval_items.csv` 补充任务 4 商品原始标题断言（保留括号年份），不含系统年份、状态、分层与推断上界。
-- **非循环 AI 草稿 `eval_items_draft.csv`**：仅基于盲测表公开字段与 `imdb` 公开表独立比对生成建议（120 部中给出独立年份建议 **75 条**，其中 60 条来自 `tconst` 标题/演职员独立核验、15 条来自 `E5` 商品原始标题括号年份；`ai_tconst_label` 为 `same: 63, different: 2, na: 55`；`ai_doubt` 为 `true: 67, false: 53`；`E6`/`E7` 无年份作品未填入任何 DVD/VHS 发售日、评论时间或推断上界）。
-- **当前状态**：`task6.eval_label` 表当前为 **0 行**；草稿仅为待核查建议，绝不作为已复核评价指标报告，待用户付林轩核查后于 T6-12 导入并计算正式评价指标。
+- **非循环 AI 草稿与人工审核导入**：草稿 `eval_items_draft.csv` 仅基于盲测表公开字段与 `imdb` 公开表独立比对生成建议；用户 **付林轩** 于 2026-10-30 逐条审核 120 个样本后确认与草稿一致并审核通过，导出正式标注文件 `eval_items_labeled.csv`（SHA256 `39b4a22c59a0f06b6832afb0831fce4053dd5e394f57456efc2d3ee3f34abe7d`）并导入 `task6.eval_label`（标注人 `付林轩`，`known: 75`、`unsure: 45`，矛盾数 `0`）。
+- **正式评价指标汇总（`metrics.json` / `metrics.md`）**：
+
+| 指标维度 | 范围 | 有效样本数 | 命中 / 成立数 | 比率 |
+|---|---|---:|---:|---:|
+| **年份准确率（完全一致 / 相差 ≤1 年）** | **总体** | **75** | **75 / 75** | **100.0% / 100.0%** |
+| 年份准确率（按层） | `E1` / `E2` / `E3` / `E4` / `E5` | 15 / 15 / 13 / 20 / 12 | 15 / 15 / 13 / 20 / 12 | **100.0%** |
+| 年份准确率（按层） | `E6` / `E7`（系统 `missing`） | 0 / 0 | 0 / 0 | 无定义 |
+| 年份准确率（按来源） | `imdb_t4_link` / `imdb_t5_hint` / `imdb_t6_cooccur` / `amazon_title_year` | 30 / 13 / 20 / 12 | 30 / 13 / 20 / 12 | **100.0%** |
+| **IMDb `tconst` 匹配正确率** | **总体** | **65** | **63**（`different: 2`） | **96.9%** |
+| `tconst` 正确率（按来源） | `imdb_t4_link` / `imdb_t6_cooccur` | 30 / 20 | 30 / 20 | **100.0%** |
+| `tconst` 正确率（按来源） | `imdb_t5_hint` | 15 | 13（`different: 2`） | **86.7%** |
+| **推断上界成立率（`true_year ≤ bound_year`）** | **总体** | **53** | **53** | **100.0%** |
+| 推断上界成立率（按证据类型） | `media_release` / `review` | 40 / 13 | 40 / 13 | **100.0%** |
+| **缺失作品可查到率** | `E6` + `E7`（共 40 部 `missing`） | 40 | 0（40 部均为 `unsure`） | **0.0%** |
+
+- **标注来源与方法局限（如实说明）**：
+  1. 本次标注由非循环 AI 草稿先基于盲测表公开字段（商品原始标题括号年份、页面公开演职员）与 `imdb` 公开表独立比对给出建议，付林轩审核 120 个样本后全部采纳导入（未改判）。由于 AI 草稿与系统共享同一套本地 IMDb 快照与页面标题断言，尽管草稿未读取系统输出，其证据基础仍与系统高度同源，因此已确认年份的准确率（100.0%）可能偏乐观；但独立演职员交叉校验成功揪出了 `E3`（`imdb_t5_hint`）中的 2 例异片错配（`t6_eval_0061` *Ernest Goes to Jail* 与 `t6_eval_0087` *The Red Baron*，使 `imdb_t5_hint` 的 `tconst` 正确率为 86.7%）。
+  2. 40 部 `missing` 作品（`E6`、`E7`）在严格禁用 DVD/VHS 发售日、最早评论时间和推断上界作为首映年的前提下，仅凭本地页面与 IMDb 快照无法确认首映年份，故全部标为 `unsure`（缺失可查到率为 0.0%）；只有一位标注人（付林轩），无第二标注人交叉复核；样本为刻意多取难例的分层抽样，指标仅代表评价样本而非全量分布。
 
 ---
 
@@ -181,7 +203,7 @@
 | **AC16** | R33–R35 | **通过** | `tests/integration/test_task6_report.py`（`8 passed`）及 `query.py` 实测 |
 | **AC17** | R36–R38 | **通过** | `tests/integration/test_task6_evaluate.py`（`7 passed`） |
 | **AC18** | R01–R35 | **通过** | 正式库 `2a6b07ff00e54bb39fcf86234a366cbf`（`succeeded`）与 `fb16afb798c046e599502af3a169dbdf`（`reused`）；`python -m etl_task6.check` 退出码 0、`problems: []` |
-| **AC19** | R36–R39 | **未执行** | 保留未执行，待用户付林轩核验 `eval_items_draft.csv` 后由 T6-12 执行 |
+| **AC19** | R36–R39 | **通过** | 正式库 `task6.eval_label` 导入 120 条（标注人 `付林轩`，`known: 75, unsure: 45`）；导出 `metrics.json`、`metrics.md` 并完成 `doc/handoffs/2026-10-30-task6-to-task7.md` |
 | **AC20** | R31, R32 | **通过** | 正式库迁移 `001,101,102,103,201,301,302,401,501`；全量 `792 passed, 56 warnings`；受限文件检查 `grep-exit=1` |
 | **AC21** | R09, R10, R27, R28 | **通过** | `tests/unit/test_task6_rules.py`、`tests/integration/test_task6_{cooccur,runs}.py`（`-k ac21`：`3 passed, 32 deselected`） |
 | **AC22** | R24, R27, R30, R33, R34 | **通过** | `tests/integration/test_task6_{report,runs,dag}.py`（`-k "ac22 or diff or dag"`：`12 passed, 11 deselected, 7 warnings`） |
@@ -218,19 +240,14 @@
    - 现存 62 部作品的推断上界早于上映年（`review` 37 项、`media_release` 25 项），多由重映版年份、早期点映或零售商预售评论所致；系统严格遵守“推断上界不覆盖已采用上映年”并记入质量问题。
 2. **漏合并实体（126 项 `shared_tconst_with_movie`）**：
    - 线索（40 项）与共现反查（86 项）暴露了任务 4 未合并但指向同一 IMDb `tconst` 的作品，已标记 `shared_tconst` 留作任务 4 升级输入。
-3. **冷门无外部 ID 作品的真实年份核查难度**：
-   - 评价集 `E6`、`E7` 及部分 `E4` 存疑作品（共 67 部标 `ai_doubt = true`，45 部 `ai_true_year` 留空）无法仅凭本地 IMDb 快照与商品标题括号确认首次公开发行年，需人工在 T6-12 复核。
+3. **冷门无外部 ID 作品的真实年份核查难度与分号连接署名**：
+   - 评价集 `E6`、`E7` 的 40 部 `missing` 作品无法仅凭本地 IMDb 快照与商品标题括号确认首次公开发行年（标为 `unsure`）；部分冷门外语片在原网页 `Product details` 中使用分号 `;` 和 `and ` 连接多名导演或仅写演员姓氏（如 `B000NDIB4G`），留待后续跨任务冲突与归一化改进。
 
 ---
 
-## 8. 待用户处理
+## 8. 交付状态说明
 
-1. **核查非循环 AI 预标注草稿并完成正式标注（用于后续 T6-12）**：
-   - **待核查文件**：`outputs/task6/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rv0001/eval/eval_items_draft.csv`（对应正式盲测表 `eval_items.csv` 与标注说明 `LABELING.md`）
-   - **核查方法**：
-     1. 文件包含全局打乱编号（`t6_eval_0001`–`t6_eval_0120`）的 120 部七层作品样本，已由非循环逻辑填充 `ai_true_year`（75 条有值、45 条留空）、`ai_tconst_label`、`ai_doubt`、`ai_reason`。
-     2. 请在 `true_year`、`year_label`（`known`/`unsure`）、`tconst_label`（`same`/`different`/`unsure`/`na`）以及 `note` 列填入人工核实后的真实标注（注意：DVD/VHS 发售日、最早评论时间或推断上界不能作为首次公开发行年份 `true_year`）。
-     3. 另存为 `eval_items_labeled.csv`，交由后续 T6-12 导入并计算正式评价指标。
+- **T6-01 至 T6-12 已全部完成**：付林轩已于 2026-10-30 审核通过 120 部评价样本并导入 `task6.eval_label`，正式指标报告（`metrics.json`、`metrics.md`）与任务 6 → 任务 7 交接文档（[`doc/handoffs/2026-10-30-task6-to-task7.md`](file:///Users/aqua_night/codex_project/数据存储与管理/ETL作业模板/doc/handoffs/2026-10-30-task6-to-task7.md)）均已就绪，可合并 `main` 并进入任务 7。
 
 ---
 
@@ -339,11 +356,14 @@ docker compose --profile test run --rm etl-test pytest -q tests
   - `doc/task6/runbook.md`：运行手册
   - `doc/task6/review.md`：独立审查报告（ISSUE-01 至 ISSUE-12）
   - `doc/task6/report.md`：本实施与交付报告
+  - `doc/handoffs/2026-10-30-task6-to-task7.md`：任务 6 → 任务 7 交接文档
 
 ### 10.2 正式库输出文件位置（`outputs/` 下不入库）
 位于 `outputs/task6/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rv0001/`：
 - `2a6b07ff00e54bb39fcf86234a366cbf/`（及 Airflow `run_key` 目录 `t6_full_1/`、`t6_full_2/`）：全量运行导出的 `summary.json`、`report.md`、`examples.md`、`release_selection.csv`、`release_candidates.csv`、`cooccur.csv`、`product_release_dates.csv`、`bounds.csv`、`hint_use.csv`
 - `eval/`：
   - `eval_items.csv`：120 部作品七层盲测评价表（`t6_eval_0001`–`t6_eval_0120` 全局打乱，保留任务 4 商品原始标题括号年份，不含系统判定）
-  - `eval_items_draft.csv`：非循环 AI 预标注建议草稿（75 条独立年份建议、45 条留空待查，待付林轩核查后于 T6-12 导入）
+  - `eval_items_draft.csv`：非循环 AI 预标注建议草稿（75 条独立年份建议、45 条留空待查）
+  - `eval_items_labeled.csv`：付林轩审核通过的正式标注文件（SHA256 `39b4a22c59a0f06b6832afb0831fce4053dd5e394f57456efc2d3ee3f34abe7d`）
+  - `metrics.json`、`metrics.md`：正式评价指标 JSON 与 Markdown 报告
   - `LABELING.md`：标注口径说明
