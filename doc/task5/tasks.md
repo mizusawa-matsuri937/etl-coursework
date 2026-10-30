@@ -2,7 +2,7 @@
 
 状态：2026-10-29 编写计划；2026-10-30 按用户要求加入作品年表反查、合作者佐证迭代、稀有度与发行商特征、待复核队列，AC 重新编号为 AC00–AC17。2026-10-30 用户审批通过计划，开始实现。分支 `task5-person-identity`（从 `main` 的 `bf5b19d` 建立），未提交。
 
-命令在项目根目录直接复制运行。T5-01 至 T5-05 的命令已实际运行核对；标注“（计划）”的命令依赖尚未实现的代码，期望值是预定口径，实现后实际运行核对再改写。每项 AC 的复核命令见 [checklist](checklist.md)。
+命令在项目根目录直接复制运行。T5-01 至 T5-06 的命令已实际运行核对；标注“（计划）”的命令依赖尚未实现的代码，期望值是预定口径，实现后实际运行核对再改写。每项 AC 的复核命令见 [checklist](checklist.md)。
 
 - [x] T5-00 计划：spec、design、tasks、checklist。关联 AC00。
   - 完成情况：2026-10-30 AI 文档检查通过（五个板块、R01–R47、AC00–AC17 一一对应，每条规则都有 AC）；用户已确认 H01–H04，提出 H13–H15 的加强方向；2026-10-30 用户审批通过计划全文，其余假设按建议执行。
@@ -63,15 +63,15 @@
 
   期望：`45 passed`（含 7 条 Airflow 弃用警告）。
 
-- [ ] T5-06 评价工具：开发池冻结、评价表（含作品年表层 S8）与簇抽查表导出、标注导入、按层与按途径的指标。关联 AC13。
-  - 文件：`src/etl_task5/evaluate.py`、`tests/integration/test_task5_evaluate.py`。
-  - 完成情况：未执行。
+- [x] T5-06 评价工具：开发池冻结、评价表（含作品年表层 S8）与簇抽查表导出、标注导入、按层与按途径的指标。关联 AC13。
+  - 文件：`src/etl_task5/evaluate.py`、`tests/integration/test_task5_evaluate.py`、`doc/task5/runbook.md`（第 7 节）。
+  - 完成情况：2026-10-30 通过：`test_task5_evaluate.py` 8 项（开发池 20% 按 md5 冻结且不变、评价表不含开发池姓氏键与系统判定、层数与补足、导入与矛盾项、指标与手算一致、无预测合并时“无定义”、复核覆盖率、簇抽查）；全量 `689 passed`。
 
   ```bash
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task5_evaluate.py
   ```
 
-  期望（计划）：全部通过。
+  期望：`8 passed`。
 
 - [ ] T5-07 正式库：经 Airflow 全量运行，冻结开发池并在开发池上调整默认值、决定稀有度与发行商开关，冻结规则版本，只读核对，导出实例、查询结果与待复核队列，导出评价表与簇抽查表。关联 AC14、AC16、AC17。
   - 文件：`src/etl_task5/{rules,check}.py`（如有规则调整）、`doc/task5/design.md`（“规则调整记录”、资源实测）、README、交接文档。

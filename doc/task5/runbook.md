@@ -153,7 +153,48 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task5.review qu
 docker compose --profile crawl run --rm -T crawler python -m etl_task5.review import /opt/etl/outputs/task5/<抽取>/<人物映射版本>/review/review_queue.csv --annotator <姓名>
 ```
 
-## 7. 失败与恢复
+## 7. 评价与标注（AC13、AC15）
+
+AI 只做预标注草稿：`eval_pairs_draft.csv` 带空的 `ai_label`、`ai_doubt`、`ai_reason` 三列，供 AI 填写；用户逐条审核后在 `label` 列填自己的结论，用该文件导入并以用户为 `--annotator`，多出的列导入时忽略。顺序固定：先冻结开发池，调参只看开发池，冻结规则版本之后再导出评价表。
+
+1. 冻结开发池（按 `md5(姓氏键)` 排序的前 20% 姓氏键，只做一次）：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task5.evaluate freeze
+```
+
+2. 导出 120 对评价表和 20 个人物的抽查表（已存在时不覆盖，避免丢失标注）：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task5.evaluate export
+```
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task5.evaluate clusters-export
+```
+
+文件在 `outputs/task5/<抽取>/<人物映射版本>/eval/`，同目录的 `LABELING.md` 是标注口径。
+
+3. 标注口径（用户一人标注）：`label` 填 `same`（同一个真实的人）、`different` 或 `unsure`（证据不足并写 `note`，不计入指标）；依据页面与 IMDb 人物页，不凭记忆；`cluster_sample.csv` 逐人物在该人物任一行的 `cluster_label` 填 `same_person` 或 `mixed`，`mixed` 时在混入的提及行的 `outlier` 列填 `x`。
+4. 导入标注（路径为容器内路径；`<姓名>` 换成标注人）。导入会列出明显矛盾项，只供复看，不改标注：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task5.evaluate import /opt/etl/outputs/task5/<抽取>/<人物映射版本>/eval/eval_pairs.csv --annotator <姓名>
+```
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task5.evaluate clusters-import /opt/etl/outputs/task5/<抽取>/<人物映射版本>/eval/cluster_sample.csv --annotator <姓名>
+```
+
+5. 指标（写 `metrics.json`、`metrics.md`）：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task5.evaluate metrics
+```
+
+输出 Precision、Recall、F1（分母为 0 记“无定义”；按层与按途径）、误合并与漏合并实例、不确定数、复核覆盖率、待复核率和簇抽查结果。导出之后若又出现新的人物映射版本，指标会注明仍是导出时的版本。指标只代表评价样本。
+
+## 8. 失败与恢复
 
 | 情况 | 处理 |
 |---|---|
