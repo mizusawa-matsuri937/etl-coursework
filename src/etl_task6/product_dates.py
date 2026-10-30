@@ -50,16 +50,16 @@ def extract_product_dates(conn: psycopg.Connection, ctx: RunContext, *, batch_si
         "AND es.entity_id IS NULL ORDER BY e.asin COLLATE \"C\"",
         (key, i.extraction_id, world.t3)).fetchall()
     todo = [r[0] for r in unmarked]
-    # 断言与页面标签（只读一次）
+    # 断言与页面标签（只读一次）；ordinal 是 section 内序号，键必须带 section 才不与其他区域的行冲突
     by_asin: dict[str, list[dict[str, Any]]] = {a: [] for a in asins}
     for a in sources.assertions_by_entity(conn, i.extraction_id, i.parser_version, "edition.product_release_date",
                                           list(asins)):
         by_asin.setdefault(a["entity_id"], []).append(a)
-    labels: dict[tuple[str, int], str | None] = {}
-    for asin, ordinal, label in conn.execute(
-            "SELECT asin, ordinal, label_raw FROM task3.page_field WHERE extraction_id = %s AND parser_version = %s "
-            "AND asin = ANY(%s)", (i.extraction_id, i.parser_version, asins)):
-        labels[(asin, ordinal)] = label
+    labels: dict[tuple[str, str, int], str | None] = {}
+    for asin, section, ordinal, label in conn.execute(
+            "SELECT asin, section, ordinal, label_raw FROM task3.page_field WHERE extraction_id = %s "
+            "AND parser_version = %s AND asin = ANY(%s)", (i.extraction_id, i.parser_version, asins)):
+        labels[(asin, section, ordinal)] = label
 
     counts: dict[str, Any] = {"products": 0, "rows": 0, "by_kind": {}, "unknown_labels": 0}
     batch_no = next_batch_no(conn, ctx, stage)
@@ -72,7 +72,7 @@ def extract_product_dates(conn: psycopg.Connection, ctx: RunContext, *, batch_si
                 n = 0
                 for a in sorted(by_asin.get(asin, ()), key=lambda x: x["assertion_id"]):
                     locator = a["source_locator"] or {}
-                    label = labels.get((asin, locator.get("ordinal")))
+                    label = labels.get((asin, locator.get("section"), locator.get("ordinal")))
                     low = (label or "").strip().lower()
                     if low in ("release date", "publication date"):
                         kind = "media_release"

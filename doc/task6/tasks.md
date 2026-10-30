@@ -33,15 +33,15 @@
 
   期望：`11 passed`。
 
-- [ ] T6-03 择优、状态与缺失原因、分歧质量问题、上映信息版本与版本差异，日期语义分离的约束。关联 AC02、AC08。
+- [x] T6-03 择优、状态与缺失原因、分歧质量问题、上映信息版本与版本差异，日期语义分离的约束。关联 AC02、AC08。
   - 文件：`src/etl_task6/select.py`、`sql/501_task6_schema.sql`（`release_selection`、`release_version`）、`tests/integration/test_task6_select.py`。
-  - 完成情况：未执行。
+  - 完成情况：2026-10-30 完成。择优固定顺序与状态、缺失原因优先级、相差 1 年与 `year_disagreement`/`tconst_disagreement`、`release_selection` 的日期语义约束（`release_date` 恒 NULL、`precision` 恒 `year`、`regional_release_missing_reason`）；版本差异的查询与断言在 T6-05 的 runs 测试（AC13）。集成 10 项通过；全量 739 passed。顺带修复 `product_dates` 页面标签键缺 section 导致 14 条断言误判 unknown_date_label（表空），记入 design 修订第 8 条。
 
   ```bash
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_select.py
   ```
 
-  期望（计划）：全部通过。
+  期望：`10 passed`。
 
 - [ ] T6-04 商品发售日期与标记、商品层与作品层最早评论、评论与发售日期两种上界证据、推断上界、预售合集跨版本计数。关联 AC09、AC10、AC11、AC12。
   - 文件：`src/etl_task6/{product_dates,reviews,bounds}.py`、`tests/integration/test_task6_{product_dates,reviews,bounds}.py`。

@@ -36,13 +36,13 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC02 日期语义分离与精度
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（IMDb 年份 1999 胜出且 `release_date` NULL、`precision=year`、`release_type=first_release`、区域 NULL；没有候选的作品保持 `missing`；全库无一年份补成日期、非 missing 的年份都等于采用候选的值；地区院线日期缺失原因 `no_permitted_dated_source`）。
 
 ```bash
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_select.py -k "semantics or precision"
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task6_select.py -k "ac02"
 ```
 
-期望（计划）：选中的案例全部通过。
+期望：`3 passed`。
 
 ## AC03 IMDb 关联作品的年份候选
 
@@ -96,13 +96,13 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC08 择优顺序、状态与分歧
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（F/G/H 都 `verified` 采用 IMDb 候选、G 相差 1 年只计数、H 有 `year_disagreement`（相差 4 年）与质量问题；I `hint_matched`；L 采用线索并有 `tconst_disagreement`；N `cooccur_matched`；每部作品恰好一条记录且状态互斥）。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task6_rules.py tests/integration/test_task6_select.py -k "order or status or disagreement"
 ```
 
-期望（计划）：选中的案例全部通过。
+期望：`6 passed`。
 
 ## AC09 商品发售日期与标记
 

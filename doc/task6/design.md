@@ -408,3 +408,7 @@
 ## 实现中的修订（T6-02，2026-10-30）
 
 7. **`cooccur.resolve` 补齐共现命中作品行**：`World` 预取的 `imdb.title` 行只含任务 4 关联与线索的 tconst（`involved`），共现命中的 tconst（如夹具的 Ambi Two）取不到 `start_year`，导致消歧比较全部落空（一律 `ambiguous`）与选中后不产生候选。修复为 `resolve` 开始时把本阶段键下评分记录涉及的 tconst 补进作品行映射。测试覆盖：`test_ac06_tiebreak_resolves_ambiguity`（消歧生效）与 `test_ac05_director_hit_unique_candidate`（unique 选中产生候选）。
+
+## 实现中的修订（T6-03，2026-10-30）
+
+8. **`product_dates` 页面标签键补 section**：标签字典的键原为 `(asin, ordinal)`，而 `task3.page_field` 的 `ordinal` 是 section 内序号，title / byline / detail_bullets 的行同为 ordinal 1 相互覆盖，导致 14 条商品日期断言全部读不到标签、误判 `unknown_date_label`（`product_release_date` 表为空，先前测试只断言“剧集无行”与“release_date 全 NULL”，恰好没暴露）。改为 `(asin, section, ordinal)` 三元组。测试覆盖：`test_ac02_semantics_and_precision`（A 的两个商品日期与标记）。
