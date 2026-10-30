@@ -1,6 +1,6 @@
 # 任务 5 AC 完成情况（人物姓名归一与消歧）
 
-状态：2026-10-29 编写计划；2026-10-30 按用户要求加强没有 IMDb 关联作品的跨作品人物匹配，AC 重新编号为 AC00–AC17。2026-10-30 用户审批通过计划；AC01–AC13 已用合成夹具通过（T5-01 至 T5-06）；AC14、AC16、AC17 于同日在正式库通过（T5-07）；AC15 等用户标注（T5-08），未执行。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-10-29 编写计划；2026-10-30 按用户要求加强没有 IMDb 关联作品的跨作品人物匹配，AC 重新编号为 AC00–AC17。2026-10-30 用户审批通过计划；AC01–AC13 已用合成夹具通过（T5-01 至 T5-06）；AC14、AC16、AC17 于同日在正式库通过（T5-07）；AC15 于同日通过（T5-08）：标注来自 AI 预标注，付林轩核查后全部采纳并署名导入，不是用户独立逐条标注，指标可能偏乐观。AC00–AC17 均已有证据；AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询。标注“（计划）”的命令依赖尚未完成的步骤，期望值是预定口径，完成后实际运行核对再改写。AC14、AC16、AC17 的命令已于 2026-10-30 在 zsh 中原样运行核对。
 
@@ -209,13 +209,51 @@ docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT stat
 
 ## AC15 用户标注与指标
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过。**标注来源：AI 预标注，付林轩核查后于 2026-10-30 全部采纳作为正式标注导入**（用户原话：AI 做的标签都是正确的，同意署名付林轩核查完毕）；不是用户独立逐条标注，未改判一条。评价集 `ev_pmap0001`（规则 `t5r1` 冻结后导出，开发池姓氏键已排除），导入 120 对（same 85、different 33、unsure 2，unsure 保持 unsure，AI 存疑的 8 对一并采纳）与 20 个人物（全为 `same_person`，AI 存疑的 5 个人物一并采纳），无矛盾项。自动合并 Precision 1.000、Recall 0.706、F1 0.828（TP 60、FP 0、FN 25、TN 33，计入 118 对）；误合并 0；漏合并 25（S4 18、S5 5、S6 2）；簇抽查混入 0；人工复核覆盖率 0%（0 / 19,787）、待复核率 20.4%（有待复核候选的人物占比 28.0%）。
+- 分层：S1、S2、S7、S8 全部 TP（25、10、15、10），P = R = F1 = 1.000；S3 TN 15；S4 TP 0、FN 18、TN 1；S5 FN 5、TN 9；S6 FN 2、TN 8（S3–S6 的 Precision 与 F1 无定义，S4–S6 Recall 0）。途径：`credits` 40/0/0、`filmography` 10/0/0、`co_credit` 10/0/0 都是 P = R = 1.000；`none`（系统未合并的同名与近似名）FN 25、TN 33。
+- 局限：正式标签来自 AI 预标注，AI 与系统依据相似的证据，指标可能偏乐观；25 条漏合并是 AI 判同一人而系统不按名字单独合并的对（见 design），如果去掉其中 2 条 AI 存疑的 same（`683def41ea42`、`1d932fb092bf`），Recall 为 0.723；指标只代表评价样本，不代表全量准确率；没有第二标注人。
+
+标注入库（只读）：
 
 ```bash
-docker compose --profile crawl run --rm -T crawler python -m etl_task5.evaluate metrics
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT annotator, label, count(*) FROM task5.eval_label GROUP BY 1, 2 ORDER BY 2"
 ```
 
-期望（计划）：退出码 0；输出 Precision、Recall、F1（按层与按途径）、误合并与漏合并实例、不确定数、复核覆盖率、待复核率与簇抽查混入数，并注明标注人与样本范围。
+期望：三行 `付林轩|different|33`、`付林轩|same|85`、`付林轩|unsure|2`。
+
+```bash
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT annotator, mixed, count(*) FROM task5.cluster_label GROUP BY 1, 2 ORDER BY 2"
+```
+
+期望：一行 `付林轩|f|20`（20 个人物都没有混入）。
+
+指标（重新计算并写 `metrics.json`、`metrics.md`）：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task5.evaluate metrics 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); o=d['overall']; print(d['annotators'], d['labeled'], d['unsure']); print(o['tp'], o['fp'], o['fn'], o['tn'], round(o['precision'],3), round(o['recall'],3), round(o['f1'],3)); print({s:(b['tp'],b['fp'],b['fn'],b['tn']) for s,b in d['by_stratum'].items()}); print({r:(b['tp'],b['fp'],b['fn']) for r,b in d['by_route'].items()}); print(len(d['false_merges']), len(d['missed_merges']), d['review']['review_coverage'], d['review']['review_pending_rate'], d['clusters']['labeled'], d['clusters']['mixed'])"
+```
+
+期望：第一行 `['付林轩'] 120 2`；第二行 `60 0 25 33 1.0 0.706 0.828`；第三行 `{'S1': (25, 0, 0, 0), 'S2': (10, 0, 0, 0), 'S3': (0, 0, 0, 15), 'S4': (0, 0, 18, 1), 'S5': (0, 0, 5, 9), 'S6': (0, 0, 2, 8), 'S7': (15, 0, 0, 0), 'S8': (10, 0, 0, 0)}`；第四行 `{'co_credit': (10, 0, 0), 'credits': (40, 0, 0), 'filmography': (10, 0, 0), 'none': (0, 0, 25)}`；第五行 `0 25 0.0 0.203509 20 0`。
+
+```bash
+cat outputs/task5/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/pmap0001/eval/metrics.md
+```
+
+期望：含“标注人：付林轩；已标注 120 / 120 对，不确定 2”“合计 | 60 | 0 | 25 | 33 | 100.0% | 70.6% | 82.8%”、误合并实例“无”、25 条漏合并实例、“抽查 20 个人物，已标注 20 个，混入不同的人的人物 0 个”。
+
+导入后核对与任务 4 表不变：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task5.check 2>/dev/null | grep '"problems"'; docker compose --profile crawl run --rm -T crawler python -m etl_task5.check >/dev/null 2>&1; echo "exit=$?"
+```
+
+期望：`  "problems": []` 与 `exit=0`。
+
+```bash
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT 'product_movie', count(*) FROM task4.product_movie UNION ALL SELECT 'movie', count(*) FROM task4.movie UNION ALL SELECT 'merge_decision', count(*) FROM task4.merge_decision UNION ALL SELECT 'mapping_version', count(*) FROM task4.mapping_version"
+```
+
+期望：`product_movie|17852`、`movie|17268`、`merge_decision|70424`、`mapping_version|2`。
 
 ## AC16 正式实例与查询
 

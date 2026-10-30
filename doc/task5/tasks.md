@@ -1,6 +1,6 @@
 # 任务 5 开发任务（人物姓名归一与消歧）
 
-状态：2026-10-29 编写计划；2026-10-30 按用户要求加入作品年表反查、合作者佐证迭代、稀有度与发行商特征、待复核队列，AC 重新编号为 AC00–AC17。2026-10-30 用户审批通过计划，开始实现。分支 `task5-person-identity`（从 `main` 的 `bf5b19d` 建立）。T5-01 至 T5-07 已完成（T5-07 于 2026-10-30 在正式库经 Airflow 全量运行）；T5-08 等用户标注。
+状态：2026-10-29 编写计划；2026-10-30 按用户要求加入作品年表反查、合作者佐证迭代、稀有度与发行商特征、待复核队列，AC 重新编号为 AC00–AC17。2026-10-30 用户审批通过计划，开始实现。分支 `task5-person-identity`（从 `main` 的 `bf5b19d` 建立）。T5-01 至 T5-08 已完成（T5-07 于 2026-10-30 在正式库经 Airflow 全量运行；T5-08 同日导入 AI 预标注、付林轩核查后全部采纳的标注，自动合并 P 1.000、R 0.706、F1 0.828）；各阶段已本地提交，尚未推送。
 
 命令在项目根目录直接复制运行。T5-01 至 T5-07 的命令已实际运行核对（zsh）；标注“（计划）”的命令依赖尚未完成的步骤，期望值是预定口径，完成后实际运行核对再改写。每项 AC 的复核命令见 [checklist](checklist.md)。
 
@@ -95,12 +95,19 @@
 
   期望：`LABELING.md`、`cluster_sample.csv`、`cluster_sample_draft.csv`、`eval_pairs.csv`、`eval_pairs_draft.csv`（草稿的 `ai_label` 等列由 AI 填写，`label`、`cluster_label` 空着等用户填；规则见 [runbook](runbook.md) 第 7 节）。
 
-- [ ] T5-08 用户标注 120 对评价样本与 20 个人物，导入并报告指标。关联 AC15。
-  - 文件：`outputs/task5/<抽取>/<人物映射版本>/eval/`（`eval_pairs.csv`、`cluster_sample.csv` 与 AI 预标注草稿 `*_draft.csv`；不入库）。
-  - 完成情况：未执行。
+- [x] T5-08 导入标注（120 对评价样本与 20 个人物）并报告指标。关联 AC15。
+  - 文件：`outputs/task5/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/pmap0001/eval/`（`eval_pairs_labeled.csv`、`cluster_sample_labeled.csv`、`metrics.json`、`metrics.md`；不入库）。
+  - 完成情况：2026-10-30 通过。**标注来源：AI 预标注，付林轩核查后于 2026-10-30 全部采纳作为正式标注导入**（用户原话：AI 做的标签都是正确的，同意署名付林轩核查完毕）；不是用户独立逐条标注，未改判一条。正式标签即草稿的 `ai_label` / `ai_cluster_label`：评价对 same 85、different 33、unsure 2（unsure 保持 unsure，`note` 写入 AI 理由），簇 20 个全为 `same_person`；AI 存疑项（评价对 8、簇 5 个人物）一并采纳。导入 120 对与 20 个人物，无矛盾项。自动合并 Precision 1.000、Recall 0.706、F1 0.828（TP 60、FP 0、FN 25、TN 33，计入 118 对）；误合并 0；漏合并 25（S4 18、S5 5、S6 2，都是系统不按名字合并的同名或近似名）；簇抽查混入 0；人工复核覆盖率 0%、待复核率 20.4%。局限：正式标签来自 AI 预标注，AI 与系统依据相似的证据，指标可能偏乐观。
+  - 导入工具无需改动：`evaluate import` 读取 `pair_id`、`label`、`note`，`clusters-import` 读取 `person_id`、`mention_key`、`cluster_label`、`outlier`、`note`，多出的列忽略；正式文件由原导出与草稿合成（列与顺序同原导出，只填 `label` / `cluster_label` 与 2 条 unsure 的 `note`）。
 
   ```bash
-  docker compose --profile crawl run --rm -T crawler python -m etl_task5.evaluate metrics
+  docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT annotator, label, count(*) FROM task5.eval_label GROUP BY 1, 2 ORDER BY 2"
   ```
 
-  期望（计划）：退出码 0，输出 `overall` 的 `tp`、`fp`、`fn`，按层与按途径的指标，`clusters.mixed`。
+  期望：三行 `付林轩|different|33`、`付林轩|same|85`、`付林轩|unsure|2`。
+
+  ```bash
+  docker compose --profile crawl run --rm -T crawler python -m etl_task5.evaluate metrics 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); o=d['overall']; print(d['annotators'], d['labeled'], d['unsure']); print(o['tp'], o['fp'], o['fn'], o['tn'], round(o['precision'],3), round(o['recall'],3), round(o['f1'],3)); print(d['clusters']['labeled'], d['clusters']['mixed'])"
+  ```
+
+  期望：`['付林轩'] 120 2`；`60 0 25 33 1.0 0.706 0.828`；`20 0`。
