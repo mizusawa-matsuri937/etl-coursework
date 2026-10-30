@@ -196,37 +196,54 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC18 正式库全量运行与只读核对
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（只读核对退出码 0、无问题；五种状态合计 8,659，verified 4,473、hint_matched 293、cooccur_matched 690、page_reported 48、missing 3,155；只包含年份无日期无伪造；推断上界 6,978 条；重跑为 reused）。
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task6.check > /dev/null; echo "exit=$?"
 ```
 
-期望（计划）：`exit=0`（输出 JSON 的 `"problems": []`）。
+期望：`exit=0`（输出 JSON 的 `"problems": []`）。
 
 ```bash
 docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT status, count(*) FROM task6.release_selection WHERE release_version_id = 'rv0001' GROUP BY status ORDER BY status"
 ```
 
-期望（计划）：五种状态合计 8,659；具体数字在运行后填写。
+期望：
+```
+cooccur_matched|690
+hint_matched|293
+missing|3155
+page_reported|48
+verified|4473
+```
+合计 8,659。
 
 ```bash
 docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT count(*) FROM task6.release_selection WHERE release_date IS NOT NULL OR precision <> 'year'"
 ```
 
-期望（计划）：`0`。
+期望：`0`。
 
 ```bash
 docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT chosen_evidence, count(*) FROM task6.inferred_release_bound WHERE release_version_id = 'rv0001' GROUP BY 1 ORDER BY 1"
 ```
 
-期望（计划）：两行 `media_release`、`review`，数字在运行后填写。
+期望：
+```
+media_release|3963
+review|3015
+```
+合计 6,978。
 
 ```bash
 docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT status, airflow_run_id, release_version_id FROM task6.run ORDER BY started_at"
 ```
 
-期望（计划）：一行 `succeeded` 与一行 `reused`，版本都是 `rv0001`；run id 在运行后填写。
+期望：
+```
+succeeded|t6_full_1|rv0001
+reused|t6_full_2|rv0001
+```
 
 ## AC19 评价标注与指标
 
@@ -240,16 +257,22 @@ docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT anno
 
 ## AC20 迁移、测试与仓库内容
 
-- [ ] 未执行。
+- [x] 2026-10-30 通过（迁移包含 001–501，无跳号无多余版本；outputs、eval、.env、tsv 均未入库，grep-exit=1）。
 
 ```bash
 docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT string_agg(version, ',' ORDER BY version) FROM public.schema_migration"
 ```
 
-期望（计划）：`001,101,102,103,201,301,302,401,501`。
+期望：`001,101,102,103,201,301,302,401,501`。
+
+```bash
+docker compose --profile test run --rm etl-test pytest -q tests
+```
+
+期望：`781 passed, 64 warnings`。
 
 ```bash
 git ls-files | grep -Ei '(^|/)\.env$|^outputs/|eval_items|eval_pairs|cluster_sample|review_queue|name\.basics|title\.(basics|akas|crew|principals|ratings)|\.tsv(\.gz)?$|movies\.txt'; echo "grep-exit=$?"
 ```
 
-期望：没有匹配行，只有 `grep-exit=1`（规划时已可运行，正式核对在 T6-07）。
+期望：`grep-exit=1`。

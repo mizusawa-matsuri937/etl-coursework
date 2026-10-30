@@ -73,21 +73,21 @@
 
   期望：`4 passed`。全量 781 passed。
 
-- [ ] T6-07 正式库：经 Airflow 全量运行，冻结开发池并在开发池上确认默认值，冻结规则版本，只读核对，导出报告、实例与查询结果，导出评价表并生成 AI 预标注草稿；资源实测记入 design。关联 AC18、AC20。
+- [x] T6-07 正式库：经 Airflow 全量运行，冻结开发池并在开发池上确认默认值，冻结规则版本，只读核对，导出报告、实例与查询结果，导出评价表并生成 AI 预标注草稿；资源实测记入 design。关联 AC18、AC20。
   - 文件：`doc/task6/design.md`（资源实测、规则调整记录）、README；`outputs/task6/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rv0001/`（不入库）。
-  - 完成情况：未执行。
+  - 完成情况：2026-10-30 完成。正式库通过 Airflow 全量调度成功（`t6_full_1` 业务耗时 86s，`t6_full_2` 2ms 复用）；只读核对退出码 0（`problems: []`）；开发池 1,732 部作品冻结；导出评价表 120 部七层样本与 AI 预标注草稿（113 条建议）。资源实测已记入 design。
 
   ```bash
   docker compose --profile crawl run --rm -T crawler python -m etl_task6.check > /dev/null; echo "exit=$?"
   ```
 
-  期望（计划）：`exit=0`（输出 JSON 的 `"problems": []`）。
+  期望：`exit=0`（输出 JSON 的 `"problems": []`）。
 
   ```bash
   docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SELECT status, count(*) FROM task6.release_selection WHERE release_version_id = 'rv0001' GROUP BY status ORDER BY status"
   ```
 
-  期望（计划）：五行 `cooccur_matched`、`hint_matched`、`missing`、`page_reported`、`verified`，合计 8,659（规划估算约 668 / 293 / 3,165 / 60 / 4,473）。
+  期望：五行 `cooccur_matched|690`、`hint_matched|293`、`missing|3155`、`page_reported|48`、`verified|4473`，合计 8,659。
 
 - [ ] T6-08 导入标注（120 部作品）并报告指标；写任务 6 → 任务 7 交接文档。关联 AC19。
   - 文件：`outputs/task6/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rv0001/eval/`（`eval_items_labeled.csv`、`metrics.json`、`metrics.md`；不入库）、`doc/handoffs/<日期>-task6-to-task7.md`（日期以实际为准）。

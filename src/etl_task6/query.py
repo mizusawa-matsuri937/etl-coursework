@@ -147,7 +147,8 @@ def query_movie(conn: psycopg.Connection, rv: str, movie_id: str) -> dict[str, A
     }
 
 
-def query_gaps(conn: psycopg.Connection, rv: str, status_filter: str | None = None) -> list[dict[str, Any]]:
+def query_gaps(conn: psycopg.Connection, rv: str, status_filter: str | None = None,
+               limit: int | None = None) -> list[dict[str, Any]]:
     """列出缺失或包含推断上界的作品（作业第十部分查询之三）。"""
     row = rv_row(conn, rv)
     t4 = row["t4_mapping_version_id"]
@@ -162,6 +163,7 @@ def query_gaps(conn: psycopg.Connection, rv: str, status_filter: str | None = No
         conditions.append("(s.status = 'missing' OR b.bound_time IS NOT NULL)")
 
     where = " AND ".join(conditions)
+    limit_clause = f" LIMIT {int(limit)}" if limit else ""
     sql = f"""
         SELECT s.movie_id, m.display_title, s.status, s.missing_reason, s.release_year,
                b.bound_time, b.bound_precision, b.chosen_evidence, b.confidence
@@ -170,7 +172,7 @@ def query_gaps(conn: psycopg.Connection, rv: str, status_filter: str | None = No
         LEFT JOIN task6.inferred_release_bound b ON b.release_version_id = s.release_version_id
              AND b.movie_id = s.movie_id
         WHERE s.release_version_id = %s AND {where}
-        ORDER BY s.status, s.movie_id
+        ORDER BY s.status, s.movie_id{limit_clause}
     """
     rows = conn.execute(sql, tuple(params)).fetchall()
     return [
@@ -197,6 +199,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p_g = sub.add_parser("gaps", help="查询缺失与推断上映信息")
     p_g.add_argument("--status", choices=["missing", "inferred"], help="过滤状态")
+    p_g.add_argument("--limit", type=int, default=None, help="最大返回条数")
     p_g.add_argument("--rv", help="上映信息版本号")
     p_g.add_argument("--extraction-id", help="抽取 ID")
 
@@ -209,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
             res = query_movie(conn, rv, args.movie_id)
             print(json.dumps(res, ensure_ascii=False, indent=2, default=str))
         elif args.cmd == "gaps":
-            res = query_gaps(conn, rv, args.status)
+            res = query_gaps(conn, rv, args.status, getattr(args, "limit", None))
             print(json.dumps(res, ensure_ascii=False, indent=2, default=str))
     return 0
 
