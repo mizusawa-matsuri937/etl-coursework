@@ -398,6 +398,13 @@ def test_ac16_controlled_vocabulary_has_30_words():
     ("Spielberg", "Spielberg", "unmapped", ()),
     ("Rock", "Rock", "mapped", ("Music",)),
     ("Sci-Fi", "Sci-Fi", "mapped", ("Sci-Fi",)),
+    ("Hardcore & Punk", "Hardcore & Punk", "mapped", ("Music",)),            # T7-08：开发池证据追加的音乐子类
+    ("Album-Oriented Rock (AOR)", "Album-Oriented Rock (AOR)", "mapped", ("Music",)),
+    ("comedy romance", "comedy romance", "mapped", ("Comedy", "Romance")),
+    ("Sphygmomanometers", "Sphygmomanometers", "noise", ()),                  # 非影视零售目录词
+    ("3-D", "3-D", "noise", ()),
+    ("Halloween", "Halloween", "unmapped", ()),                               # 影视语义不明确的仍不猜测
+    ("Soul", "Soul", "unmapped", ()),
 ])
 def test_ac16_classify_genre_term(raw, term, disposition, genres):
     assert classify_genre_term(raw) == (term, disposition, genres)

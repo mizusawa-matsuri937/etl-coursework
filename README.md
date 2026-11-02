@@ -21,8 +21,8 @@ ETL作业模板/
 ├── src/etl_task4/            # 任务 4 同一电影：imdb（快照校验与装载）、normalize、editions（断言）、match（特征与三档）、candidates、cluster（簇、movie_id、映射版本）、review（人工纠正）、run/runner（运行与分步骤）、pipeline（DAG 步骤）、report、check（只读核对）、evaluate（评价工具）
 ├── src/etl_task5/            # 任务 5 人物归一：names（规范化与比较键）、mentions（人物提及）、external（外部 ID 两条途径）、rules/resolve/cluster（跨作品判定、合作者迭代、person_id）、review（人工纠正与待复核队列）、movie_person、run/runner/pipeline（运行与 DAG 步骤）、check、report、query、evaluate
 ├── src/etl_task6/            # 任务 6 补全上映信息：rules、sources、candidates（三类候选）、cooccur（共现反查）、review_years（评论年份提及）、select（择优与版本）、product_dates、reviews、bounds（推断上界）、run/runner/pipeline、report、query、check、evaluate
-├── src/etl_task7/            # 任务 7 处理信息冲突（T7-01 至 T7-06）：rules（规则集、签名与纯函数）、run（运行审计、阶段键、咨询锁）、selection（候选与选择记录）、sources（上游只读取数）、editions（版本层消解）、link_assess（关联评估与熔断）、movies_scalar（作品层标量字段）、movies_multivalue（类型、署名对齐与演职员并集）、versions（版本物化与差异）、runner（编排）、report、query、check（报告、三个只读查询、只读核对）、pipeline（DAG 步骤）
-├── tests/unit/ integration/  # 合计 1,059 项（2026-11-02）：任务 1–6 共 792 项（任务 1 196、任务 2 89、任务 3 51、任务 4 169、任务 5 186、任务 6 101）、任务 7 已新增 267 项（T7-01 至 T7-06）；集成测试连接 etl_test 库
+├── src/etl_task7/            # 任务 7 处理信息冲突（T7-01 至 T7-08）：rules（规则集、签名与纯函数）、run（运行审计、阶段键、咨询锁）、selection（候选与选择记录）、sources（上游只读取数）、editions（版本层消解）、link_assess（关联评估与熔断）、movies_scalar（作品层标量字段）、movies_multivalue（类型、署名对齐与演职员并集）、versions（版本物化与差异）、runner（编排）、report、query、check（报告、三个只读查询、只读核对）、pipeline（DAG 步骤）、evaluate（开发池、盲测表、AI 草稿、导入与指标）
+├── tests/unit/ integration/  # 合计 1,082 项（2026-11-02）：任务 1–6 共 792 项（任务 1 196、任务 2 89、任务 3 51、任务 4 169、任务 5 186、任务 6 101）、任务 7 已新增 290 项（T7-01 至 T7-07，含评价工具 16 项与类型映射参数用例 7 项）；集成测试连接 etl_test 库
 ├── tests/fixtures/           # 10 条固定样本、生成脚本与预期值
 ├── compose.e2e.yaml          # 端到端验证覆盖：Airflow 写入 etl_test，不污染业务库
 ├── compose.offline.yaml      # 离线复现覆盖：容器网络 internal，无外网
@@ -32,7 +32,7 @@ ETL作业模板/
 └── doc/
     ├── request-template.md   # 公共请求模板
     ├── handoffs/             # 任务间交接文档（新对话先读最新一份，见 CLAUDE.md）
-    ├── task7/                # 任务 7（处理不同来源的信息冲突）：spec（R01–R66、AC00–AC22）、design、tasks、checklist；T7-00 至 T7-06 已完成（迁移 601、版本层、关联评估、作品层标量与多值字段、版本物化、报告、查询与核对、Airflow DAG 与 runbook），T7-07 起未开始
+    ├── task7/                # 任务 7（处理不同来源的信息冲突）：spec（R01–R66、AC00–AC22）、design、tasks、checklist；T7-00 至 T7-08 已完成（迁移 601、版本层、关联评估、作品层标量与多值字段、版本物化、报告、查询与核对、Airflow DAG 与 runbook、评价工具、正式库运行 `cv0001`），T7-09（付林轩审核标注、指标、报告与交接）待用户
     ├── task6/                # 任务 6（补全上映信息）：spec（R01–R39、AC00–AC23）、design、tasks、checklist、runbook、review、report；T6-01 至 T6-12 已完成并在正式库重跑、导入标注（见 tasks）
     ├── task5/                # 任务 5（人物姓名归一与消歧）：spec（R01–R47、AC00–AC17）、design、tasks、checklist 已编写并经用户审批；T5-01 至 T5-08 已实现并在正式库全量运行、导入标注（见 tasks）
     ├── task4/                # 任务 4（定义并识别同一电影）：spec（R01–R42、AC00–AC17）、design、tasks、checklist、runbook；T4-01 至 T4-08 于 2026-10-29 完成；当前规则 t4r2
@@ -154,5 +154,6 @@ docker compose --profile test run --rm etl-test pytest -q tests   # 单元 + 集
 | 2026-11-02 | 完成任务 7 T7-04（分支 `task7-conflict-resolution`）：作品层多值字段 `movie_multivalue`（类型词面逐行处置与受控词并集、同片署名对齐、多人串、IMDb 人物登记、署名顺序、覆盖范围，`starring` 只取页面）；夹具里的任务 5 人物与类型断言改为与真实输出同形；新增 36 项测试，全量 1,025 项通过，AC02、AC07、AC08、AC21、AC22 通过；在临时库 `etl_t7_rehearsal`（业务库副本）全链路核对：署名对齐 3,358 条、IMDb 演员 49,838 与导演 6,026 逐项并入、`imdb_person_ext` 22,157 人；业务库未写入 |
 | 2026-11-02 | 完成任务 7 T7-05（分支 `task7-conflict-resolution`）：`finalize_version` 单事务物化版本（`unverified`）、`verify` 通过才记 `succeeded`、核对失败后同输入重跑在原版本上重写、`report diff`（`FULL OUTER JOIN`）、`report export`（19 类实例与 8 个 CSV）、`query movie|edition|conflicts`、`etl_task7.check`；新增 24 项测试，全量 1,049 项通过，AC01、AC11、AC12、AC14、AC17 通过；临时库 `etl_t7_rehearsal`（业务库副本）全链路 215 秒，`movie_resolved` 8,659、`edition_resolved` 9,590，第二次运行 `reused`；业务库未写入；T7-06（DAG）按用户决定暂停 |
 | 2026-11-02 | 完成任务 7 T7-06（分支 `task7-conflict-resolution`）：DAG `amazon_movies_task7_conflict`（9 节点，`verify` 通过才记 `succeeded`，核对失败映射为不重试的失败）、`etl_task7.pipeline`、e2e 种子脚本与 `doc/task7/runbook.md`；新增 10 项测试，AC13 通过；`etl_test` 上经真实 scheduler 跑通成功、重跑 `reused`、上游缺失、`verify` 失败后重跑四种情况，已切回正常配置；`etl_movies` 未触发 |
+| 2026-11-02 | 完成任务 7 T7-07 与 T7-08（分支 `task7-conflict-resolution`）：评价工具 `etl_task7.evaluate`（开发池冻结、七层 120 项盲测表、规则式 AI 预标注草稿、导入校验、指标）；业务库 `etl_movies` 首次写入——应用迁移 `601`、冻结开发池 1,732 部、经 Airflow 触发 `t7_full_1` 生成 `cv0001`（`verified`，242 秒）、`t7_full_2` 为 `reused`，`check` 退出码 0，任务 1–6 表行数不变；开发池核查后类型映射追加音乐子类、同义写法与非影视目录词（`ALGORITHM` 升 `m2`），熔断 7 部、署名对齐 3,358 条，以实测替换 design 与 H08 的试算数字；导出报告、120 项盲测表与 AI 草稿（不入 Git），等待付林轩审核（T7-09）；全量测试 1,082 项通过 |
 
 本目录已初始化独立 Git 仓库，当前分支为 `main`，跟踪 `origin/main`。GitHub 公开仓库为 [mizusawa-matsuri937/etl-coursework](https://github.com/mizusawa-matsuri937/etl-coursework)。任务 1 经 PR #1 合并到 `main`；任务 2 经 [PR #2](https://github.com/mizusawa-matsuri937/etl-coursework/pull/2) 于 2026-10-29 合并到 `main`（合并提交 `9594985`）；任务 3 经 [PR #3](https://github.com/mizusawa-matsuri937/etl-coursework/pull/3) 于 2026-10-29 合并到 `main`（合并提交 `c547c27`）。任务 4 经 [PR #4](https://github.com/mizusawa-matsuri937/etl-coursework/pull/4) 于 2026-10-29 合并到 `main`（合并提交 `df0d7af`）。任务 5 经 [PR #5](https://github.com/mizusawa-matsuri937/etl-coursework/pull/5) 于 2026-10-30 合并到 `main`（合并提交 `1625ad9`）。任务 6 经 [PR #6](https://github.com/mizusawa-matsuri937/etl-coursework/pull/6) 于 2026-10-30 合并到 `main`（合并提交 `649ac06`）。没有阶段标签。

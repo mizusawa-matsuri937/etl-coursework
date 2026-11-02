@@ -21,7 +21,7 @@ from etl_task4.normalize import ARTICLES, classify_segment, fold, title_key
 from . import CURRENT_RULE_VERSION, RULE_VERSION
 
 # 各阶段决策算法的标记：算法改动时升这里（与数值无关），进入对应阶段的规则签名
-ALGORITHM = {"edition": "e1", "link": "l1", "scalar": "s1", "multivalue": "m1"}
+ALGORITHM = {"edition": "e1", "link": "l1", "scalar": "s1", "multivalue": "m2"}
 
 CONFLICT_TYPES = (
     "none", "formatting_or_alias", "unrated_vs_rated", "minor_tolerance", "framerate_or_edition",
@@ -701,6 +701,17 @@ _g("History", "history")
 _g("Sport", "sport", "sports")
 _g("Music", "music", "classical", "international music", "indie & alternative", "rock", "classic rock",
    "progressive rock", "pop", "vocal pop", "rap & hip-hop", "latin music", "children's music", "r&b")
+# T7-08 在开发池证据上追加（只补语义明确的同类词）：音乐风格与体裁、同义写法、非影视零售目录与地区词
+_g("Music", "progressive", "hardcore & punk", "album-oriented rock (aor)", "alternative rock", "american punk", "punk",
+   "punk revival", "gangsta & hardcore", "rockabilly", "oldies & retro", "blues", "delta blues", "regional blues",
+   "blues - general", "folk", "british folk", "british & celtic folk", "flamenco", "latin pop", "sing-a-longs",
+   "classical-music", "concertos", "symphonies", "sonatas", "sonatinas", "nocturnes", "masses",
+   "opera & classical vocal", "opera & vocal", "vocal non-opera")
+_g("Family", "kids and family", "family entertainment")
+_g("War", "military")
+_g("Short", "short")
+_g("Thriller", "spy thriller")
+_g(("Comedy", "Romance"), "comedy romance")
 _g(("Action", "Adventure"), "action & adventure")
 _g(("Mystery", "Thriller"), "mystery & thrillers", "mystery & suspense")
 _g(("Sci-Fi", "Fantasy"), "science fiction & fantasy")
@@ -713,7 +724,14 @@ _GENRE_NOISE = frozenset({
     "cds & vinyl", "classic", "classics", "feature", "general", "live", "performance", "cult movies",
     "award winning", "europe", "britain", "britain & ireland", "continental europe", "digital movie", "buy movie",
     "rent movie", "prime video", "3-6 years", "7-9 years", "10-12 years", "books", "electronics", "accessories",
-    "camera & photo", "video games", "music (cds)", "toys & games", "home & garden"})
+    "camera & photo", "video games", "music (cds)", "toys & games", "home & garden",
+    "3d", "3-d", "universal blu-ray", "eastern europe", "poland", "spain", "literature & fiction", "genre fiction",
+    "forms & genres", "arts, crafts & sewing", "beauty & personal care", "clothing", "clothing, shoes & jewelry",
+    "diagnostics & screening", "dvd games", "games & accessories", "eyes", "eyeshadow", "makeup", "kits", "men",
+    "grilling cookware & rotisseries", "grill racks", "grills & outdoor cooking", "industrial & scientific",
+    "novelty", "novelty & more", "outdoor cooking tools & accessories", "painting",
+    "painting, drawing & art supplies", "patio, lawn & garden", "professional medical supplies",
+    "sphygmomanometers", "shirts", "t-shirts"})
 
 _SEE_MORE = re.compile(r"\s+see more\s*$", re.I)
 

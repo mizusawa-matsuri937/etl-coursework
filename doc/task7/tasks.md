@@ -1,6 +1,6 @@
 # 任务 7 开发任务（处理不同来源的信息冲突）
 
-状态：2026-10-30 编写计划；2026-11-02 经复核修订（用户同意按复核结论修订），新增 `link_assess` 阶段，规则与验收重新编号为 R01–R66、AC00–AC22，任务调整为 T7-00 至 T7-09。T7-00 已执行并通过；T7-01 至 T7-06 于 2026-11-02 实现并本地提交，命令与期望已按实际运行核对；T7-07 于 2026-11-02 实现；T7-08、T7-09 其验证命令与期望仍标注为 `（计划）`。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-10-30 编写计划；2026-11-02 经复核修订（用户同意按复核结论修订），新增 `link_assess` 阶段，规则与验收重新编号为 R01–R66、AC00–AC22，任务调整为 T7-00 至 T7-09。T7-00 已执行并通过；T7-01 至 T7-06 于 2026-11-02 实现并本地提交，命令与期望已按实际运行核对；T7-07、T7-08 于 2026-11-02 完成；T7-09 的验证命令与期望仍标注为 `（计划）`。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。每项 AC 的逐条复核命令见 [checklist](checklist.md)。
 
@@ -90,17 +90,16 @@
 
   期望：最后一行 `16 passed`，退出码 `0`。
 
-- [ ] T7-08 正式库运行。关联 AC18、AC20。
-  - 文件：`doc/task7/{design,tasks,checklist}.md`；`outputs/task7/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/cv0001/`（不入 Git）。
+- [x] T7-08 正式库运行。关联 AC18、AC20。
+  - 文件：`src/etl_task7/rules.py`（类型映射在开发池上冻结，`ALGORITHM['multivalue']` 升到 `m2`）、`tests/unit/test_task7_rules.py`、`doc/task7/{spec,design,tasks,checklist}.md`；`outputs/task7/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/cv0001/`（报告、`eval/` 盲测表与 AI 草稿，不入 Git）。
   - 目标：先冻结开发池 1,732 部，在开发池上核查熔断、对齐与类型映射并冻结 `t7r1`；经 Airflow 触发 `t7_full_1` 生成 `cv0001`，`t7_full_2` 验证 `reused`；用实测替换 design 与 H08 的试算数字；导出报告、盲测表与 AI 草稿。
-  - 完成情况：未执行（计划）。
+  - 完成情况：2026-11-02 完成。先在临时库 `etl_t7_rehearsal` 演练 `freeze`、全量运行（224 秒）、`check`、`export`，再在 `etl_movies` 冻结开发池；开发池核查后只扩充类型映射（见 design），熔断与对齐规则未改；`t7_full_1` 生成 `cv0001`（`verified`，242 秒），`t7_full_2` 为 `reused`，`check` 退出码 0；`task7` 占用 492 MB（预算 500 MB 以内）；导出报告与 120 项盲测表（`E1` 15、`E2` 15、`E3` 20、`E4` 20、`E5` 15、`E6` 15、`E7` 20，其中 `conflict_unresolved` 15 项）及 AI 草稿，等待付林轩审核（T7-09）。
 
   ```bash
-  # （计划）正式库只读核对
   docker compose --profile crawl run --rm -T crawler python -m etl_task7.check > /dev/null; echo "exit=$?"
   ```
 
-  期望（计划）：`exit=0`。
+  期望：`exit=0`。
 
 - [ ] T7-09 导入 120 项标注、计算指标、报告与交接。关联 AC19、AC20。
   - 文件：`outputs/task7/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/cv0001/eval/`（不入 Git）、`doc/task7/report.md`、`doc/handoffs/<完成日期>-task7-to-task8.md`、`README.md`、`CLAUDE.md`。

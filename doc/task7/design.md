@@ -1,6 +1,6 @@
 # 任务 7 设计思路（处理不同来源的信息冲突）
 
-状态：2026-10-30 编写计划；2026-11-02 经复核修订，用户同意按复核结论修订（见 [spec](spec.md) 状态行与 H02–H05、H09）。需求、可观察行为与 AC 以 spec 为准；本文说明架构、表结构、算法、阶段依赖、编排、评价设计和正式库基线。阈值与置信度是**规划默认值**（规则版本 `t7r1`），只在开发池上调整，评价表导出前冻结；标注“试算”的数字来自 2026-11-02 的简化只读脚本，实测在 T7-07 补记。
+状态：2026-10-30 编写计划；2026-11-02 经复核修订，用户同意按复核结论修订（见 [spec](spec.md) 状态行与 H02–H05、H09）。需求、可观察行为与 AC 以 spec 为准；本文说明架构、表结构、算法、阶段依赖、编排、评价设计和正式库基线。阈值与置信度是**规划默认值**（规则版本 `t7r1`），只在开发池上调整，评价表导出前冻结；正文里标注“实测”的数字来自 2026-11-02 正式库 `cv0001` 的只读查询；标注“规划试算”的是 2026-11-02 规划阶段简化脚本的数字，仅保留作对照。
 
 ## 整体思路与架构边界
 
@@ -34,10 +34,10 @@
 | 标题差异 | 页面键命中 `primary` 4,515、仅 `original` 108、仅 `aka` 291、仅实词子集 493；`primary ≠ original` 871 部；跨商品规范键不同 18 部 | R20–R23 |
 | 年份分歧 | 13 部跨源分歧：差 1 年 8 部，差 ≥2 年 5 部（全在 `cooccur_matched`，差 2、5、18、19、21 年）；`bound_before_release_year` 62 部 | R24–R27 |
 | 片长覆盖 | 双方都有 4,883 部（5,111 对）、仅 IMDb 480、仅页面 2,768、都无 528；单 ASIN 多区域冲突 0 | R28–R32 |
-| 片长差异（试算，按对 / 按最严重版本计部） | `exact` 3,064 / 2,880；`tolerance_1_2` 889 / 864；`variance_3_5` 476 / 465；`pal_evidence` 20 / 20；`cut_or_multidisc` 44 / 41；`unexplained_6_15` 370 / 367；`unexplained_gt15` 248 / 246 | 符合 PAL 公式的 251 对里只有 20 对有 PAL 证据，其余归 `variance_3_5` 或 `unexplained_6_15` 并记 `pal_formula_match`（R30） |
+| 片长差异（实测 2026-11-02 `cv0001`，按对 / 按最严重版本计部） | `exact` 3,064 / 2,880；`tolerance_1_2` 888 / 863；`variance_3_5` 476 / 465；`pal_evidence` 20 / 20；`cut_or_multidisc` 44 / 41；`unexplained_6_15` 370 / 367；`unexplained_gt15` 243 / 241；合计 5,105 对、4,877 部（规划试算 5,111 对，`tolerance_1_2` 889、`unexplained_gt15` 248） | 公式吻合 PAL 的 293 对里只有 20 对有 PAL 证据，其余 270 对归 `variance_3_5` 或 `unexplained_6_15` 并记 `pal_formula_match`（R30）；241 部存在 `unexplained_gt15`，写质量问题 `severe_runtime_conflict` |
 | 演职员 | `task5.movie_person` 50,027 行（`director` 6,833、`starring` 13,151、`cast` 30,043），`order_conflict` 117 行；`starring` 同时写入 `cast`（`etl_task5.movie_person` 第 28 行） | R37–R42 |
-| 署名对齐（试算） | 未熔断关联作品的页面未关联人物：`cast` 6,066、`director` 822；兼容 IMDb 的 3,335 条（`cast` 2,725、`director` 610），等级 `L1` 2,706、`L2` 29、`L3` 35、`LI` 20、`L4` 545；同时命中多名 IMDb 成员 6 条，先取最高等级，仍并列才不对齐 | 弱匹配作品的页面人物大多无 `nconst`，不对齐会把同一人登记两次（R38） |
-| 对齐后 IMDb 新增（试算） | `cast` 30,089、`director` 865；`imdb_person_ext` 约 22,191 人 | R40 |
+| 署名对齐（实测 `cv0001`） | 对齐成功 3,358 条（`cast` 2,748、`director` 610），等级 `L1` 2,727、`L2` 29、`L3` 35、`LI` 20、`L4` 547；同等级并列未对齐 1 条，无兼容成员 2,826 条（`cast` 2,680、`director` 146）；多人串逐段行（`unsplit_multi_person`）`cast` 448、`director` 114。规划试算 3,335 条（`L1` 2,706、`L4` 545），多名 IMDb 成员同时命中时先取最高等级，仍并列才不对齐 | 弱匹配作品的页面人物大多无 `nconst`，不对齐会把同一人登记两次（R38） |
+| 对齐后 IMDb 新增（实测） | `cast` 30,182、`director` 869；`imdb_person_ext` 22,157 人（规划试算 30,089、865、22,191） | R40 |
 | 多人串 | 含 `;` 的署名 `director` 29（4 条有 IMDb 关联）、`cast` 51、`starring` 50（各 29 条有关联）；` and `/`&` 25 条，含 `Black and Blue Productions` | R39：只在有 IMDb 时逐段对齐，不新造人物 |
 | 类型词面 | 页面规范词面 291 种 5,311 行，面包屑 220 种 30,146 行；扩充映射后未映射 276 行（5.2%）与 223 行（0.7%） | R34–R36 |
 | 分级 | 原始值 16 种全部可规范化；7,854 个 ASIN、7,002 部有分级；跨版本不同 31 部（26 部具体 vs 未评级，5 部双具体分级） | R33 |
@@ -45,7 +45,7 @@
 | 共享 `tconst` | 126 条问题对应 105 对：`candidate_shared` 40 + 共现 86（`unique` 85、`resolved_by_review_year` 1），其中 21 对两类重复；全部已被任务 6 采用；采用结果里 117 个 `tconst` 被 240 部作品共用 | R19：在 `link_assess` 分类，先于字段消解 |
 | 采集时间 | 页面 `source_record.acquired_at` 全为 2026-10-28，`task2.product_manifest.fetched_at` 跨约 10.5 小时；IMDb 的 `acquired_at` 为空，取 `imdb.snapshot.downloaded_at` | R10：照实保存，不参与决胜 |
 
-任务 6 交接文档中“`t6_eval_0061`、`t6_eval_0087` 为异片错配”不作为本设计依据：两例页面演员都在 IMDb 演员表中，导演为同人不同写法（H09）。熔断的依据是下述试算中直接观察到的错配。
+任务 6 交接文档中“`t6_eval_0061`、`t6_eval_0087` 为异片错配”不作为本设计依据：两例页面演员都在 IMDb 演员表中，导演为同人不同写法（H09）。熔断的依据是下述规划试算与正式库实测中直接观察到的错配。
 
 ## 开源参考
 
@@ -131,7 +131,7 @@
 
 熔断：`weak ∧ ((Y ∧ (RT ∨ D ∨ T)) ∨ (T ∧ (RT ∨ D)))`。
 
-三版口径的试算对比（934 部弱匹配）：
+三版口径的规划试算对比（934 部弱匹配）；实现口径的实测见表后：
 
 | 口径 | 命中 | 观察 |
 |---|---|---|
@@ -139,7 +139,8 @@
 | 原 design：三信号任二，导演比姓名 | 22 部 | 16 部只因片长差加姓名写法差命中（`Alred Hitchcock`、`Jess Franco`/`Jesús Franco`） |
 | 修订口径 | 8 部 | Wrong Trousers→Were-Rabbit、Invader ZIM→Enter the Florpus、Alvin 圣诞片→2007 版等明显错配；Evening Parade、Love for Three Oranges 疑似同片但被保守拦下 |
 
-熔断的代价是极少数同片被降为待确认，但不写错值；未熔断的单信号（`D` 104、`RT` 86、`T` 1 部，试算）照常采用 IMDb 并写 `weak_link_single_signal`。
+实测（2026-11-02 `cv0001`，934 部弱匹配）熔断 7 部：`Y+RT` 4、`Y+D` 2、`RT+T` 1，与规划试算的 8 部相比少 1 部（`The Love for Three Oranges`，见实现补充约定“T 信号的‘实词’”）。7 部里只有 1 部（`Saturday Night Live - The Best of Chris Rock` 对 `Best of Saturday Night Live: Special Edition`）在开发池，其余 6 部在评价池之外的规划探查中直接观察到是错配（如 `Wallace and Gromit: The Wrong Trousers` 对 2005 年的 `The Curse of the Were-Rabbit`）。开发池上还看到两部未熔断的弱匹配（`Umrao Jaan`、`Bolo Raam`）亮了 `RT` 与 `D`，但标题键相同、只是导演写法不同（`J.P.Dutta` 对 `J.P. Dutta`、`Rakesh Chaturvedi` 对 `Rakesh Chaturvedi Om`），不熔断是对的；熔断规则没有调整。
+熔断的代价是极少数同片被降为待确认，但不写错值；未熔断的弱匹配单信号照常采用 IMDb 并写 `weak_link_single_signal`（实测 190 部：`D` 97、`RT` 86、`Y` 7，没有 `T` 单信号）；另有 8 部同时亮 `RT` 与 `D` 但无 `Y` 或 `T`，不满足熔断式，也采用 IMDb，不写该质量问题。
 
 熔断的后果：
 
@@ -151,7 +152,7 @@
 | `genres`、`director`、`cast` | 不并入该 IMDb 的值 |
 | 别名 | 不收录 IMDb 别名 |
 
-共享 `tconst`（R19）用同一批信号分类，不另设阈值：已熔断为 `false_positive_link`；`T ∈ {ok, sub}` 且 `D ∈ {ok, na}` 为 `likely_duplicate_movie`；其余为 `undetermined`。因此误挂自动走熔断后果，不存在“分类了但错值已入库”的情况。试算：`likely_duplicate_movie` 94、`undetermined` 10、`false_positive_link` 1。
+共享 `tconst`（R19）用同一批信号分类，不另设阈值：已熔断为 `false_positive_link`；`T ∈ {ok, sub}` 且 `D ∈ {ok, na}` 为 `likely_duplicate_movie`；其余为 `undetermined`。因此误挂自动走熔断后果，不存在“分类了但错值已入库”的情况。实测：105 对（涉及 100 个 `tconst`）里 `likely_duplicate_movie` 94、`undetermined` 10、`false_positive_link` 1，与规划试算相同。
 
 ### 2. 合集成员的候选边界（R05、R21、R28、R33、R36）
 
@@ -184,7 +185,7 @@
 | 无 | 页面年份不一致 | `conflict_unresolved` | `intra_source_tie_unresolved` |
 | 无 | 无候选 | `missing`，记任务 6 原因 | `none` |
 
-试算：弱匹配未熔断且 `Y` 的 7 部全部有佐证，5 部 `year_disagreement` 都采用 IMDb（如 Beauty and the Beast 取 1991，页面标题年份为 2010）；强关联 12 部都不触发 `D ∧ RT`。推断上界只写 `movie_resolved` 的参考列。
+实测：`release_year` 为 `cross_source_override` 的 19 部（弱匹配未熔断且 `Y` 的 7 部、强关联 12 部）都有正面佐证，无 `severe_mismatch_unresolved`；`minor_tolerance` 8 部；`conflict_unresolved` 的 7 部全是熔断作品；例如 Beauty and the Beast 取 1991（页面标题年份为 2010），属于 `cross_source_override`。推断上界只写 `movie_resolved` 的参考列。
 
 ### 5. 片长（R28–R32、R44）
 
@@ -279,12 +280,12 @@
 | `movie_field_selection` | 77,931 行 | 8,659 × 9 |
 | `edition_field_selection` | 57,540 行 | 9,590 × 6 |
 | `link_assessment` | 5,407 行 | 每个有效关联一行 |
-| `runtime_diff` | 约 5,111 行 | 试算对数 |
+| `runtime_diff` | 约 5,111 行（实测 5,105） | 试算对数 |
 | `movie_title_alias` | 约 15 万行 | IMDb 别名 142,236 行加页面变体 |
 | `movie_genre` / `movie_genre_term` | 约 2 万 / 约 3.5 万行 | 平均约 3 个受控词；词面按作品去重 |
-| `imdb_person_ext` | 约 2.2 万行 | 试算 22,191 |
+| `imdb_person_ext` | 约 2.2 万行（实测 22,157） | 试算 22,191 |
 | `movie_person_resolved` | 约 8.1 万行 | 50,027 + 30,954（试算） |
-| `credit_alignment` | 约 3,500 行 | 试算 3,335 加多人串分段 |
+| `credit_alignment` | 约 3,500 行（实测 6,747 行：对齐成功 3,358、无兼容成员 2,826、多人串分段 562、并列 1，另有 `movie_title_alias` 90,433 行、`field_candidate` 114,483 行） | 试算 3,335 加多人串分段；未对齐的行与别名、候选数低于估计的原因是不少作品没有 IMDb 关联 |
 | 全量运行 | 5 分钟以内 | 无外部 I/O，分批事务 |
 | schema `task7` 磁盘 | 500 MB 以内 | 含别名与 JSONB 证据 |
 | 同参重跑 | 1 秒以内 | 输入键命中 |
@@ -319,7 +320,7 @@
 | 作品层分级、片长候选 | 每个 `edition` 商品一条，引用版本层选中的候选 ID 与原始值，而不是重新读页面 | 版本层同 ASIN 内的冲突已先消解，作品层不再重复处理 |
 | 质量问题代码 | `cross_source_mismatch_halt`（熔断，`link_assess`）、`weak_link_single_signal`、`cross_source_override`、`severe_mismatch_unresolved`、`severe_runtime_conflict`、`unknown_mpaa_rating` | R18、R25、R26、R31、R33 点名了其中一部分，其余按冲突类型命名 |
 | T 信号的页面标题键 | 读 `task4.field_assertion` 的 `normalized_value`（任务 4 规范键，括号说明已去掉），`normalized_value` 为空时才回退到 `title_key(clean_page_display_title(raw_value))`；`title_match_class` 同样接收该键，命中 IMDb 任一标题键时至少为 `alias` | `clean_page_display_title` 为保留副标题会留下没见过的括号（如 `300 (Limited Collector's Edition + Digital Copy)`），重算的键带说明词，使 T 误亮、《300》类正确关联被熔断；试算读的就是规范键，也是 R15 的“页面标题键” |
-| T 信号的“实词” | `content_words` 不计虚词（冠词与 `and`、`of`、`in`、`on`、`at`、`to`、`for`、`with`、`from`、`by`、`or`、`is`、`as`），实词子集与 `subset_min_words` 都按实词计 | 因此试算（简化实现）的 8 部熔断在实现中为 7 部：`The Love for Three Oranges` 因 `of`、`for` 不再被当作无关而不熔断，`Fishbone` 不再是 T 单信号；design 正文与 H08 的试算数字保持原样，由 T7-08 用实测替换 |
+| T 信号的“实词” | `content_words` 不计虚词（冠词与 `and`、`of`、`in`、`on`、`at`、`to`、`for`、`with`、`from`、`by`、`or`、`is`、`as`），实词子集与 `subset_min_words` 都按实词计 | 因此规划试算（简化实现）的 8 部熔断在实现中为 7 部：`The Love for Three Oranges` 因 `of`、`for` 不再被当作无关而不熔断，`Fishbone` 不再是 T 单信号；design 正文与 spec H08 的数字已于 T7-08 用 `cv0001` 实测替换 |
 | 署名对齐的对象与候选（T7-04） | 对象是页面未关联 `nconst` 的人物（含只在 `starring` 的人物），候选是尚未被 `nconst` 关联占用的同角色 IMDb 成员；页面人物取规范名与页面别名中最严的兼容等级；`starring` 复用 `cast` 的对齐结果（任务 5 把署名行演员同时写入 `cast`），所以 `credit_alignment` 的角色只有 `director` 与 `cast`；多个页面人物对齐到同一个 IMDb 人物时合并为一行 | `starring` 在对齐成功时使用对齐后的 `person_id`（仍标 `page_only`），避免同一人在同一作品的 `starring` 与 `cast` 中有两个 ID |
 | 对齐记录与多人串（T7-04） | 没有可比较的 IMDb 成员时，单人不写 `credit_alignment`（没有发生比较）；多人串无论有无 IMDb 都逐段写行。全部成段命中且各段命中不同人物才取代原行（各段 `aligned`）；否则原行保留，各段 `outcome = unsplit_multi_person`，命中的段保留 `nconst`、等级作证据，`resolved_person_id` 为空 | R39：不为分段新造 `person_id`；`Black and Blue Productions` 因此原样保留 |
 | 页面独有导演（T7-04） | 当前仍是 `adopted` 的页面独有导演，在作品有未熔断 IMDb 且 IMDb 有导演时标 `conflict_pending`，包括页面已关联 `nconst` 但不在 IMDb 导演中的；没有可用 IMDb 导演时页面导演照常采用 | R41 按字面执行；实测 267 位、涉及 210 部作品，见 T7-08 的统计 |
@@ -327,7 +328,8 @@
 | 多值字段的冲突类型与置信度（T7-04） | 字段级 `conflict_type` 按优先级取：`director_source_disagreement` > `billing_conflict_resolved` > `complementary_union`（页面与 IMDb 成员并存）> `formatting_or_alias`（有对齐）> `none`；全部成员无法采用时为 `conflict_unresolved` 与 `intra_source_tie_unresolved`；置信度取 `conf_union`（0.90），只有 IMDb 独有成员时取 `conf_imdb_only`（0.80），含 IMDb 成员时不超过关联基础可靠度 | R13 闭集没有“多人串”专用类型，沿用 `intra_source_tie_unresolved` |
 | 类型词面行（T7-04） | `movie_genre_term` 按（作品、区域、小写词面）一行，`asins` 去重；`genre` 区取任务 4 断言的 `normalized_value`，`breadcrumb` 区取任务 3 字段的 `value_raw`；IMDb 类型不在受控词表内时不入 `genres`，写 `unmapped_genre_term`（`section = imdb`） | 同一页面标签串里重复的标签（如两个年龄段词都带 `Kids & Family`）按 ASIN 去重，所以逐行统计略少于按断言行统计（实测 5,311 行断言对应 5,201 行去重后的页面词面） |
 | IMDb 人物登记（T7-04） | `imdb_person_ext` 以 `nconst` 为全局键，`ON CONFLICT DO NOTHING`；任务 5 的 `person_external_id` 已有的人物复用其 `person_id` 不登记；`person_identity` 已有 `imdb:<nconst>` 锚点时取其 `person_id` 并标 `in_task5_identity` | R40 |
-| 类型词面的实测对比（T7-04） | 临时库（业务库完整副本）实测：页面类型词面按断言行统计未映射 276/5,311（5.2%，与试算一致）；面包屑未映射 331/30,146（1.1%），试算为 223（0.7%），差 108 行：331 行里 320 行位于非影视目录（`CDs & Vinyl` 169、`Books` 43、`Arts, Crafts & Sewing`、`Video Games`、`Office Products` 等），只有 11 行在 `Movies & TV` 下。差异来自试算时映射表比 design 列出的词表多收了一批音乐子类与非影视目录词 | 映射表按 design 列出的词表实现，没有为凑数字追加条目；是否追加音乐子类（`Hardcore & Punk`、`Rockabilly` 等）与非影视目录噪声词，留给 T7-08 在开发池上决定后冻结 |
+| 类型词面的实测对比（T7-04） | 临时库（业务库完整副本）实测：页面类型词面按断言行统计未映射 276/5,311（5.2%，与试算一致）；面包屑未映射 331/30,146（1.1%），试算为 223（0.7%），差 108 行：331 行里 320 行位于非影视目录（`CDs & Vinyl` 169、`Books` 43、`Arts, Crafts & Sewing`、`Video Games`、`Office Products` 等），只有 11 行在 `Movies & TV` 下。差异来自试算时映射表比 design 列出的词表多收了一批音乐子类与非影视目录词 | 映射表按 design 列出的词表实现，没有为凑数字追加条目；是否追加音乐子类与非影视目录噪声词，已在 T7-08 的开发池核查后决定（见下一行） |
+| 类型映射在开发池上冻结（T7-08，`t7r1`） | 开发池 1,732 部上，面包屑未映射 74 行（62 种词面）、页面类型 54 行（54 种）。只追加影视语义明确的词：① 音乐风格与体裁 → `Music`（`Hardcore & Punk`、`Progressive`、`Album-Oriented Rock (AOR)`、`Blues`、`Folk`、`Flamenco`、`Concertos`、`Symphonies`、`Opera & Classical Vocal` 等 30 个，与已有的 `rock`、`pop`、`classical` 同类）；② 同义写法（`kids and family`、`family entertainment` → `Family`；`comedy romance` → `Comedy`, `Romance`；`spy thriller` → `Thriller`；`military` → `War`；`short` → `Short`）；③ 明显的非影视零售目录词与地区、格式词 → `noise`（`Sphygmomanometers`、`Makeup`、`Clothing`、`Grill Racks`、`Eastern Europe`、`3D`、`Universal Blu-ray` 等 35 个）。含义不明确的词（`Soul`、`Country`、`Gospel`、`Halloween`、`Faith & Spirituality`、`Spielberg` 等）保持 `unmapped`，不猜测。因为映射表变化，`ALGORITHM['multivalue']` 由 `m1` 升到 `m2`（阶段键随之变化）。冻结后全库实测（按 ASIN 计）：页面类型未映射 254/5,201（4.9%）、面包屑 192/30,146（0.64%）；追加前按断言行为 276/5,311 与 331/30,146。开发池上面包屑未映射降到 6 行，其余在非开发池里的未映射多为开发池没有出现的音乐子类（`Jazz`、`New Wave & Post-Punk`、`Indie Rock` 等），按“只看开发池”的约定不追加，保留为已知局限 | 追加的是同类词，不是为凑 223 这个规划数字；全库面包屑未映射比例与规划试算接近属巧合，后一半没有追加的词说明了这一点 |
 | 版本物化与核对（T7-05） | `finalize_version` 单事务写版本与五张物化表，版本状态 `unverified`；同输入键已有未核实版本时在同一事务里清掉它的物化行再重写，版本号不变；`verify` 通过后单事务把版本标 `verified`、运行标 `succeeded`，失败时运行为 `failed`、版本保持 `unverified`、不会被 `reused`。命令行 `etl_task7.check` 要求版本已 `verified`，DAG 的 `verify` 步骤在标记前调用，传 `expect_verified=False` | R55；阶段结果按阶段键保留，所以核对失败后的重跑不重算阶段 |
 | 核对的口径（T7-05） | 标量字段的胜出值必须等于采用候选的 `normalized_value` 或 `raw_value`（版本层 `edition_title` 取原始标题、`publisher` 取原写法，候选的规范值是清洁标题与折叠键）；已熔断作品的原名、上映年份、片长不得为 `resolved`（有候选为 `conflict_unresolved`，没有候选如 IMDb 原名为空时为 `missing`）；孤儿候选指阶段键下不被任何选择记录考虑的候选 | 与 R12 一致：存在候选才是 `conflict_unresolved`，没有候选就是 `missing` |
 | 报告与查询（T7-05） | 导出目录 `outputs/task7/<抽取>/<版本>/<run_key>/`：`summary.json`、`report.md`、`examples.md` 与 8 个 CSV（作品与版本层选择记录、关联评估、片长差异、署名对齐、类型词面、共享 `tconst`），不含评论正文与整页 HTML；`examples.md` 每类最多 3 例，没有实例的类别写“无”；`query conflicts` 的 `--limit` 限制两层合计条数；`query edition` 的评论统计按 `public.review_record` 的 `classification` 计数 | R58–R60 |

@@ -1,6 +1,6 @@
 # 任务 7 AC 完成情况（处理不同来源的信息冲突）
 
-状态：2026-10-30 编写，2026-11-02 随 spec 修订为 AC00–AC22。2026-11-02 完成 T7-01 至 T7-06：AC01–AC14、AC16、AC17、AC21、AC22 已通过并勾选，其余 AC 尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-10-30 编写，2026-11-02 随 spec 修订为 AC00–AC22。2026-11-02 完成 T7-01 至 T7-08：AC01–AC18、AC20–AC22 已通过并勾选，AC19（用户审核标注、导入、指标）尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`）。
 
@@ -10,7 +10,7 @@
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望：2026-11-02 实测最后一行 `989 passed`（任务 1–6 的 792 项不减少，任务 7 新增 197 项）；后续阶段会增加新测试，数字随之变化。
+期望：2026-11-02 实测最后一行 `1082 passed`（任务 1–6 的 792 项不减少，任务 7 新增 290 项）；后续阶段会增加新测试，数字随之变化。
 
 ## AC00 计划文件规范
 
@@ -196,35 +196,43 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC18 正式库全量运行、复用与只读核对
 
-- [ ] 未执行。
+- [x] 2026-11-02 通过（AI 运行）：先在 `etl_movies` 冻结开发池 1,732 部，再经 Airflow 触发 `t7_full_1`（五个执行任务与收尾全部 success，运行 242 秒）生成 `cv0001` 并 `verified`，`t7_full_2` 为 `reused`（0 秒）；`etl_task7.check` 退出码 0、`"problems": []`；任务 1–6 全部表行数与运行前逐表一致（只有 `public.schema_migration` 多一行 `601`）。没有失败的运行记录。
 
 ```bash
-# （计划）正式库只读核对
 docker compose --profile crawl run --rm -T crawler python -m etl_task7.check > /dev/null; echo "exit=$?"
 ```
 
-期望（计划）：`exit=0`。
+期望：`exit=0`。
 
 ```bash
-# （计划）作品层各字段状态分布
 docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT field_name, status, count(*) FROM task7.movie_field_selection WHERE conflict_version_id = 'cv0001' GROUP BY field_name, status ORDER BY field_name, status;"
 ```
 
-期望（计划）：9 个字段的三种状态合计各为 `8659`。
+期望：9 个字段的三种状态合计各为 `8659`，例如 `title|resolved|8659`、`release_year` 为 `conflict_unresolved|7`、`missing|3202`、`resolved|5450`，`runtime_minutes` 为 `7`、`528`、`8124`，`mpaa_rating` 为 `5`、`1657`、`6997`，`director` 为 `42`、`2017`、`6600`；`conflict_unresolved` 与 `missing` 的胜出值均为空由 `check` 核对。
 
 ```bash
-# （计划）版本层行数与运行审计
-docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT count(*) FROM task7.edition_resolved WHERE conflict_version_id = 'cv0001'; SELECT status, conflict_version_id, airflow_run_id FROM task7.run ORDER BY started_at;"
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT count(*) FROM task7.edition_resolved WHERE conflict_version_id = 'cv0001'; SELECT status, conflict_version_id, airflow_run_id FROM task7.run ORDER BY started_at; SELECT conflict_version_id, status FROM task7.conflict_version;"
 ```
 
-期望（计划）：`9590`，以及 `t7_full_1`（`succeeded|cv0001`）与 `t7_full_2`（`reused|cv0001`）。
+期望：`9590`；`succeeded|cv0001|t7_full_1` 与 `reused|cv0001|t7_full_2`；`cv0001|verified`。
 
 ```bash
-# （计划）错配熔断与署名对齐统计
 docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT cross_source_mismatch_halt, count(*) FROM task7.movie_resolved WHERE conflict_version_id = 'cv0001' GROUP BY 1 ORDER BY 1;"
 ```
 
-期望（计划）：`t|<熔断数>` 与 `f|<其余>`，合计 `8659`；数字在 T7-08 实测后写入。
+期望：`f|8652` 与 `t|7`，合计 `8659`。
+
+```bash
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT (SELECT min(frozen_at) FROM task7.dev_pool) < (SELECT min(started_at) FROM task7.run); SELECT count(*) FROM task7.dev_pool;"
+```
+
+期望：`t`（开发池早于首次运行冻结）与 `1732`。
+
+```bash
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT 'review_record', count(*) FROM public.review_record UNION ALL SELECT 'product_manifest', count(*) FROM task2.product_manifest UNION ALL SELECT 'page_field', count(*) FROM task3.page_field UNION ALL SELECT 'movie', count(*) FROM task4.movie UNION ALL SELECT 'product_movie', count(*) FROM task4.product_movie UNION ALL SELECT 'person', count(*) FROM task5.person UNION ALL SELECT 'movie_person', count(*) FROM task5.movie_person UNION ALL SELECT 'release_selection', count(*) FROM task6.release_selection ORDER BY 1"
+```
+
+期望：`movie|17268`、`movie_person|50027`、`page_field|449000`、`person|29635`、`product_manifest|253059`、`product_movie|17852`、`release_selection|8659`、`review_record|7931696`（与运行前相同）。
 
 ## AC19 正式库盲测标注与指标
 
@@ -246,35 +254,31 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task7.evaluate 
 
 ## AC20 迁移版本、全量测试与仓库卫生
 
-- [ ] 未执行。
+- [x] 2026-11-02 通过（AI 运行）：正式库迁移为 `001,101,102,103,201,301,302,401,501,601`；全量测试 `1082 passed`（任务 1–6 的 792 项不减少）；写语句测试通过；`git ls-files` 不含 `.env`、`outputs/`、评价表或 IMDb 数据。
 
 ```bash
-# （计划）正式库迁移版本
 docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT string_agg(version, ',' ORDER BY version) FROM public.schema_migration;"
 ```
 
-期望（计划）：`001,101,102,103,201,301,302,401,501,601`。
+期望：`001,101,102,103,201,301,302,401,501,601`。
 
 ```bash
-# （计划）写语句目标只在 task7
 docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task7_rules.py -k "ac20"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`1 passed, 147 deselected`，退出码 `0`。
 
 ```bash
-# （计划）全量测试
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望（计划）：全量通过，792 项不减少。
+期望：最后一行 `1082 passed`（另有来自 Airflow 的弃用警告），任务 1–6 的 792 项不减少。
 
 ```bash
-# （计划）仓库卫生
 git ls-files | grep -Ei '(^|/)\.env$|^outputs/|eval_items|eval_pairs|cluster_sample|review_queue|name\.basics|title\.(basics|akas|crew|principals|ratings)|\.tsv(\.gz)?$|movies\.txt'; echo "grep-exit=$?"
 ```
 
-期望（计划）：无匹配行，输出 `grep-exit=1`。
+期望：无匹配行，输出 `grep-exit=1`。
 
 ## AC21 关联评估与错配熔断
 
