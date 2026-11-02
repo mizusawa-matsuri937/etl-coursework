@@ -1,6 +1,6 @@
 # 任务 7 AC 完成情况（处理不同来源的信息冲突）
 
-状态：2026-10-30 编写，2026-11-02 随 spec 修订为 AC00–AC22。2026-11-02 完成 T7-01 至 T7-04：AC02–AC10、AC16、AC21、AC22 已通过并勾选，AC01 部分通过（保持未勾选并写明待后续阶段的部分），其余 AC 尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-10-30 编写，2026-11-02 随 spec 修订为 AC00–AC22。2026-11-02 完成 T7-01 至 T7-05：AC01–AC12、AC14、AC16、AC17、AC21、AC22 已通过并勾选，其余 AC 尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`）。
 
@@ -26,14 +26,13 @@ grep -c "^- R[0-9][0-9] \[" doc/task7/spec.md
 
 ## AC01 输入版本、实体边界与处理范围
 
-- [ ] 部分（2026-11-02，AI 运行）：版本层与作品层均已通过——每部作品在 `movie_scalar_stage_result`、每个 matched 商品在 `edition_stage_result` 恰好一行，五类上映状态与只经 `contains` 出现的成员作品、无关联合集 `movie_ids = '{}'`、`tv_series` 不进入 `task7`、干扰版本不被读取、三类关联按 `0.95`/`0.80`/`0.75` 引入 IMDb 候选（版本层 + 作品层共 5 项）；`movie_resolved`、`edition_resolved` 的物化在 T7-05，保持未勾选。
+- [x] 2026-11-02 通过（AI 运行）：版本层与作品层——每部作品在 `movie_scalar_stage_result`、每个 matched 商品在 `edition_stage_result` 恰好一行，五类上映状态与只经 `contains` 出现的成员作品、无关联合集 `movie_ids = '{}'`、`tv_series` 不进入 `task7`、干扰版本不被读取、三类关联按 `0.95`/`0.80`/`0.75` 引入 IMDb 候选；物化（T7-05）——6 部作品各一行 `movie_resolved`、7 个 matched 商品各一行 `edition_resolved`（`B0TV` 不进入，`B0EMPTY` 的 `movie_ids` 为空数组），选择记录 54 条与 42 条，`check` 无问题。
 
 ```bash
-# （计划）验证只读指定版本、两层实体边界、无关联合集与三类 IMDb 关联可靠度
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_editions.py tests/integration/test_task7_movies_scalar.py -k "ac01"
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_editions.py tests/integration/test_task7_movies_scalar.py tests/integration/test_task7_runs.py -k "ac01"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`6 passed, 51 deselected`，退出码 `0`。
 
 ## AC02 候选保留、状态语义与版本属性隔离
 
@@ -127,25 +126,23 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC11 消解版本、阶段依赖、复用与差异
 
-- [ ] 未执行。
+- [x] 2026-11-02 通过（AI 运行）：同输入第二次为 `reused`、业务行数不变、只多一条 `run` 审计；`t7r1tol`（片长容差 3 分钟）只重算 `movie_scalar`（新运行的 `run_batch` 只有该阶段，其余三个阶段键不变）；`t7r1pub`（发行商后缀）重算全部四个阶段；切换任务 4 映射版本（复制为 `map0003`、`pmap0002`、`rv0002`）生成新版本并全阶段重算；`report diff` 用 `FULL OUTER JOIN`，片长容差变化只列出 `D3` 的 `runtime_minutes`（冲突类型 `framerate_or_edition` → `minor_tolerance`），缺一边的实体显示 `ABSENT`；旧版本可查询。
 
 ```bash
-# （计划）验证同参复用、按依赖链增量重算与 report diff
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_runs.py -k "ac11"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`5 passed, 8 deselected`，退出码 `0`。
 
 ## AC12 分批事务恢复与并发咨询锁
 
-- [ ] 未执行。
+- [x] 2026-11-02 通过（AI 运行）：批大小 2，分别在 `edition_resolve`、`link_assess`、`movie_scalar`、`movie_multivalue` 第 2 批提交前注入故障：只有第 1 批（2 个实体）落库、上游阶段已完成、下游阶段未开始、没有版本、运行为 `failed`；重跑跳过已完成批次，版本内容摘要（选择记录、物化表、候选、片长差异、别名、类型、署名对齐、成员）与一次跑完的完全相同；另一连接持有咨询锁时运行确定性抛 `RunBusy`，释放后可运行。
 
 ```bash
-# （计划）验证四个分批阶段的故障恢复与并发互斥
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_runs.py -k "ac12"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`5 passed, 8 deselected`，退出码 `0`。
 
 ## AC13 Airflow DAG 与核对后才成功
 
@@ -160,14 +157,13 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC14 报告、实例与三个只读查询
 
-- [ ] 未执行。
+- [x] 2026-11-02 通过（AI 运行）：`summary.json` 的作品与商品总数、分字段三种状态（合计等于作品数与 matched 商品数，即分母）、`inferred`、关联评估、片长类别、候选状态、署名对齐、类型词面、共享 `tconst` 等计数与数据库一致；`examples.md` 覆盖 R60 的 19 个类别（含片长 7 类），每类 1–3 例并附候选 ID、ASIN、`tconst` 或人物 ID；`query movie`（胜出值、规则理由、全部候选含未采用的、关联评估、版本摘要）、`query edition`（版本属性、内部冲突、所属作品、评论统计）、`query conflicts`（按类型、字段、层过滤）与命令行入口；导出文件的 SHA-256 与记录一致，不含整页 HTML 与评论正文。
 
 ```bash
-# （计划）验证 summary.json、examples.md、三个查询与无评论正文导出
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_report.py -k "ac14"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`7 passed, 4 deselected`，退出码 `0`。
 
 ## AC15 盲测评价工具
 
@@ -192,14 +188,13 @@ docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task7_
 
 ## AC17 多运行与多阶段键共存
 
-- [ ] 未执行。
+- [x] 2026-11-02 通过（AI 运行）：不存在或属于别的版本的 `--run-id` 被拒绝；有 `reused` 运行时默认读 `succeeded` 运行的计数，显式传入 `reused` 运行时读它复用的那次计数；两个版本共存时各版本的候选与片长类别只数自己阶段键下的行；`check` 检出注入的孤儿候选、`conflict_unresolved` 字段的 `adopted` 候选（状态不一致）、`movie_resolved` 被篡改，以及未核实版本（命令行要求 `verified`，`verify` 步骤不要求）；核对失败的运行为 `failed`，版本 `unverified`，重跑不是 `reused`，在原版本上重写且阶段结果不重算。
 
 ```bash
-# （计划）验证 run_id 校验、reused 时读 succeeded 计数、阶段键防串读与 check 异常检出
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_report.py tests/integration/test_task7_runs.py -k "ac17"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`6 passed, 18 deselected`，退出码 `0`。
 
 ## AC18 正式库全量运行、复用与只读核对
 
