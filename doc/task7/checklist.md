@@ -1,6 +1,6 @@
 # 任务 7 AC 完成情况（处理不同来源的信息冲突）
 
-状态：2026-10-30 编写，2026-11-02 随 spec 修订为 AC00–AC22。2026-11-02 完成 T7-01 至 T7-05：AC01–AC12、AC14、AC16、AC17、AC21、AC22 已通过并勾选，其余 AC 尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-10-30 编写，2026-11-02 随 spec 修订为 AC00–AC22。2026-11-02 完成 T7-01 至 T7-06：AC01–AC14、AC16、AC17、AC21、AC22 已通过并勾选，其余 AC 尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`）。
 
@@ -146,14 +146,13 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC13 Airflow DAG 与核对后才成功
 
-- [ ] 未执行。
+- [x] 2026-11-02 通过（AI 运行）：9 个节点按序连接，`finalize_report`、`gate` 为 `all_done`，重试上限 2，参数齐全，DAG 文件不在解析期导入 `etl_task7`，从 `airflow.sdk.exceptions` 导入 `AirflowFailException`、解析时无弃用警告；按 DAG 顺序执行：成功、重跑 `reused`、上游缺失时 `check_inputs` 失败且只尝试 1 次、`verify` 注入失败后运行为 `failed`、版本 `unverified`，重跑不是 `reused` 且在原版本 `cv0001` 上重写；故障注入只在 `ETL_ENV=test` 下生效。真实 scheduler（`compose.e2e.yaml`，`etl_test`）：`t7_e2e_ok1` success（`succeeded`/`verified`）；`t7_e2e_rerun2` success（`task7.run` 为 `reused`，六个执行步骤均为 `reused`）；`t7_e2e_missing1` failed（`check_inputs` 失败、仅 `try1` 记录、下游 `upstream_failed`、`finalize_report` success、`gate` failed）；`t7_e2e_vf2` failed（`verify` 失败、`gate` failed，运行 `failed`、版本 `unverified`）；`t7_e2e_vf3` success（运行 `succeeded`，版本 `verified`，没有新的 `run_batch`）。另有 `t7_e2e_rerun1`（success）与首次注入尝试 `t7_e2e_vf1`：后者输入已有通过核对的运行，被 `reused`，注入未生效，所以重新准备数据后用 `t7_e2e_vf2` 复核。已切回正常配置，见 runbook 第 2 节第 7 步。
 
 ```bash
-# （计划）验证 DAG 拓扑、重试配置、成功、复用、上游缺失与 verify 失败后重跑
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_dag.py
 ```
 
-期望（计划）：测试通过，退出码 `0`。真实 scheduler 复核见 `doc/task7/runbook.md`（可选，T7-06 编写）。
+期望：`10 passed`，退出码 `0`。真实 scheduler 复核步骤见 `doc/task7/runbook.md` 第 2 节（可选，会清空 `etl_test`）。
 
 ## AC14 报告、实例与三个只读查询
 
