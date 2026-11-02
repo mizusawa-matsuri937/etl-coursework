@@ -13,3 +13,9 @@
 | `test_task7_editions.py` | `_ac09_world`：E1 发行商 `Warner Home Video` 与 `Warner Bros.`、发售日与上架日；E2 `Sony Pictures` 与 `Universal Studios`；E3 多区域多值特征；E4 带标记的发售日；E5 包装 `2-Disc Set` | AC09 |
 | `test_task7_link_assess.py` | `_ac21_world`：L1 弱匹配 Y∧RT，L2 Y∧D，L3 T∧RT，L4 `John Cherry` 对 `John R. Cherry III`，L5 只亮 RT，L6 强关联 Y∧RT，L7 页面人物无 `nconst` 但姓名相同，L8 `Emma VHS` 与 `Departed, The`，L9 评论证据早于 IMDb 年，L10 无可比证据 | AC21 |
 | `test_task7_link_assess.py` | `_ac10_world`：P1 已熔断、P2 标题相等且导演兼容（同一对两条问题）、P3 标题相等但导演不兼容 | AC10 |
+| `test_task7_movies_scalar.py` | `_scope_world`：五类上映状态、只经 contains 出现的成员、干扰版本 | AC01 作品层 |
+| `test_task7_movies_scalar.py` | `_attribute_world`：`Seven Samurai` 的 DVD 版、VHS 版与含该作品的合集 | AC02 作品层 |
+| `test_task7_movies_scalar.py` | `_ac03_world`：M1 `Seven Samurai`、M2 `The Kid`、M3 `red shadow` 对 `crimson ninja`、M4 已熔断 `Wrong Trousers` | AC03 |
+| `test_task7_movies_scalar.py` | `_ac04_world`：Y1–Y8 年份决策表 | AC04 |
+| `test_task7_movies_scalar.py` | `_ac05_world`：R1 四个版本的片长差异、R2 单碟 135 分钟、R3 92 与 94、R4 85 与 118、R5 已熔断 | AC05 |
+| `test_task7_movies_scalar.py` | `_ac06_world`：A1 简称与全称、P1 具体分级对未评级、P2 `G` 对 `PG`、A2 未知分级、A3 未知与已知并存、A4 同 ASIN 不一致 | AC06 |

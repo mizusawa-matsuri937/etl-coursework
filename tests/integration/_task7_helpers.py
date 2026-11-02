@@ -60,6 +60,7 @@ def reset(conn: psycopg.Connection) -> None:
     apply_task6_schema(conn)
     conn.execute("DROP SCHEMA IF EXISTS task7 CASCADE")
     conn.execute("DELETE FROM public.schema_migration WHERE version = '601'")
+    conn.execute("TRUNCATE public.extraction, public.source_file CASCADE")     # 同一测试里可以再次 seed
     conn.execute("TRUNCATE imdb.snapshot CASCADE")
     conn.execute("TRUNCATE task3.classify_run CASCADE")
     conn.execute("TRUNCATE task4.run CASCADE")
@@ -400,6 +401,31 @@ def _seed_decoys(conn, eid, world: w7.World) -> None:
                     "detail_bullets", 1, rec)
             _assert(conn, eid, "t4n0", PARSER_VERSION, "product_edition", ed.asin, "title", 1, "Decoy Title [DVD]",
                     "decoy title", "title", 1, rec)
+
+
+# ---------------------------------------------------------------- 标准案例
+
+def case(tag: str, source: str | None, *, imdb_year=1990, imdb_runtime=100, imdb_title=None, page_title=None,
+         page_runtime=100, title_years=(1990,), imdb_dirs=(), page_dirs=(), bounds=(), tconst=None, imdb_original=None,
+         akas=(), edition_extra=None, release_extra=None):
+    """一个标准案例：一部作品、一个 IMDb 条目（source 为 None 时不关联）、一个 edition 商品。
+    返回 (Imdb 或 None, Movie, Ed)。页面标题默认是 IMDb 标题加 [DVD]；page_runtime 为 0 表示页面没有片长。"""
+    tc = tconst or "tt" + str(int(hashlib.md5(tag.encode()).hexdigest()[:6], 16) % 9000000 + 1000000)
+    title = imdb_title or f"{tag} Picture"
+    imdb = None
+    if source in w7.IMDB_SOURCES:
+        imdb = w7.Imdb(tc, title, imdb_original, imdb_year, imdb_runtime, directors=tuple(imdb_dirs), akas=tuple(akas))
+    release = w7.Release(source, tc if imdb else None, title_years=title_years, bounds=bounds, **(release_extra or {}))
+    movie = w7.Movie(tag, release, directors=tuple(page_dirs))
+    ed = w7.Ed(f"B0{tag}", page_title or f"{title} [DVD]", movie=tag,
+               runtime=((page_runtime, "detail_bullets"),) if page_runtime else (), **(edition_extra or {}))
+    return imdb, movie, ed
+
+
+def world_of(*cases) -> w7.World:
+    """把若干 case 合成一个世界（同 tconst 的 IMDb 条目只留最后一个）。"""
+    imdb = {c[0].tconst: c[0] for c in cases if c[0] is not None}
+    return w7.World(list(imdb.values()), [c[1] for c in cases], [c[2] for c in cases])
 
 
 # ---------------------------------------------------------------- 运行与查询

@@ -482,7 +482,7 @@ def decide_release_year(i: YearInputs) -> YearDecision:
     if not i.weak:
         if i.sig_director == "bad" and i.sig_runtime == "bad":
             return YearDecision("conflict_unresolved", None, None, "severe_mismatch_unresolved", "YR3",
-                                "强关联但年份、导演、片长同时矛盾，不能确认是同一部片")
+                                "强关联但年份、导演、片长同时矛盾，不能确认是同一部片", "severe_mismatch_unresolved")
         return YearDecision("resolved", i.imdb_year, "imdb", "cross_source_override", "YR4",
                             "强关联：年份差异在 2 年以上，导演或片长没有同时矛盾，采用 IMDb", "cross_source_override")
     if i.sig_director == "ok" or i.close_runtime:

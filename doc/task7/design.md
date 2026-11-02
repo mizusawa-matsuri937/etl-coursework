@@ -300,3 +300,21 @@
 | `verify` 失败 | 运行 `failed`，版本保持 `unverified`，不可被 `reused`；重跑在单事务中重写该版本 |
 | 瞬时连接中断或死锁 | 判为暂时错误，最多重试 2 次 |
 | 未知 MPAA、未映射类型词面 | 写 `quality_issue`，不崩溃，不污染受控词表 |
+
+## 实现补充约定（T7-01 至 T7-03，2026-11-02）
+
+实现时对 spec 与上文没有明确规定之处采用的做法，均不改变规则含义与 AC 预期；若与用户的期望不同，只需改对应函数与测试。
+
+| 事项 | 做法 | 理由 |
+|---|---|---|
+| 阶段键里的抽取 | 键串以抽取 ID 开头（`edition_stage_key` 按上文 `抽取 \| t4 \| t6 \| parser \| norm \| 签名`），表里仍有独立的 `extraction_id` 列 | 与上文一致；冗余但无害 |
+| 规则签名 | `RuleSet.signature(group)` 取该组字段值与算法标记 `ALGORITHM[group]` 的 SHA-256 前 12 位 | 只改片长容差只让 `movie_scalar` 的键变化；算法改动但数值不变时靠升算法标记 |
+| 候选 ID | 批内成块从序列 `task7.candidate_id_seq` 取号，先决策后一次写入，候选状态已定 | 选择记录可直接引用候选 ID；用不完的号留空 |
+| 阶段结果与版本表 | 阶段结果保存标量值与 `field_selections` 的 jsonb；`movie_field_selection`、`edition_field_selection` 等版本表由 T7-05 物化，本阶段只建表 | 沿用上文“阶段结果供物化使用” |
+| 未知 MPAA | 候选保留（规范值 `NULL`）；有已知分级时标 `rejected`，没有时版本层为 `conflict_unresolved`（`intra_source_tie_unresolved`），作品层无可用候选为 `missing` | R12：存在候选但无法采用不得写成 `missing` |
+| 同 ASIN 碟数不一致 | 按区域优先级取值，冲突类型借用 `intra_asin_runtime_conflict`，`disagreement_detail.field = 'discs'` | R13 闭集没有碟数专用类型；正式库此类为 0 |
+| 已熔断作品的片长 | 不写 `runtime_diff`，各版本片长保留在版本层 | 熔断后 IMDb 片长不可信，写差异类别会污染统计 |
+| 别名去重 | `movie_title_alias` 内同名（大小写折叠）别名只保留先出现者，顺序 `primary`、`original`、`aka`、页面变体 | 别名是名称集合；`aka` 里与主标题相同的写法不重复登记 |
+| 页面候选的匹配可靠度 | `singleton`、`human` 为 `1.00`；`auto_decision` 取任务 4 决策置信度，缺失时 `0.90`；版本层候选来自本 ASIN 页面，为 `1.00` | 作品层候选还要经过任务 4 的商品归并 |
+| 作品层分级、片长候选 | 每个 `edition` 商品一条，引用版本层选中的候选 ID 与原始值，而不是重新读页面 | 版本层同 ASIN 内的冲突已先消解，作品层不再重复处理 |
+| 质量问题代码 | `cross_source_mismatch_halt`（熔断，`link_assess`）、`weak_link_single_signal`、`cross_source_override`、`severe_mismatch_unresolved`、`severe_runtime_conflict`、`unknown_mpaa_rating` | R18、R25、R26、R31、R33 点名了其中一部分，其余按冲突类型命名 |

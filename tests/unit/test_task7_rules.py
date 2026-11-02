@@ -237,7 +237,7 @@ def test_ac16_decide_runtime_without_imdb():
      "cross_source_override", "YR4", "cross_source_override"),
     # Y3 强关联：Y、D、RT 同时成立
     (YearInputs(1954, page_years=(1998,), sig_year="bad", sig_director="bad", sig_runtime="bad"),
-     "conflict_unresolved", None, "severe_mismatch_unresolved", "YR3", None),
+     "conflict_unresolved", None, "severe_mismatch_unresolved", "YR3", "severe_mismatch_unresolved"),
     # Y4 弱匹配已熔断
     (YearInputs(1991, weak=True, halted=True, page_years=(2010,), sig_year="bad"),
      "conflict_unresolved", None, "cross_source_mismatch_halt", "YR7", None),

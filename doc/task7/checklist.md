@@ -1,16 +1,16 @@
 # 任务 7 AC 完成情况（处理不同来源的信息冲突）
 
-状态：2026-10-30 编写，2026-11-02 随 spec 修订为 AC00–AC22。AC01–AC22 尚未执行，全部保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-10-30 编写，2026-11-02 随 spec 修订为 AC00–AC22。2026-11-02 完成 T7-01 至 T7-03：AC03–AC06、AC09、AC10、AC16 已通过并勾选，AC01、AC02、AC21 部分通过（保持未勾选并写明待后续阶段的部分），其余 AC 尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`）。
 
-一次跑全部测试（计划）：
+一次跑全部测试：
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望（计划）：全量通过（任务 1–6 的 `792 passed` 不减少，外加任务 7 新增测试）。
+期望：2026-11-02（T7-03 完成时）实测最后一行 `985 passed`（任务 1–6 的 792 项不减少，任务 7 新增 193 项）；后续阶段会增加新测试，数字随之变化。
 
 ## AC00 计划文件规范
 
@@ -26,7 +26,7 @@ grep -c "^- R[0-9][0-9] \[" doc/task7/spec.md
 
 ## AC01 输入版本、实体边界与处理范围
 
-- [ ] 部分（2026-11-02）：版本层已通过——每个 matched 商品在 `edition_stage_result` 恰好一行、无关联合集 `movie_ids = '{}'`、`tv_series` 不进入 task7、只读指定版本（`-k "ac01"` 当前 2 项通过）；作品层与 `movie_resolved`/`edition_resolved` 物化待后续阶段，保持未勾选。
+- [ ] 部分（2026-11-02，AI 运行）：版本层与作品层均已通过——每部作品在 `movie_scalar_stage_result`、每个 matched 商品在 `edition_stage_result` 恰好一行，五类上映状态与只经 `contains` 出现的成员作品、无关联合集 `movie_ids = '{}'`、`tv_series` 不进入 `task7`、干扰版本不被读取、三类关联按 `0.95`/`0.80`/`0.75` 引入 IMDb 候选（版本层 + 作品层共 5 项）；`movie_resolved`、`edition_resolved` 的物化在 T7-05，保持未勾选。
 
 ```bash
 # （计划）验证只读指定版本、两层实体边界、无关联合集与三类 IMDb 关联可靠度
@@ -37,7 +37,7 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC02 候选保留、状态语义与版本属性隔离
 
-- [ ] 部分（2026-11-02）：版本层已通过——候选定位与互斥状态、`missing` 的 `considered_candidate_ids` 为空、冲突类型闭集、版本属性不互相覆盖、上游行摘要不变（`test_task7_editions.py -k "ac02"` 2 项通过）；作品层与合集不下推待后续阶段，保持未勾选。
+- [ ] 部分（2026-11-02，AI 运行）：候选定位与互斥状态、胜出值相同者都 `adopted`、`missing` 的 `considered_candidate_ids` 为空、冲突类型闭集、版本差异保留版本层、合集总片长与分级不下推、上游行摘要不变均已通过（版本层 + 作品层共 4 项）；合集类型不下推属 `movie_multivalue`（T7-04），保持未勾选。
 
 ```bash
 # （计划）验证候选互斥状态、missing 语义、冲突类型闭集、合集属性不下推与版本差异保留
@@ -48,47 +48,43 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC03 标题、原名与别名
 
-- [ ] 未执行。
+- [x] 2026-11-02 通过（AI 运行）：M1 取 IMDb `Seven Samurai`/`Shichinin no samurai`，页面候选 `superseded_by_specific`，别名表 3 条 IMDb 标题（`primary`、`original`、`aka` 的区域 `ES`、语言 `es`）；M2 取 `The Kid`、`original_title` 为 `missing`；M3 `conflict_unresolved`；M4 取页面 `Wrong Trousers`、IMDb 候选 `rejected`、`original_title` 为 `conflict_unresolved`、别名表无 IMDb 行。同名别名只保留先出现者（见 design“实现补充约定”）。
 
 ```bash
-# （计划）验证主标题与原名分离、别名表、无 IMDb 跨版本冲突保留与熔断回退页面标题
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_movies_scalar.py -k "ac03"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`4 passed, 28 deselected`，退出码 `0`。
 
 ## AC04 上映年份决策表与推断上界隔离
 
-- [ ] 未执行。
+- [x] 2026-11-02 通过（AI 运行）：Y1 `1985`（`minor_tolerance`）；Y2 `1954`、Y5 `1991`（`cross_source_override` 并写质量问题）；Y3、Y4、Y6、Y7 为 `conflict_unresolved`（值 `NULL`，候选 `conflict_pending`）；Y8 为 `missing`，上界 `2001-05-01` 只在参考列，不产生年份候选。
 
 ```bash
-# （计划）验证 8 个年份场景与推断上界不混入上映年
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_movies_scalar.py -k "ac04"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`11 passed, 21 deselected`，退出码 `0`。
 
 ## AC05 片长分层与逐版本差异分类
 
-- [ ] 未执行。
+- [x] 2026-11-02 通过（AI 运行）：R1 作品层 `100`，`runtime_diff` 为 `tolerance_1_2`、`pal_evidence`、`variance_3_5`（`pal_formula_match = true`）、`cut_or_multidisc`，作品层 `framerate_or_edition`；R2 取 `90`、`unexplained_gt15`、写 `severe_runtime_conflict`；R3 取 `92`（`minor_tolerance`）；R4、R5 为 `conflict_unresolved`，版本层保留各自片长。
 
 ```bash
-# （计划）验证 runtime_diff 分类、PAL 证据要求、作品层汇总与无 IMDb 跨版本冲突
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_movies_scalar.py -k "ac05"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`4 passed, 28 deselected`，退出码 `0`。
 
 ## AC06 内容分级规范化与跨版本消解
 
-- [ ] 未执行。
+- [x] 2026-11-02 通过（AI 运行）：A1 版本层 `PG`（`formatting_or_alias`）；P1 作品层 `R`（`unrated_vs_rated`），未评级候选 `superseded_by_specific`；P2 `conflict_unresolved`，版本层各自保留 `G` 与 `PG`；A2 写 `unknown_mpaa_rating`；另覆盖已知与未知并存、同 ASIN 分级不一致取 `detail_bullets`。
 
 ```bash
-# （计划）验证简称全称归一、具体分级胜过 NR/Unrated、双具体分级保留冲突与未知分级
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_movies_scalar.py -k "ac06"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`5 passed, 27 deselected`，退出码 `0`。
 
 ## AC07 类型映射、词面处置与多源并集
 

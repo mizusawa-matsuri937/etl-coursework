@@ -21,17 +21,18 @@ ETL作业模板/
 ├── src/etl_task4/            # 任务 4 同一电影：imdb（快照校验与装载）、normalize、editions（断言）、match（特征与三档）、candidates、cluster（簇、movie_id、映射版本）、review（人工纠正）、run/runner（运行与分步骤）、pipeline（DAG 步骤）、report、check（只读核对）、evaluate（评价工具）
 ├── src/etl_task5/            # 任务 5 人物归一：names（规范化与比较键）、mentions（人物提及）、external（外部 ID 两条途径）、rules/resolve/cluster（跨作品判定、合作者迭代、person_id）、review（人工纠正与待复核队列）、movie_person、run/runner/pipeline（运行与 DAG 步骤）、check、report、query、evaluate
 ├── src/etl_task6/            # 任务 6 补全上映信息：rules、sources、candidates（三类候选）、cooccur（共现反查）、review_years（评论年份提及）、select（择优与版本）、product_dates、reviews、bounds（推断上界）、run/runner/pipeline、report、query、check、evaluate
-├── tests/unit/ integration/  # 合计 792 项（2026-10-30）：任务 1 196、任务 2 89、任务 3 51、任务 4 169、任务 5 186、任务 6 101；集成测试连接 etl_test 库
+├── src/etl_task7/            # 任务 7 处理信息冲突（T7-01 至 T7-03）：rules（规则集、签名与纯函数）、run（运行审计、阶段键、咨询锁）、selection（候选与选择记录）、sources（上游只读取数）、editions（版本层消解）、link_assess（关联评估与熔断）、movies_scalar（作品层标量字段）
+├── tests/unit/ integration/  # 合计 985 项（2026-11-02）：任务 1–6 共 792 项（任务 1 196、任务 2 89、任务 3 51、任务 4 169、任务 5 186、任务 6 101）、任务 7 已新增 193 项（T7-01 至 T7-03）；集成测试连接 etl_test 库
 ├── tests/fixtures/           # 10 条固定样本、生成脚本与预期值
 ├── compose.e2e.yaml          # 端到端验证覆盖：Airflow 写入 etl_test，不污染业务库
 ├── compose.offline.yaml      # 离线复现覆盖：容器网络 internal，无外网
-├── sql/                      # 表结构、完整性核对、数量核对、质量分布、产品汇总；101_task2_schema、task2_manifest_source/checks/export（任务 2 清单）；102/103（任务 2 爬虫）；201_task3_schema、task3_input_groups、task3_classification_export（任务 3）；301_imdb_schema、302_task4_schema（任务 4）；401_task5_schema（任务 5）；501_task6_schema（任务 6）
+├── sql/                      # 表结构、完整性核对、数量核对、质量分布、产品汇总；101_task2_schema、task2_manifest_source/checks/export（任务 2 清单）；102/103（任务 2 爬虫）；201_task3_schema、task3_input_groups、task3_classification_export（任务 3）；301_imdb_schema、302_task4_schema（任务 4）；401_task5_schema（任务 5）；501_task6_schema（任务 6）；601_task7_schema（任务 7，迁移 601）
 ├── dags/                     # amazon_reviews_task1.py、amazon_products_task2_manifest.py、amazon_products_task2_crawl.py、amazon_products_task3_classify.py、imdb_reference_task4_load.py、amazon_movies_task4_match.py、amazon_movies_task5_person.py、amazon_movies_task6_release.py
 ├── scripts/                  # run_dag_e2e.py 经真实 scheduler 触发 DAG 并等待；sample_host_stats.sh 宿主侧资源采样；gen_schema_appendix.py 从数据库生成字段字典附录；check_task2_manifest.py 逐行核对任务 2 清单与任务 1 产品汇总；crawl_mihomo.py 生成爬虫用的 mihomo 多端口配置；fetch_imdb.py 下载 IMDb 五个文件（需 --confirm，文件放仓库外）；seed_task4_e2e.py、seed_task5_e2e.py、seed_task6_e2e.py 为端到端验证准备合成数据
 └── doc/
     ├── request-template.md   # 公共请求模板
     ├── handoffs/             # 任务间交接文档（新对话先读最新一份，见 CLAUDE.md）
-    ├── task7/                # 任务 7（处理不同来源的信息冲突）：spec（R01–R66、AC00–AC22）、design、tasks、checklist；T7-00 已完成，实现未开始
+    ├── task7/                # 任务 7（处理不同来源的信息冲突）：spec（R01–R66、AC00–AC22）、design、tasks、checklist；T7-00 至 T7-03 已完成（迁移 601、版本层、关联评估、作品层标量字段），T7-04 起未开始
     ├── task6/                # 任务 6（补全上映信息）：spec（R01–R39、AC00–AC23）、design、tasks、checklist、runbook、review、report；T6-01 至 T6-12 已完成并在正式库重跑、导入标注（见 tasks）
     ├── task5/                # 任务 5（人物姓名归一与消歧）：spec（R01–R47、AC00–AC17）、design、tasks、checklist 已编写并经用户审批；T5-01 至 T5-08 已实现并在正式库全量运行、导入标注（见 tasks）
     ├── task4/                # 任务 4（定义并识别同一电影）：spec（R01–R42、AC00–AC17）、design、tasks、checklist、runbook；T4-01 至 T4-08 于 2026-10-29 完成；当前规则 t4r2
@@ -149,5 +150,6 @@ docker compose --profile test run --rm etl-test pytest -q tests   # 单元 + 集
 | 2026-10-30 | 任务 6 经 PR #6 合并到 `main`（`649ac06`）；从 `main` 新建分支 `task7-conflict-resolution` |
 | 2026-11-01 | 提交任务 7（处理不同来源的信息冲突）计划 spec、design、tasks、checklist（T7-00）；实现未开始 |
 | 2026-11-02 | 复核任务 7 计划并经用户同意修订：错配熔断改为独立的 `link_assess` 阶段（正式库试算命中 8 部），补年份决策表、同片署名对齐（试算 3,335 条）、逐版本片长差异、类型词面处置、别名与演员覆盖范围、核对后才记成功；规则与验收重编号为 R01–R66、AC00–AC22，任务调整为 T7-01 至 T7-09；任务 6 两条 `tconst` 标注疑似误标，待用户确认（H09）；实现未开始 |
+| 2026-11-02 | 完成任务 7 T7-01 至 T7-03（分支 `task7-conflict-resolution`）：迁移 `601`（schema `task7`，27 张表与冲突类型闭集 CHECK）、规则集与四个阶段键的规则签名、运行审计与咨询锁、版本层消解 `edition_resolve`、关联评估与错配熔断 `link_assess`（含共享 `tconst` 逐对分类）、作品层标量字段 `movie_scalar`（标题、原名、别名、上映年份决策表、逐版本片长差异、分级）；合成夹具直接写上游表，新增 193 项测试（单元 140、集成 53），全量 985 项通过，AC03–AC06、AC09、AC10、AC16 通过，AC01、AC02、AC21 部分通过；业务库未写入、未应用迁移 601 |
 
 本目录已初始化独立 Git 仓库，当前分支为 `main`，跟踪 `origin/main`。GitHub 公开仓库为 [mizusawa-matsuri937/etl-coursework](https://github.com/mizusawa-matsuri937/etl-coursework)。任务 1 经 PR #1 合并到 `main`；任务 2 经 [PR #2](https://github.com/mizusawa-matsuri937/etl-coursework/pull/2) 于 2026-10-29 合并到 `main`（合并提交 `9594985`）；任务 3 经 [PR #3](https://github.com/mizusawa-matsuri937/etl-coursework/pull/3) 于 2026-10-29 合并到 `main`（合并提交 `c547c27`）。任务 4 经 [PR #4](https://github.com/mizusawa-matsuri937/etl-coursework/pull/4) 于 2026-10-29 合并到 `main`（合并提交 `df0d7af`）。任务 5 经 [PR #5](https://github.com/mizusawa-matsuri937/etl-coursework/pull/5) 于 2026-10-30 合并到 `main`（合并提交 `1625ad9`）。任务 6 经 [PR #6](https://github.com/mizusawa-matsuri937/etl-coursework/pull/6) 于 2026-10-30 合并到 `main`（合并提交 `649ac06`）。没有阶段标签。

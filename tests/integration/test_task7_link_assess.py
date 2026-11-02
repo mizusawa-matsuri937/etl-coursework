@@ -8,8 +8,6 @@
 
 from __future__ import annotations
 
-import hashlib
-
 import pytest
 import _task7_helpers as h
 from etl_task7 import link_assess
@@ -21,19 +19,7 @@ pytestmark = pytest.mark.integration
 M, E, IMDB, REL = w.Movie, w.Ed, w.Imdb, w.Release
 
 
-def _case(tag: str, source: str, *, imdb_year=1990, imdb_runtime=100, imdb_title=None, page_title=None,
-          page_runtime=100, title_years=(1990,), imdb_dirs=(), page_dirs=(), bounds=(), tconst=None):
-    """一个标准案例：一部作品、一个 IMDb 条目、一个 edition 商品。"""
-    tc = tconst or "tt" + str(int(hashlib.md5(tag.encode()).hexdigest()[:6], 16) % 9000000 + 1000000)
-    title = imdb_title or f"{tag} Picture"
-    imdb = IMDB(tc, title, year=imdb_year, runtime=imdb_runtime, directors=tuple(imdb_dirs))
-    movie = M(tag, REL(source, tc, title_years=title_years, bounds=bounds), directors=tuple(page_dirs))
-    ed = E(f"B0{tag}", page_title or f"{title} [DVD]", movie=tag, runtime=((page_runtime, "detail_bullets"),) if page_runtime else ())
-    return imdb, movie, ed
-
-
-def _world(*cases) -> w.World:
-    return w.World([c[0] for c in cases], [c[1] for c in cases], [c[2] for c in cases])
+_case, _world = h.case, h.world_of
 
 
 def _link(conn, ctx, s, movie: str) -> dict:

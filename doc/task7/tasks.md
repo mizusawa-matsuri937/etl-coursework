@@ -1,6 +1,6 @@
 # 任务 7 开发任务（处理不同来源的信息冲突）
 
-状态：2026-10-30 编写计划；2026-11-02 经复核修订（用户同意按复核结论修订），新增 `link_assess` 阶段，规则与验收重新编号为 R01–R66、AC00–AC22，任务调整为 T7-00 至 T7-09。T7-00 已执行并通过；T7-01 至 T7-09 尚未实现，其验证命令与期望均标注为 `（计划）`。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-10-30 编写计划；2026-11-02 经复核修订（用户同意按复核结论修订），新增 `link_assess` 阶段，规则与验收重新编号为 R01–R66、AC00–AC22，任务调整为 T7-00 至 T7-09。T7-00 已执行并通过；T7-01 至 T7-03 于 2026-11-02 实现并本地提交，命令与期望已按实际运行核对；T7-04 至 T7-09 尚未实现，其验证命令与期望仍标注为 `（计划）`。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。每项 AC 的逐条复核命令见 [checklist](checklist.md)。
 
@@ -36,17 +36,15 @@
 
   期望：最后一行 `10 passed`，退出码 `0`。
 
-- [ ] T7-03 作品层标量字段：标题、原名、别名、年份决策表、片长差异表、分级。关联 AC02–AC06、AC16。
+- [x] T7-03 作品层标量字段：标题、原名、别名、年份决策表、片长差异表、分级。关联 AC02–AC06、AC16。
   - 文件：`src/etl_task7/movies_scalar.py`、`tests/integration/test_task7_movies_scalar.py`。
-  - 目标：读 `link_assessment` 决定是否采用 IMDb；严格区分 `edition` 与 `contains` 候选；写 `movie_scalar_stage_result`、`runtime_diff`、`movie_title_alias`；推断上界只进参考列。
-  - 完成情况：未执行（计划）。
+  - 完成情况：2026-11-02 完成，32 项集成测试通过（AC01 作品层 3、AC02 2、AC03 4、AC04 11、AC05 4、AC06 5，另有 3 项分批故障恢复冒烟）：读 `link_assessment` 决定是否采用 IMDb；`edition` 与 `contains` 候选严格区分；写 `movie_scalar_stage_result`、`runtime_diff`、`movie_title_alias`；推断上界只进参考列。AC03–AC06 通过；AC01、AC02 的 `movie_resolved` 物化与类型不下推待 T7-04/T7-05。
 
   ```bash
-  # （计划）作品层标量字段集成测试
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_movies_scalar.py
   ```
 
-  期望（计划）：全部通过，退出码 `0`。
+  期望：最后一行 `32 passed`，退出码 `0`。
 
 - [ ] T7-04 作品层多值字段：类型词面处置与并集、同片署名对齐、多人串、IMDb 人物登记、署名顺序、覆盖范围。关联 AC07、AC08、AC22。
   - 文件：`src/etl_task7/movies_multivalue.py`、`tests/integration/test_task7_movies_multivalue.py`。
