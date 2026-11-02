@@ -130,12 +130,12 @@ def _relax_world() -> w.World:
               page_dirs=(("Michael Jordan", None),)))
 
 
-def test_ac21_t7r2_relaxed_name_compatibility_removes_false_d_signals_and_t7r1_is_unchanged(conn):
-    """修复前（t7r1）L11、L12 的 D 亮并与 Y 一起熔断；t7r2 预规范化与 LS 后 D 不亮，只剩 Y 单信号，不熔断。
+def test_ac21_t7r3_relaxed_name_compatibility_removes_false_d_signals_and_t7r1_is_unchanged(conn):
+    """修复前（t7r1）L11、L12 的 D 亮并与 Y 一起熔断；t7r3（t7r2 在这些例子上相同）预规范化与 LS 后 D 不亮，只剩 Y 单信号，不熔断。
     L13（单词名字）两版都熔断；L14 两版都不亮 D。"""
     s = h.seed(conn, _relax_world())
     old = h.run_stages(conn, s, upto="link_assess", rule_version="t7r1")
-    new = h.run_stages(conn, s, upto="link_assess", rule_version="t7r2")
+    new = h.run_stages(conn, s, upto="link_assess", rule_version="t7r3")
     assert old.inputs.stage_key("link_assess") != new.inputs.stage_key("link_assess")
     for movie in ("L11", "L12"):
         o = _link(conn, old, s, movie)

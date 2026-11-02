@@ -498,6 +498,16 @@ def _relax_world() -> w.World:
     # 多人串：一段是格式差异，一段是词序子集，t7r2 下全部成段命中
     add("C17", dirs=(("nm5000060", "J.P. Dutta"), ("nm5000061", "Rakesh Chaturvedi Om")),
         credits=[CR("J.P.Dutta; Rakesh Chaturvedi", "director", None, (("B0C17", 1),))])
+    # t7r3 的方向性：页面拼接串比 IMDb 名长，不得以 LS 对齐到其中一人（t7r2 双向版本会，是它被取代的原因）
+    add("C18", principals=[("nm5000070", "Justin Kirk", "actor")],
+        credits=[CR("Whoopi Goldberg Justin Kirk", "cast", None, (("B0C18", None),))])
+    add("C19", principals=[("nm5000080", "George Meeker", "actor"), ("nm5000081", "Trevor Bardette", "actor")],
+        credits=[CR("George Meeker Trevor Bardette", "cast", None, (("B0C19", None),))])
+    # 连字符名按 1 个词计，不触发 LS；空白分词 2 个词的名字（Wai-Man Chan）可以
+    add("C20", principals=[("nm5000090", "Carla-Rae Holland", "actress")],
+        credits=[CR("Carla-Rae", "cast", None, (("B0C20", None),))])
+    add("C21", principals=[("nm5000100", "Michael Wai-Man Chan", "actor")],
+        credits=[CR("Wai-Man Chan", "cast", None, (("B0C21", None),))])
     return world_of(*cases)
 
 
@@ -505,12 +515,13 @@ def _relax_world() -> w.World:
 def ac22_relax(conn):
     s = h.seed(conn, _relax_world())
     old = h.run_stages(conn, s, upto="movie_multivalue", skip=("movie_scalar",), rule_version="t7r1")
-    new = h.run_stages(conn, s, upto="movie_multivalue", skip=("movie_scalar",), rule_version="t7r2")
-    return conn, s, old, new
+    mid = h.run_stages(conn, s, upto="movie_multivalue", skip=("movie_scalar",), rule_version="t7r2")
+    new = h.run_stages(conn, s, upto="movie_multivalue", skip=("movie_scalar",), rule_version="t7r3")
+    return conn, s, old, mid, new
 
 
 def test_ac22_t7r2_aligns_format_only_page_director_instead_of_marking_it_pending(ac22_relax):
-    conn, s, old, new = ac22_relax
+    conn, s, old, mid, new = ac22_relax
     page = w.person_id("J.P.Dutta")
     # 修复前（t7r1）：页面独有导演 conflict_pending，字段为 director_source_disagreement
     d = _people(conn, old, s, "C12", "director")
@@ -529,7 +540,7 @@ def test_ac22_t7r2_aligns_format_only_page_director_instead_of_marking_it_pendin
 
 
 def test_ac22_t7r2_subset_name_aligns_at_level_ls(ac22_relax):
-    conn, s, old, new = ac22_relax
+    conn, s, old, mid, new = ac22_relax
     page = w.person_id("Rakesh Chaturvedi")
     assert _people(conn, old, s, "C13", "director")[page]["status"] == "conflict_pending"           # 修复前
     d = _people(conn, new, s, "C13", "director")
@@ -541,7 +552,7 @@ def test_ac22_t7r2_subset_name_aligns_at_level_ls(ac22_relax):
 
 
 def test_ac22_t7r2_single_word_name_does_not_align(ac22_relax):
-    conn, s, old, new = ac22_relax
+    conn, s, old, mid, new = ac22_relax
     for ctx in (old, new):
         cast = _people(conn, ctx, s, "C14", "cast")
         assert cast[w.person_id("Madonna")]["source_coverage"] == "page_only"
@@ -551,14 +562,14 @@ def test_ac22_t7r2_single_word_name_does_not_align(ac22_relax):
 
 
 def test_ac22_t7r2_middle_word_is_handled_by_the_existing_level_not_ls(ac22_relax):
-    conn, s, old, new = ac22_relax
+    conn, s, old, mid, new = ac22_relax
     for ctx in (old, new):
         (a,) = _align(conn, ctx, s, "C16")
         assert (a["level"], a["outcome"]) == ("L3", "aligned")
 
 
 def test_ac22_t7r2_two_subset_hits_in_the_same_film_and_role_do_not_align(ac22_relax):
-    conn, s, old, new = ac22_relax
+    conn, s, old, mid, new = ac22_relax
     page = w.person_id("Rakesh Chaturvedi")
     # t7r1 里两人都不兼容，页面行照常采用；t7r2 里两人并列 LS：都不对齐，页面行保留冲突
     for ctx, status in ((old, "adopted"), (new, "conflict_pending")):
@@ -573,7 +584,7 @@ def test_ac22_t7r2_two_subset_hits_in_the_same_film_and_role_do_not_align(ac22_r
 
 
 def test_ac22_t7r2_multi_person_string_aligns_through_format_and_subset_segments(ac22_relax):
-    conn, s, old, new = ac22_relax
+    conn, s, old, mid, new = ac22_relax
     raw = w.person_id("J.P.Dutta; Rakesh Chaturvedi")
     assert _people(conn, old, s, "C17", "director")[raw]["status"] == "conflict_pending"
     assert "unsplit_multi_person" in _issues(conn, old, s, "C17")
@@ -585,8 +596,40 @@ def test_ac22_t7r2_multi_person_string_aligns_through_format_and_subset_segments
     assert "unsplit_multi_person" not in _issues(conn, new, s, "C17")
 
 
+def test_ac22_t7r3_page_concatenation_is_not_aligned_to_one_of_its_people(ac22_relax):
+    conn, s, old, mid, new = ac22_relax
+    whoopi = w.person_id("Whoopi Goldberg Justin Kirk")
+    # t7r2（双向，被取代）：整串被对齐到 Justin Kirk，Whoopi Goldberg 丢失
+    (a2,) = _align(conn, mid, s, "C18")
+    assert (a2["level"], a2["outcome"], a2["nconst"]) == ("LS", "aligned", "nm5000070")
+    assert whoopi not in _people(conn, mid, s, "C18", "cast")
+    # t7r3：无兼容成员，整串作为页面独有成员保留（早已存在的拼接串数据问题，R39 不扩大分隔符）
+    (a3,) = _align(conn, new, s, "C18")
+    assert (a3["level"], a3["outcome"], a3["resolved_person_id"]) == (None, "no_match", None)
+    cast = _people(conn, new, s, "C18", "cast")
+    assert cast[whoopi]["source_coverage"] == "page_only" and cast[whoopi]["status"] == "adopted"
+    assert cast[imdb_pid("nm5000070")]["source_coverage"] == "imdb_only"
+    # C19：t7r2 里整串同时是两人的前缀与后缀，并列 LS 标 conflict_pending；t7r3 不再并列
+    meeker = w.person_id("George Meeker Trevor Bardette")
+    (b2,) = _align(conn, mid, s, "C19")
+    assert (b2["outcome"], b2["level"]) == ("tie_not_aligned", "LS")
+    assert _people(conn, mid, s, "C19", "cast")[meeker]["status"] == "conflict_pending"
+    (b3,) = _align(conn, new, s, "C19")
+    assert b3["outcome"] == "no_match" and _people(conn, new, s, "C19", "cast")[meeker]["status"] == "adopted"
+
+
+def test_ac22_t7r3_hyphenated_single_name_does_not_trigger_ls_but_two_word_names_do(ac22_relax):
+    conn, s, old, mid, new = ac22_relax
+    (c2,) = _align(conn, mid, s, "C20")
+    assert (c2["level"], c2["outcome"]) == ("LS", "aligned")                    # t7r2：按严格键拆成 2 词
+    (c3,) = _align(conn, new, s, "C20")
+    assert (c3["level"], c3["outcome"]) == (None, "no_match")                   # t7r3：Carla-Rae 是 1 个词
+    (d3,) = _align(conn, new, s, "C21")
+    assert (d3["level"], d3["outcome"], d3["nconst"]) == ("LS", "aligned", "nm5000100")   # Wai-Man Chan：2 个词
+
+
 def test_ac22_t7r2_creates_no_person_id_from_a_page_spelling(ac22_relax):
-    conn, s, _old, new = ac22_relax
+    conn, s, _old, _mid, new = ac22_relax
     pages = {w.person_id(n) for n in ("J.P.Dutta", "Rakesh Chaturvedi", "J.P.Dutta; Rakesh Chaturvedi")}
     used = {r[0] for r in conn.execute("SELECT person_id FROM task7.movie_person_resolved WHERE extraction_id = %s "
                                        "AND stage_key = %s AND status = 'adopted'",

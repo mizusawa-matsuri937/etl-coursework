@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from etl_task4.normalize import title_key
+from etl_task5.names import level as t5_level, parse as t5_parse
 from etl_task7.rules import (CONFLICT_TYPES, CONTROLLED_GENRES, DEFAULT_RULES, DIFF_CLASSES, PageRuntime, PageTitle,
                              RuleSet, YearInputs, choose_billing_order, choose_page_title, classify_genre_term,
                              classify_runtime_diff, classify_shared_pair, clean_genre_term, clean_page_display_title,
@@ -22,6 +23,7 @@ from etl_task7.rules import (CONFLICT_TYPES, CONTROLLED_GENRES, DEFAULT_RULES, D
                              normalize_mpaa, pal_runtime, publisher_root, publishers_compatible, ruleset,
                              runtime_signal_lit, signal_tokens, split_multi_person, title_match_class, title_signal,
                              titles_compatible, worst_diff_class)
+from etl_task7.rules import name_level, normalize_name_format, parse_name, word_subset
 
 R = DEFAULT_RULES
 ROOT = Path(__file__).resolve().parents[2]
@@ -46,6 +48,28 @@ def test_ac16_ruleset_registered_and_signatures_are_independent():
     sig = R.with_version("t7rz", runtime_gap=20)
     assert sig.signature("link") != base["link"] and sig.signature("edition") == base["edition"]
     assert R.thresholds()["runtime_gap"] == 15 and "version" not in R.thresholds()
+
+
+def test_ac16_t7r1_and_t7r2_are_kept_unchanged_and_t7r3_is_the_current_default():
+    """cv0001 由 t7r1、cv0002 由 t7r2 生成：两者的阶段签名必须与正式库里存下的阶段键一致（2026-11-02 从正式库读出）；
+    t7r3 只在 LS 的方向性上不同于 t7r2，t7r2 只在姓名兼容上不同于 t7r1：link、multivalue 的签名变化，edition、scalar 不变。"""
+    from etl_task7 import CURRENT_RULE_VERSION
+    sig = lambda r: {g: r.signature(g) for g in ("edition", "link", "scalar", "multivalue")}   # noqa: E731
+    R2, R3 = ruleset("t7r2"), ruleset("t7r3")
+    assert sig(R) == {"edition": "e77838d33ef49", "link": "l7d5dbb03f8f9", "scalar": "s23313546af5d",
+                      "multivalue": "m1aee40049409"}                                              # cv0001
+    assert sig(R2) == {"edition": "e77838d33ef49", "link": "l329ae711b525", "scalar": "s23313546af5d",
+                       "multivalue": "mac313025dcea"}                                             # cv0002
+    assert CURRENT_RULE_VERSION == "t7r3"
+    assert R2.name_relax and not R.name_relax and R3.name_relax
+    assert R3.ls_page_shorter and not R2.ls_page_shorter and not R.ls_page_shorter
+    assert R2.align_levels == (*R.align_levels, "LS") == R3.align_levels and R.align_levels == ("L1", "L2", "L3", "LI", "L4")
+    for a, b in ((R, R2), (R2, R3)):
+        assert a.signature("edition") == b.signature("edition") and a.signature("scalar") == b.signature("scalar")
+        assert a.signature("link") != b.signature("link") and a.signature("multivalue") != b.signature("multivalue")
+    other = lambda r: {k: v for k, v in r.thresholds().items()    # noqa: E731
+                       if k not in ("name_relax", "align_levels", "ls_page_shorter")}
+    assert other(R) == other(R2) == other(R3)                       # 其余阈值完全相同
 
 
 def test_ac16_conflict_types_match_sql_check_constraint():
@@ -445,3 +469,84 @@ def test_ac20_write_statement_targets_only_in_task7():
     text = (ROOT / "sql" / "601_task7_schema.sql").read_text(encoding="utf-8")
     assert re.search(r"REFERENCES\s+task6\.release_version", text)
     assert not re.search(r"(?:ALTER|CREATE)\s+TABLE\s+(?:public|task[1-6]|imdb)\.", text)
+
+
+# ---------------------------------------------------------------- 姓名兼容放宽（R16、R38；t7r2）
+
+@pytest.mark.parametrize("raw, expected", [
+    ("J.P.Dutta", "J. P. Dutta"),               # 粘连缩写拆开
+    ("J.P. Dutta", "J. P. Dutta"),
+    ("J.P.", "J. P."),
+    ("D.W.Griffith", "D. W. Griffith"),
+    ("St.John Smith", "St. John Smith"),         # 句点后缺空格
+    ("Rakesh   Chaturvedi ", "Rakesh Chaturvedi"),
+    ("Lon Chaney Jr.", "Lon Chaney Jr."),        # 句点后已有空格或在句末，不动
+    ("Dr. Who", "Dr. Who"),
+    ("Jean-Luc Godard", "Jean-Luc Godard"),
+])
+def test_ac22_name_format_normalization(raw, expected):
+    assert normalize_name_format(raw) == expected
+
+
+def test_ac22_format_only_differences_become_strict_matches_only_when_relaxed():
+    """真实例子 J.P.Dutta 与 J.P. Dutta：任务 5 的 level 判不兼容，放宽后预规范化使两者严格相同。"""
+    assert t5_level(t5_parse("J.P.Dutta"), t5_parse("J.P. Dutta")) is None
+    assert name_level(parse_name("J.P.Dutta"), parse_name("J.P. Dutta")) is None                 # t7r1：行为同任务 5
+    assert name_level(parse_name("J.P.Dutta", True), parse_name("J.P. Dutta", True), True) == "L1"
+    assert name_level(parse_name("J.P.Dutta", True), parse_name("J. P. Dutta", True), True) == "L1"
+
+
+def test_ac22_t7r2_word_order_subset_is_the_weakest_level_and_bidirectional():
+    p = lambda n: parse_name(n, True)       # noqa: E731
+    assert t5_level(t5_parse("Rakesh Chaturvedi"), t5_parse("Rakesh Chaturvedi Om")) is None
+    assert name_level(p("Rakesh Chaturvedi"), p("Rakesh Chaturvedi Om"), True) == "LS"
+    assert name_level(p("Rakesh Chaturvedi Om"), p("Rakesh Chaturvedi"), True) == "LS"          # t7r2 双向
+    assert name_level(p("Prakash Chaturvedi"), p("Om Prakash Chaturvedi"), True) == "LS"        # 后缀
+    assert name_level(p("jose garcia"), p("José García López"), True) == "LS"                   # 折叠大小写与重音
+    assert name_level(p("Rakesh Chaturvedi"), p("Rakesh Chaturvedi Om"), False) is None         # t7r1 不产生 LS
+
+
+def test_ac22_word_subset_negative_cases_in_both_versions():
+    p = lambda n: parse_name(n, True)       # noqa: E731
+    for page_shorter in (False, True):
+        lv = lambda a, b: name_level(p(a), p(b), True, page_shorter)        # noqa: E731
+        assert lv("Madonna", "Madonna Louise") is None                      # 单个词的名字不触发
+        assert not word_subset(p("Madonna"), p("Madonna Louise"), page_shorter)
+        assert lv("Michael Jordan", "Michael B. Jordan") == "L3"            # 中间多出词：level 原有规则，不是 LS
+        assert not word_subset(p("Michael Jordan"), p("Michael B. Jordan"), page_shorter)
+        assert not word_subset(p("Rakesh Om"), p("Rakesh Chaturvedi Om"), page_shorter)    # 不连续
+        assert not word_subset(p("John Smith"), p("Jane Smith"), page_shorter)             # 词数相同
+        assert not word_subset(p("Various Artists"), p("Various Artists Choir"), page_shorter)   # 占位名字
+        assert lv("John Smith", "John Smith Jr.") == "L3"                   # 更严格的等级优先于 LS
+
+
+def test_ac22_t7r3_ls_is_directional_page_name_must_be_the_shorter_side():
+    p = lambda n: parse_name(n, True)       # noqa: E731
+    lv = lambda page, imdb: name_level(p(page), p(imdb), True, True)       # noqa: E731
+    assert lv("Rakesh Chaturvedi", "Rakesh Chaturvedi Om") == "LS"         # IMDb 名是页面名的扩展
+    assert lv("Prakash Chaturvedi", "Om Prakash Chaturvedi") == "LS"
+    assert lv("Wai-Man Chan", "Michael Wai-Man Chan") == "LS"              # 空白分词 2 个词
+    assert lv("Rakesh Chaturvedi Om", "Rakesh Chaturvedi") is None         # 页面名较长：t7r2 为 LS，t7r3 不成立
+    assert name_level(p("Rakesh Chaturvedi Om"), p("Rakesh Chaturvedi"), True, False) == "LS"
+
+
+@pytest.mark.parametrize("page, imdb", [
+    ("Whoopi Goldberg Justin Kirk", "Justin Kirk"),
+    ("George Meeker Trevor Bardette", "George Meeker"),
+    ("George Meeker Trevor Bardette", "Trevor Bardette"),
+    ("Norman Dawn/Norman Kennedy", "Norman Dawn"),
+    ("Aruna Irani,Govinda,Johnny Lever,Prem Chopra,Rambha", "Aruna Irani"),
+    ("Michael Wrann, Tenzin Namdol, J. Brown, Annunziata Rigoli, Will, Cole", "Will Cole"),
+])
+def test_ac22_t7r3_page_concatenation_is_never_a_subset_hit(page, imdb):
+    """页面拼接串比 IMDb 名长，t7r3 不得以 LS 对齐到其中一人（t7r2 双向版本会，这是它被取代的原因）。"""
+    p = lambda n: parse_name(n, True)       # noqa: E731
+    assert name_level(p(page), p(imdb), True, True) is None
+
+
+def test_ac22_t7r3_hyphenated_name_counts_as_one_word():
+    p = lambda n: parse_name(n, True)       # noqa: E731
+    assert not word_subset(p("Carla-Rae"), p("Carla-Rae Holland"), True)           # 1 个词，不触发
+    assert word_subset(p("Carla-Rae"), p("Carla-Rae Holland"), False)              # t7r2 旧行为：按严格键拆成 2 词
+    assert not word_subset(p("Hui-Lou"), p("Hui-Lou Chen"), True)
+    assert word_subset(p("Carla Rae"), p("Carla Rae Holland"), True)               # 空白分词 2 个词

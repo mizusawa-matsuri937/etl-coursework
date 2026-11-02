@@ -1,7 +1,7 @@
 """任务 7 DAG（处理不同来源的信息冲突）：检查输入 → 版本层消解 → 关联评估 → 作品层标量 → 作品层多值 → 物化版本 → 核对 → 收尾报告 → 最终门禁。
 
 手动触发。默认处理最近一次全量清单的抽取、任务 4 映射版本 map0002、任务 5 人物映射版本 pmap0001、任务 6 上映版本 rv0001、
-IMDb 快照 imdb_2026-10-29、规则 t7r1；输入键相同且已通过核对时记 reused，不新增也不修改目标行。业务逻辑都在
+IMDb 快照 imdb_2026-10-29、默认规则 t7r3；输入键相同且已通过核对时记 reused，不新增也不修改目标行。业务逻辑都在
 etl_task7.pipeline 与 etl_task7.runner，DAG 只负责依赖、重试和状态：
 - 确定性错误（输入缺失、核对不符、抽取锁被占用、参数不合法等）抛 AirflowFailException，不重试；
 - 暂时错误（数据库断连）按 retries 重试，次数有上限；已提交的批次保留，重试只处理剩余批次；
@@ -27,7 +27,7 @@ PARAMS = {
     "t5_person_mapping_version_id": Param(None, type=["null", "string"], description="任务 5 人物映射版本；默认 pmap0001"),
     "t6_release_version_id": Param(None, type=["null", "string"], description="任务 6 上映版本；默认 rv0001"),
     "imdb_snapshot_id": Param(None, type=["null", "string"], description="IMDb 快照编号；默认取映射版本所用的快照"),
-    "rule_version": Param("t7r2", type="string", description="冲突消解规则版本（见 etl_task7.rules.RULESETS；t7r1 是姓名兼容放宽前的版本）"),
+    "rule_version": Param("t7r3", type="string", description="冲突消解规则版本（见 etl_task7.rules.RULESETS；t7r1 是姓名兼容放宽前的版本，t7r2 是双向 LS 版本）"),
     "batch_size": Param(1000, type="integer", minimum=1, description="每批提交的作品/商品数"),
     "fault_injection": Param(None, type=["null", "string"],
                              description="before_commit:<阶段>:<批号>、transient_once:<标记文件> 或 verify_fail；仅 ETL_ENV=test"),

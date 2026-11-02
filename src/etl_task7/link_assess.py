@@ -59,11 +59,11 @@ def runtime_signal(imdb_runtime: int | None, editions: list[dict[str, Any]], rul
     return state, {"imdb_runtime": imdb_runtime, "editions": rows}
 
 
-def director_signal(page: list[dict[str, Any]], imdb: list[dict[str, Any]], relax: bool = False
-                    ) -> tuple[str, dict[str, Any]]:
+def director_signal(page: list[dict[str, Any]], imdb: list[dict[str, Any]], relax: bool = False,
+                    page_shorter: bool = False) -> tuple[str, dict[str, Any]]:
     """D：双方都有导演且无一人兼容。先按 nconst，再把页面署名按 ;、and、& 拆段后用任务 5 的姓名兼容等级逐段比较（R16）；
     只比 nconst 会把大量页面人物没有 nconst 的弱匹配作品误判为导演不同。relax（t7r2）时比较前先预规范化格式，
-    并把同片词序子集（LS）也算兼容。"""
+    并把同片词序子集（LS）也算兼容（t7r3 起 LS 只在页面名较短时成立）。"""
     parsed_imdb = [(d, parse_name(d["name"], relax)) for d in imdb if d.get("name")]
     usable: list[dict[str, Any]] = []
     for p in page:
@@ -82,7 +82,7 @@ def director_signal(page: list[dict[str, Any]], imdb: list[dict[str, Any]], rela
         for _name, seg in p["segments"]:
             ps = parse_name(seg, relax)
             for d, pd in parsed_imdb:
-                lv = name_level(ps, pd, relax)
+                lv = name_level(ps, pd, relax, page_shorter)
                 if lv:
                     detail["matches"].append({"page_person_id": p["person_id"], "via": "name", "segment": seg,
                                               "nconst": d["nconst"], "level": lv})
@@ -143,7 +143,8 @@ def assess_links(conn: psycopg.Connection, ctx: RunContext, rules: RuleSet, *, b
                 eds = [{"asin": r["asin"], **ed[r["asin"]]} for r in links.get(m, ())
                        if r["relation_type"] == "edition" and r["asin"] in ed]
                 rt_state, rt_detail = runtime_signal(title["runtime_minutes"], eds, rules)
-                d_state, d_detail = director_signal(pdirs.get(m, []), dirs.get(tconst, []), rules.name_relax)
+                d_state, d_detail = director_signal(pdirs.get(m, []), dirs.get(tconst, []), rules.name_relax,
+                                                 rules.ls_page_shorter)
                 # R15：页面标题键 = 任务 4 断言的 normalized_value（括号说明已从键里去掉）；为空时才回退到清洁标题
                 page_keys = sorted({a["normalized_value"] or title_key(clean_page_display_title(a["raw_value"] or ""))
                                     for a in titles.get(m, ()) if a["normalized_value"] or a["raw_value"]})

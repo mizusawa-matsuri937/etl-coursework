@@ -1,4 +1,4 @@
-"""任务 7 的规则版本与纯函数判定（spec R09–R13、R15–R17、R20–R21、R24–R33、R34–R35、R39、R42、R45，规则版本 t7r1、t7r2）。不访问数据库。
+"""任务 7 的规则版本与纯函数判定（spec R09–R13、R15–R17、R20–R21、R24–R33、R34–R35、R39、R42、R45，规则版本 t7r1、t7r2、t7r3）。不访问数据库。
 
 RuleSet 集中所有默认值：置信度、信号阈值、片长容差、发行商后缀与区域优先级。改任何数值就是新规则版本：
 用 RuleSet.with_version 派生并登记到 RULESETS。四组字段分别构成四个阶段键的“规则签名”（design“输入键与阶段键”），
@@ -19,7 +19,7 @@ from typing import Any, Iterable, Sequence
 from etl_task4.normalize import ARTICLES, classify_segment, fold, title_key
 from etl_task5.names import Name, level as _t5_level, parse as _t5_parse
 
-from . import CURRENT_RULE_VERSION, RULE_VERSION, RULE_VERSION_RELAXED
+from . import CURRENT_RULE_VERSION, RULE_VERSION, RULE_VERSION_DIRECTIONAL, RULE_VERSION_RELAXED
 
 # 各阶段决策算法的标记：算法改动时升这里（与数值无关），进入对应阶段的规则签名
 ALGORITHM = {"edition": "e1", "link": "l1", "scalar": "s1", "multivalue": "m2"}
@@ -88,6 +88,9 @@ class RuleSet:
     # ---- 姓名兼容放宽（R16、R38、R41；t7r2 起）：比较前预规范化格式，并在 L4 之后增加最低等级 LS（同片词序子集）。
     # 它影响 link_assess 的 D 信号与 movie_multivalue 的署名对齐，所以同时进入两组规则签名；t7r1 的签名保持不变
     name_relax: bool = False
+    # t7r3：LS 改为方向性（页面名是较短一方，IMDb 名是它的前缀或后缀扩展）；页面名按空白分词至少 2 个词，连字符名算 1 个词。
+    # t7r2 是双向版本（页面拼接串会误对齐到其中一人），保持原语义，cv0002 可复现
+    ls_page_shorter: bool = False
 
     def with_version(self, version: str, **over: Any) -> "RuleSet":
         return dataclasses.replace(self, version=version, **over)
@@ -107,6 +110,8 @@ class RuleSet:
         payload["algorithm"] = ALGORITHM[group]
         if self.name_relax and group in ("link", "multivalue"):
             payload["name_relax"] = True      # 只在开启时进入签名：t7r1 的阶段键因此与 cv0001 完全一致
+            if self.ls_page_shorter:
+                payload["ls_page_shorter"] = True     # 同理：t7r2 的阶段键与 cv0002 一致
         raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=list)
         return f"{group[0]}{hashlib.sha256(raw.encode()).hexdigest()[:12]}"
 
@@ -116,6 +121,9 @@ RULESETS: dict[str, RuleSet] = {DEFAULT_RULES.version: DEFAULT_RULES}
 # t7r2（2026-11-02，用户授权）：姓名兼容放宽。t7r1 保持不变，cv0001 可复现
 RULESETS[RULE_VERSION_RELAXED] = DEFAULT_RULES.with_version(
     RULE_VERSION_RELAXED, name_relax=True, align_levels=(*DEFAULT_RULES.align_levels, "LS"))
+# t7r3（2026-11-02，用户确认）：t7r2 的 LS 是双向的，页面拼接串（Whoopi Goldberg Justin Kirk）会误对齐到其中一人，改为方向性
+RULESETS[RULE_VERSION_DIRECTIONAL] = RULESETS[RULE_VERSION_RELAXED].with_version(
+    RULE_VERSION_DIRECTIONAL, ls_page_shorter=True)
 assert CURRENT_RULE_VERSION in RULESETS
 
 
@@ -660,12 +668,19 @@ def parse_name(raw: str, relax: bool = False) -> Name:
     return _t5_parse(normalize_name_format(raw) if relax else raw)
 
 
-def word_subset(a: Name, b: Name) -> bool:
+def word_subset(a: Name, b: Name, page_shorter: bool = False) -> bool:
     """LS：较短一方至少 2 个词，且是较长一方词序列的连续前缀或后缀（严格键已折叠大小写与重音）。
-    中间多出词（Michael Jordan 与 Michael B. Jordan）不算，交给 level 原有规则；单个词的名字不触发。"""
+    中间多出词（Michael Jordan 与 Michael B. Jordan）不算，交给 level 原有规则；单个词的名字不触发。
+    page_shorter（t7r3）：a 为页面名、b 为 IMDb 名，只在页面名是较短一方时成立（IMDb 名是页面名的扩展）；页面名按空白
+    分词至少 2 个词，连字符连接的名字算 1 个词（Carla-Rae 不能凑成 2 词）。页面拼接串（Whoopi Goldberg Justin Kirk）
+    比 IMDb 名长，因此不会以 LS 对齐到其中一人。"""
     if a.placeholder or b.placeholder:
         return False
     ta, tb = a.strict.split(), b.strict.split()
+    if page_shorter:
+        if len(a.display.split()) < 2 or len(ta) >= len(tb):
+            return False
+        return tb[:len(ta)] == ta or tb[-len(ta):] == ta
     short, long_ = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
     n = len(short)
     if n < 2 or n == len(long_):
@@ -673,11 +688,12 @@ def word_subset(a: Name, b: Name) -> bool:
     return long_[:n] == short or long_[-n:] == short
 
 
-def name_level(a: Name, b: Name, relax: bool = False) -> str | None:
+def name_level(a: Name, b: Name, relax: bool = False, page_shorter: bool = False) -> str | None:
     """两个姓名的兼容等级：任务 5 的 L1 > L2 > L3 > LI > L4；relax（t7r2）时再有最低等级 LS。不兼容为 None。
-    LS 只用于同一作品、同一角色内的比较（D 信号、署名对齐、R41 页面独有导演），不外用。"""
+    LS 只用于同一作品、同一角色内的比较（D 信号、署名对齐、R41 页面独有导演），不外用。
+    page_shorter（t7r3）时 LS 有方向：a 必须是页面名，b 是 IMDb 名。"""
     lv = _t5_level(a, b)
-    if lv is None and relax and word_subset(a, b):
+    if lv is None and relax and word_subset(a, b, page_shorter):
         return LEVEL_SUBSET
     return lv
 

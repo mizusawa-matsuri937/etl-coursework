@@ -9,7 +9,7 @@ from etl_task7.link_assess import director_signal
 from etl_task7.rules import DEFAULT_RULES, ruleset
 
 LEVELS = DEFAULT_RULES.align_levels             # t7r1
-LEVELS2 = ruleset("t7r2").align_levels           # t7r2：末尾加 LS
+LEVELS2 = ruleset("t7r2").align_levels           # t7r2、t7r3：末尾加 LS
 
 
 def cand(nconst: str, name: str | None, ordinal: int = 1) -> dict:
@@ -83,3 +83,26 @@ def test_ac21_director_signal_t7r2_does_not_light_d_for_format_or_subset_differe
         state, detail = director_signal(page(page_name), imdb(imdb_name), True)
         assert state == "ok" and detail["matches"][0]["level"] == level_
     assert director_signal(page("Madonna"), imdb("Madonna Louise"), True)[0] == "bad"  # 单词不触发
+
+
+def test_ac22_t7r3_directional_ls_in_align_name():
+    """t7r3：页面名较短才成立；页面拼接串不得以 LS 对齐，也不再与两个 IMDb 名并列；连字符名不触发。"""
+    L3 = ruleset("t7r3").align_levels
+    a = align_name(["Rakesh Chaturvedi"], [cand("nm1", "Rakesh Chaturvedi Om")], L3, True, True)
+    assert (a.outcome, a.level) == ("aligned", "LS")
+    assert align_name(["Whoopi Goldberg Justin Kirk"], [cand("nm1", "Justin Kirk")], L3, True, True).outcome == "no_match"
+    assert align_name(["Whoopi Goldberg Justin Kirk"], [cand("nm1", "Justin Kirk")], LEVELS2, True).outcome == "aligned"   # t7r2
+    both = [cand("nm1", "George Meeker"), cand("nm2", "Trevor Bardette")]
+    assert align_name(["George Meeker Trevor Bardette"], both, L3, True, True).outcome == "no_match"
+    assert align_name(["George Meeker Trevor Bardette"], both, LEVELS2, True).outcome == "tie_not_aligned"
+    assert align_name(["Carla-Rae"], [cand("nm1", "Carla-Rae Holland")], L3, True, True).outcome == "no_match"
+    two = [cand("nm1", "Rakesh Chaturvedi Om"), cand("nm2", "Rakesh Chaturvedi Shah")]
+    assert align_name(["Rakesh Chaturvedi"], two, L3, True, True).outcome == "tie_not_aligned"       # 页面较短的并列仍不对齐
+
+
+def test_ac21_director_signal_t7r3_is_directional():
+    page = lambda name: [{"person_id": "p1", "names": [name], "nconst": None}]       # noqa: E731
+    imdb = lambda name: [{"nconst": "nm1", "name": name}]                             # noqa: E731
+    assert director_signal(page("Rakesh Chaturvedi"), imdb("Rakesh Chaturvedi Om"), True, True)[0] == "ok"
+    assert director_signal(page("Rakesh Chaturvedi Om"), imdb("Rakesh Chaturvedi"), True, False)[0] == "ok"    # t7r2
+    assert director_signal(page("Rakesh Chaturvedi Om"), imdb("Rakesh Chaturvedi"), True, True)[0] == "bad"   # t7r3
