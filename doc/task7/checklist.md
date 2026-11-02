@@ -1,6 +1,6 @@
 # 任务 7 AC 完成情况（处理不同来源的信息冲突）
 
-状态：2026-10-30 编写，2026-11-02 随 spec 修订为 AC00–AC22。2026-11-02 完成 T7-01 至 T7-08，并在用户授权下放宽姓名兼容（`t7r2`→`t7r3`，正式库 `cv0002`→`cv0003`，当前默认 `cv0003`）：AC01–AC18、AC20–AC22 已通过并勾选，AC19（用户审核标注、导入、指标）尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-10-30 编写，2026-11-02 随 spec 修订为 AC00–AC22。2026-11-02 完成 T7-01 至 T7-09，并在用户授权下放宽姓名兼容（`t7r2`→`t7r3`，正式库 `cv0002`→`cv0003`，当前默认 `cv0003`）：AC00–AC22 全部由 AI 运行并勾选。AC19 的标注为 AI 预填、付林轩逐项审核后全部采纳导入，不是付林轩独立手工标注；其余 AC 的检查是 AI 运行，不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`）。
 
@@ -236,31 +236,36 @@ docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default
 
 ## AC19 正式库盲测标注与指标
 
-- [ ] 未执行（计划）。评价对象为 `cv0003`：盲测表与 AI 草稿已于 2026-11-02 导出到 `outputs/task7/<抽取>/cv0003/eval/`（`ev_cv0003`，120 项：`E1` 15、`E2` 15、`E3` 20、`E4` 20、`E5` 15、`E6` 15、`E7` 20，`conflict_unresolved` 15 项，署名对齐含 `L4` 4 项、`LS` 1 项），等待付林轩审核；`ev_cv0001` 被取代，不导入。
+- [x] 2026-11-02 通过（AI 运行）：评价对象为 `cv0003`（`t7r3`），评价集 `ev_cv0003` 120 项（`E1` 15、`E2` 15、`E3` 20、`E4` 20、`E5` 15、`E6` 15、`E7` 20，系统 `conflict_unresolved` 15 项，署名对齐含 `L4` 4 项、`LS` 1 项）；开发池重叠 0。标注来历：120 项初稿由 AI（Claude 子代理）依据盲测证据与外部来源预填，不读系统结果；付林轩逐项审核后全部采纳导入（`resolve` 102、`keep_conflict` 9、`unsure` 9），要求 `note` 前缀改为“人工填写”，不是付林轩独立手工标注。导入文件 `eval_items_labeled.csv`（sha256 `2d0048a9…`）。指标（只代表分层样本，`unsure` 不进分母）：动作准确率 0.8288（92/111）、值准确率 0.7778（70/90）、`conflict_unresolved` 精确率 0.1429（2/14）、召回率 0.2222（2/9）。`ev_cv0001` 被取代，从未导入。工具、人工核查方式、错误分析与局限见 [report](report.md)。
+- 指标名说明：spec R65 写的是“`conflict_unresolved` 精确率与召回率”，`metrics` 实际输出 `conflict_precision`、`conflict_recall`；tasks 与本文 T7-09/AC19 的计划条目曾写成 `conflict_retention`（spec 从未使用该名，代码里也不存在），属计划阶段的笔误，已改正为实际指标名（代码的指标定义未改）。
 
 ```bash
-# （计划）核对已导入标注
-docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT annotator, human_action, count(*) FROM task7.eval_label GROUP BY 1, 2 ORDER BY 2;"
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT annotator, human_action, count(*) FROM task7.eval_label WHERE eval_set_id = 'ev_cv0003' GROUP BY 1, 2 ORDER BY 2;"
 ```
 
-期望（计划）：标注人 `付林轩`，各 `human_action` 合计 `120`。
+期望：`SET` 之后三行 `付林轩|keep_conflict|9`、`付林轩|resolve|102`、`付林轩|unsure|9`，合计 `120`。
 
 ```bash
-# （计划）输出评价指标
-docker compose --profile crawl run --rm -T crawler python -m etl_task7.evaluate metrics
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT stratum, count(*) FROM task7.eval_item WHERE eval_set_id = 'ev_cv0003' GROUP BY 1 ORDER BY 1; SELECT count(*) FROM task7.eval_item WHERE eval_set_id = 'ev_cv0003' AND system_status = 'conflict_unresolved'; SELECT count(*) FROM task7.eval_item i JOIN task7.dev_pool d ON d.movie_id = i.entity_id WHERE i.eval_set_id = 'ev_cv0003'; SELECT count(*) FROM task7.eval_label WHERE eval_set_id = 'ev_cv0003' AND note NOT LIKE '人工填写：%';"
 ```
 
-期望（计划）：含 `labeled_total: 120`、`action_accuracy`、`value_accuracy`、`conflict_retention`。
+期望：`E1|15`、`E2|15`、`E3|20`、`E4|20`、`E5|15`、`E6|15`、`E7|20`，然后 `15`（系统 `conflict_unresolved` 项）、`0`（开发池重叠）、`0`（`note` 都以“人工填写：”开头）。
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task7.evaluate metrics 2>/dev/null | python3 -c "import json,sys; m=json.load(sys.stdin); o=m['overall']; print(m['conflict_version_id'], m['rule_version'], m['labeled_total'], m['annotators'], m['dev_pool_overlap']); print({k:o[k] for k in ('unsure','action_accuracy','value_accuracy','conflict_precision','conflict_recall')}); print(sorted(m['by_stratum']), sorted(m['by_field']))"
+```
+
+期望：第一行 `cv0003 t7r3 120 ['付林轩'] 0`；第二行 `{'unsure': 9, 'action_accuracy': 0.8288, 'value_accuracy': 0.7778, 'conflict_precision': 0.1429, 'conflict_recall': 0.2222}`；第三行是 7 层 `E1`–`E7` 与 10 个字段 `billing, credit_align, director, genres, mpaa_rating, product_release_date, publisher, release_year, runtime_minutes, title`。该命令同时刷新 `outputs/task7/<抽取>/cv0003/eval/metrics.json`、`metrics.md`（内容与已有文件逐字相同，不写业务库）。
 
 ## AC20 迁移版本、全量测试与仓库卫生
 
-- [x] 2026-11-02 通过（AI 运行）：正式库迁移为 `001,101,102,103,201,301,302,401,501,601`；全量测试 `1121 passed`（任务 1–6 的 792 项不减少）；写语句测试通过；迁移 601 的 `credit_alignment.level` CHECK 在已应用的正式库幂等升级为含 `LS`（`check_inputs` 触发，未新增迁移号，清单不变）；`git ls-files` 不含 `.env`、`outputs/`、评价表或 IMDb 数据。
+- [x] 2026-11-02 通过（AI 运行，T7-09 收尾时重跑）：正式库迁移为 `001,101,102,103,201,301,302,401,501,601`；全量测试 `1121 passed, 63 warnings`（118 秒，任务 1–6 的 792 项不减少，任务 7 共 329 项）；写语句测试与迁移 CHECK 升级测试各 `1 passed`；迁移 601 的 `credit_alignment.level` CHECK 在已应用的正式库幂等升级为含 `LS`（`check_inputs` 触发，未新增迁移号，清单不变）；`git ls-files` 不含 `.env`、`outputs/`、评价表或 IMDb 数据。
 
 ```bash
 docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT string_agg(version, ',' ORDER BY version) FROM public.schema_migration;"
 ```
 
-期望：`001,101,102,103,201,301,302,401,501,601`。
+期望：`SET` 之后一行 `001,101,102,103,201,301,302,401,501,601`。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task7_rules.py -k "ac20"
@@ -278,7 +283,7 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望：最后一行 `1121 passed`（另有来自 Airflow 的弃用警告），任务 1–6 的 792 项不减少。
+期望：最后一行 `1121 passed, 63 warnings in …s`（警告来自 Airflow 的弃用提示），任务 1–6 的 792 项不减少。
 
 ```bash
 git ls-files | grep -Ei '(^|/)\.env$|^outputs/|eval_items|eval_pairs|cluster_sample|review_queue|name\.basics|title\.(basics|akas|crew|principals|ratings)|\.tsv(\.gz)?$|movies\.txt'; echo "grep-exit=$?"

@@ -1,6 +1,6 @@
 # 任务 7 开发任务（处理不同来源的信息冲突）
 
-状态：2026-10-30 编写计划；2026-11-02 经复核修订（用户同意按复核结论修订），新增 `link_assess` 阶段，规则与验收重新编号为 R01–R66、AC00–AC22，任务调整为 T7-00 至 T7-09。T7-00 已执行并通过；T7-01 至 T7-06 于 2026-11-02 实现并本地提交，命令与期望已按实际运行核对；T7-07、T7-08 于 2026-11-02 完成；同日用户授权放宽姓名兼容，T7-08 追加 `t7r2`→`t7r3`（正式库 `cv0002`→`cv0003`，当前默认）；T7-09 的验证命令与期望仍标注为 `（计划）`。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-10-30 编写计划；2026-11-02 经复核修订（用户同意按复核结论修订），新增 `link_assess` 阶段，规则与验收重新编号为 R01–R66、AC00–AC22，任务调整为 T7-00 至 T7-09。T7-00 已执行并通过；T7-01 至 T7-06 于 2026-11-02 实现并本地提交，命令与期望已按实际运行核对；T7-07、T7-08 于 2026-11-02 完成；同日用户授权放宽姓名兼容，T7-08 追加 `t7r2`→`t7r3`（正式库 `cv0002`→`cv0003`，当前默认）；T7-09 于 2026-11-02 完成（标注导入、指标、报告与交接），任务 7 全部完成，分支 `task7-conflict-resolution` 尚未合并到 `main`。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。每项 AC 的逐条复核命令见 [checklist](checklist.md)。
 
@@ -101,14 +101,13 @@
 
   期望：`exit=0`。
 
-- [ ] T7-09 导入 120 项标注、计算指标、报告与交接。关联 AC19、AC20。
-  - 文件：`outputs/task7/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/cv0003/eval/`（不入 Git）、`doc/task7/report.md`、`doc/handoffs/<完成日期>-task7-to-task8.md`、`README.md`、`CLAUDE.md`。
-  - 目标：付林轩审核 `eval_items_draft.csv` 后导入；生成 `metrics.json`、`metrics.md`；完成报告与交接文档，更新 checklist、README、CLAUDE.md；报告写明 H09 的处理结果。
-  - 完成情况：未执行（计划）。
+- [x] T7-09 导入 120 项标注、计算指标、报告与交接。关联 AC19、AC20。
+  - 文件：`outputs/task7/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/cv0003/eval/`（不入 Git）、`doc/task7/report.md`、`doc/handoffs/2026-11-02-task7-to-task8.md`、`README.md`、`CLAUDE.md`、`doc/task7/{spec,tasks,checklist}.md`。
+  - 目标：导入标注、生成 `metrics.json`、`metrics.md`；完成报告与交接文档，更新 checklist、README、CLAUDE.md；报告写明 H09 的处理结果。
+  - 完成情况：2026-11-02 完成。120 项初稿由 AI（Claude 子代理）依据盲测证据与外部来源预填（不读系统结果），付林轩逐项审核后全部采纳导入 `ev_cv0003`（`resolve` 102、`keep_conflict` 9、`unsure` 9，要求 `note` 前缀改为“人工填写”）；动作准确率 0.8288（92/111）、值准确率 0.7778（70/90）、`conflict_unresolved` 精确率 0.1429（2/14）、召回率 0.2222（2/9），只代表分层样本；报告含逐项错误分析（动作错误 19、取值错误 20）、H09 更正后任务 6 `tconst` 正确率 1.0000（65/65，原 0.9692）、已知局限与改进建议；计划条目里的指标名 `conflict_retention` 为笔误，实际指标是 `conflict_precision` 与 `conflict_recall`，已改正；全量测试 1,121 项通过。
 
   ```bash
-  # （计划）正式库 120 项评价指标
-  docker compose --profile crawl run --rm -T crawler python -m etl_task7.evaluate metrics
+  docker compose --profile crawl run --rm -T crawler python -m etl_task7.evaluate metrics 2>/dev/null | python3 -c "import json,sys; m=json.load(sys.stdin); o=m['overall']; print(m['conflict_version_id'], m['rule_version'], m['labeled_total'], m['annotators'], m['dev_pool_overlap']); print({k:o[k] for k in ('unsure','action_accuracy','value_accuracy','conflict_precision','conflict_recall')})"
   ```
 
-  期望（计划）：输出含 `labeled_total: 120`、`annotators: ["付林轩"]`、`action_accuracy`、`value_accuracy`、`conflict_retention`。
+  期望：第一行 `cv0003 t7r3 120 ['付林轩'] 0`；第二行 `{'unsure': 9, 'action_accuracy': 0.8288, 'value_accuracy': 0.7778, 'conflict_precision': 0.1429, 'conflict_recall': 0.2222}`。
