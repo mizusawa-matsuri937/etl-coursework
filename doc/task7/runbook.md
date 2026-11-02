@@ -162,6 +162,36 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task7.query edi
 docker compose --profile crawl run --rm -T crawler python -m etl_task7.query conflicts --type cross_source_mismatch_halt --limit 20
 ```
 
+### 3.5 规则版本与多个冲突消解版本（2026-11-02）
+
+规则版本 `t7r1`（`cv0001`）、`t7r2`（`cv0002`，姓名放宽，`LS` 双向）、`t7r3`（`cv0003`，`LS` 方向性，当前默认，DAG 参数 `rule_version` 默认值）并存，运行记录与版本都保留。换规则版本触发（`t7r2` 的 `LS` 因页面拼接串误对齐被取代，只为复现）：
+
+```bash
+python3 scripts/run_dag_e2e.py --dag-id amazon_movies_task7_conflict --run-id t7_full_3 --conf '{"imdb_snapshot_id":"imdb_2026-10-29","rule_version":"t7r2"}' --timeout 7200
+```
+
+当前默认（`t7r3`）与复用验证：
+
+```bash
+python3 scripts/run_dag_e2e.py --dag-id amazon_movies_task7_conflict --run-id t7_full_5 --conf '{"imdb_snapshot_id":"imdb_2026-10-29"}' --timeout 7200
+```
+
+```bash
+python3 scripts/run_dag_e2e.py --dag-id amazon_movies_task7_conflict --run-id t7_full_6 --conf '{"imdb_snapshot_id":"imdb_2026-10-29"}' --timeout 7200
+```
+
+期望：`t7_full_5` 生成 `cv0003`（`verified`），`t7_full_6` 为 `reused`；`etl_task7.check` 默认检查最近版本（`cv0003`），退出码 0。版本差异：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task7.report diff cv0002 cv0003
+```
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task7.report diff cv0001 cv0003
+```
+
+期望：`cv0002 → cv0003` 共 84 处变化（`cast` 44、`director` 12、`starring` 28，其中 9 个 `conflict_unresolved` 回到 `resolved`）；`cv0001 → cv0003` 共 98 处（`cast` 68、`director` 8、`starring` 22）。`credit_alignment.level` 的 CHECK 含 `LS`：迁移 601 已应用的库在 `check_inputs` 时幂等升级（见 design“实现补充约定”）。三个版本并存约占 1,408 MB。
+
 ## 4. 评价与标注（T7-07 / T7-09）
 
 `python -m etl_task7.evaluate freeze|export|import|metrics` 的设计见 design“盲测评价设计”。要点：
@@ -172,11 +202,13 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task7.query con
 - `eval_items_draft.csv` 是 AI 预标注草稿：由规则式脚本只依据盲测行生成 `ai_action`、`ai_winning_value`、`ai_doubt`、`ai_reason`，不读 `task7` 选择结果。它只是核对线索，不是事实；`ai_reason` 不进入标注表。
 
 1. 冻结开发池（见 3.2）。
-2. 正式运行（见 3.3、3.4）完成后导出盲测表与草稿（输出到 `outputs/task7/<抽取>/<冲突消解版本>/eval/`：`eval_items.csv`、`eval_items_draft.csv`、`LABELING.md`）：
+2. 正式运行（见 3.3、3.4）完成后导出盲测表与草稿（默认最近版本，现为 `cv0003`；输出到 `outputs/task7/<抽取>/<冲突消解版本>/eval/`：`eval_items.csv`、`eval_items_draft.csv`、`LABELING.md`）：
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task7.evaluate export
 ```
+
+评价集随版本更替：`ev_cv0001`（`cv0001/eval/`，120 项，从未导入标注）已被 `ev_cv0003`（`cv0003/eval/`）取代，文件与数据库行保留不删；`cv0002` 没有导出评价集。标注与指标只针对 `ev_cv0003`。
 
 已有导入的标注时拒绝重导，确需重导加 `--force`（会清除标注）。
 
@@ -184,7 +216,7 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task7.evaluate 
 4. 导入（校验通过才全部写入 `task7.eval_label`；默认要求 120 项齐全，可用 `--allow-partial` 部分导入）：
 
 ```bash
-docker compose --profile crawl run --rm -T crawler python -m etl_task7.evaluate import /opt/etl/outputs/task7/<抽取>/cv0001/eval/eval_items_labeled.csv --annotator 付林轩
+docker compose --profile crawl run --rm -T crawler python -m etl_task7.evaluate import /opt/etl/outputs/task7/<抽取>/cv0003/eval/eval_items_labeled.csv --annotator 付林轩
 ```
 
 5. 计算指标并写 `metrics.json`、`metrics.md`（总体、按层、按字段）：

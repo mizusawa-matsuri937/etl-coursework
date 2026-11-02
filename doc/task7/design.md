@@ -1,6 +1,6 @@
 # 任务 7 设计思路（处理不同来源的信息冲突）
 
-状态：2026-10-30 编写计划；2026-11-02 经复核修订，用户同意按复核结论修订（见 [spec](spec.md) 状态行与 H02–H05、H09）。需求、可观察行为与 AC 以 spec 为准；本文说明架构、表结构、算法、阶段依赖、编排、评价设计和正式库基线。阈值与置信度是**规划默认值**（规则版本 `t7r1`），只在开发池上调整，评价表导出前冻结；正文里标注“实测”的数字来自 2026-11-02 正式库 `cv0001` 的只读查询；标注“规划试算”的是 2026-11-02 规划阶段简化脚本的数字，仅保留作对照。
+状态：2026-10-30 编写计划；2026-11-02 经复核修订，用户同意按复核结论修订（见 [spec](spec.md) 状态行与 H02–H05、H09）。需求、可观察行为与 AC 以 spec 为准；本文说明架构、表结构、算法、阶段依赖、编排、评价设计和正式库基线。阈值与置信度是**规划默认值**（规则版本 `t7r1`），只在开发池上调整，评价表导出前冻结。2026-11-02 用户授权放宽姓名兼容：先有 `t7r2`（`cv0002`，`LS` 双向），抽查发现页面拼接串误对齐后改为 `t7r3`（`cv0003`，`LS` 方向性，当前默认），见“姓名兼容放宽（`t7r2`、`t7r3`）”；`t7r1`、`t7r2` 保留，`cv0001`、`cv0002` 可复现。正文里标注“实测”的数字来自 2026-11-02 正式库的只读查询，姓名相关数字为 `cv0003`（并注明 `cv0001`、`cv0002`），其余字段（标题、年份、片长、分级、类型、版本层）三个版本完全相同；标注“规划试算”的是 2026-11-02 规划阶段简化脚本的数字，仅保留作对照。
 
 ## 整体思路与架构边界
 
@@ -36,8 +36,8 @@
 | 片长覆盖 | 双方都有 4,883 部（5,111 对）、仅 IMDb 480、仅页面 2,768、都无 528；单 ASIN 多区域冲突 0 | R28–R32 |
 | 片长差异（实测 2026-11-02 `cv0001`，按对 / 按最严重版本计部） | `exact` 3,064 / 2,880；`tolerance_1_2` 888 / 863；`variance_3_5` 476 / 465；`pal_evidence` 20 / 20；`cut_or_multidisc` 44 / 41；`unexplained_6_15` 370 / 367；`unexplained_gt15` 243 / 241；合计 5,105 对、4,877 部（规划试算 5,111 对，`tolerance_1_2` 889、`unexplained_gt15` 248） | 公式吻合 PAL 的 293 对里只有 20 对有 PAL 证据，其余 270 对归 `variance_3_5` 或 `unexplained_6_15` 并记 `pal_formula_match`（R30）；241 部存在 `unexplained_gt15`，写质量问题 `severe_runtime_conflict` |
 | 演职员 | `task5.movie_person` 50,027 行（`director` 6,833、`starring` 13,151、`cast` 30,043），`order_conflict` 117 行；`starring` 同时写入 `cast`（`etl_task5.movie_person` 第 28 行） | R37–R42 |
-| 署名对齐（实测 `cv0001`） | 对齐成功 3,358 条（`cast` 2,748、`director` 610），等级 `L1` 2,727、`L2` 29、`L3` 35、`LI` 20、`L4` 547；同等级并列未对齐 1 条，无兼容成员 2,826 条（`cast` 2,680、`director` 146）；多人串逐段行（`unsplit_multi_person`）`cast` 448、`director` 114。规划试算 3,335 条（`L1` 2,706、`L4` 545），多名 IMDb 成员同时命中时先取最高等级，仍并列才不对齐 | 弱匹配作品的页面人物大多无 `nconst`，不对齐会把同一人登记两次（R38） |
-| 对齐后 IMDb 新增（实测） | `cast` 30,182、`director` 869；`imdb_person_ext` 22,157 人（规划试算 30,089、865、22,191） | R40 |
+| 署名对齐（实测 `cv0003`，括号为 `cv0001` / `cv0002`） | 对齐成功 3,435 条（`cast` 2,817、`director` 618；`cv0001` 3,358，`cv0002` 3,475），等级 `L1` 2,734、`L2` 29、`L3` 36、`LI` 20、`L4` 545、`LS` 71（`cv0001` 为 `L1` 2,727、`L2` 29、`L3` 35、`LI` 20、`L4` 547，无 `LS`；`cv0002` 的 `LS` 111）；同等级并列未对齐 1 条（`cv0002` 17，其中 16 条是页面拼接串）；无兼容成员 2,749 条（`cv0001` 2,826，`cv0002` 2,693）；多人串逐段行（`unsplit_multi_person`）562（`cv0001`、`cv0002` 同为 562，其中 `L1` 89、`L4` 5 段在部分命中；`cv0003` 另有 3 段 `LS`）。规划试算 3,335 条（`L1` 2,706、`L4` 545），多名 IMDb 成员同时命中时先取最高等级，仍并列才不对齐 | 弱匹配作品的页面人物大多无 `nconst`，不对齐会把同一人登记两次（R38） |
+| 对齐后 IMDb 新增（实测 `cv0003`） | `cast` 30,118、`director` 861（`cv0001` 30,182、869；`cv0002` 30,089、853）；`imdb_person_ext` 22,157 人（三个版本共用，规划试算 30,089、865、22,191） | R40 |
 | 多人串 | 含 `;` 的署名 `director` 29（4 条有 IMDb 关联）、`cast` 51、`starring` 50（各 29 条有关联）；` and `/`&` 25 条，含 `Black and Blue Productions` | R39：只在有 IMDb 时逐段对齐，不新造人物 |
 | 类型词面 | 页面规范词面 291 种 5,311 行，面包屑 220 种 30,146 行；扩充映射后未映射 276 行（5.2%）与 223 行（0.7%） | R34–R36 |
 | 分级 | 原始值 16 种全部可规范化；7,854 个 ASIN、7,002 部有分级；跨版本不同 31 部（26 部具体 vs 未评级，5 部双具体分级） | R33 |
@@ -139,7 +139,7 @@
 | 原 design：三信号任二，导演比姓名 | 22 部 | 16 部只因片长差加姓名写法差命中（`Alred Hitchcock`、`Jess Franco`/`Jesús Franco`） |
 | 修订口径 | 8 部 | Wrong Trousers→Were-Rabbit、Invader ZIM→Enter the Florpus、Alvin 圣诞片→2007 版等明显错配；Evening Parade、Love for Three Oranges 疑似同片但被保守拦下 |
 
-实测（2026-11-02 `cv0001`，934 部弱匹配）熔断 7 部：`Y+RT` 4、`Y+D` 2、`RT+T` 1，与规划试算的 8 部相比少 1 部（`The Love for Three Oranges`，见实现补充约定“T 信号的‘实词’”）。7 部里只有 1 部（`Saturday Night Live - The Best of Chris Rock` 对 `Best of Saturday Night Live: Special Edition`）在开发池，其余 6 部在评价池之外的规划探查中直接观察到是错配（如 `Wallace and Gromit: The Wrong Trousers` 对 2005 年的 `The Curse of the Were-Rabbit`）。开发池上还看到两部未熔断的弱匹配（`Umrao Jaan`、`Bolo Raam`）亮了 `RT` 与 `D`，但标题键相同、只是导演写法不同（`J.P.Dutta` 对 `J.P. Dutta`、`Rakesh Chaturvedi` 对 `Rakesh Chaturvedi Om`），不熔断是对的；熔断规则没有调整。
+实测（2026-11-02 `cv0001`，934 部弱匹配）熔断 7 部：`Y+RT` 4、`Y+D` 2、`RT+T` 1，与规划试算的 8 部相比少 1 部（`The Love for Three Oranges`，见实现补充约定“T 信号的‘实词’”）。7 部里只有 1 部（`Saturday Night Live - The Best of Chris Rock` 对 `Best of Saturday Night Live: Special Edition`）在开发池，其余 6 部在评价池之外的规划探查中直接观察到是错配（如 `Wallace and Gromit: The Wrong Trousers` 对 2005 年的 `The Curse of the Were-Rabbit`）。开发池上还看到两部未熔断的弱匹配（`Umrao Jaan`、`Bolo Raam`）亮了 `RT` 与 `D`，但标题键相同、只是导演写法不同（`J.P.Dutta` 对 `J.P. Dutta`、`Rakesh Chaturvedi` 对 `Rakesh Chaturvedi Om`），不熔断是对的；熔断规则没有调整。姓名放宽（`t7r2`、`t7r3`）后这两部的 `D` 不再亮（见下文），熔断仍是 7 部；弱匹配 `D` 单信号 `cv0001` 97、`cv0003` 92，`D` 亮的作品 107 → 99。
 熔断的代价是极少数同片被降为待确认，但不写错值；未熔断的弱匹配单信号照常采用 IMDb 并写 `weak_link_single_signal`（实测 190 部：`D` 97、`RT` 86、`Y` 7，没有 `T` 单信号）；另有 8 部同时亮 `RT` 与 `D` 但无 `Y` 或 `T`，不满足熔断式，也采用 IMDb，不写该质量问题。
 
 熔断的后果：
@@ -219,7 +219,7 @@
 
 1. 读页面成员（`task5.movie_person`）。
 2. 未熔断时读 IMDb 导演与主要演员。
-3. 署名对齐：对页面无 `nconst` 的人物，与同作品同角色 IMDb 成员比较 `level`；取唯一最高等级命中，等级序 `L1 > L2 > L3 > LI > L4`。`John Cusack` 同时近似 `Joan Cusack` 时严格命中胜出。
+3. 署名对齐：对页面无 `nconst` 的人物，与同作品同角色 IMDb 成员比较 `level`；取唯一最高等级命中，等级序 `L1 > L2 > L3 > LI > L4`，`t7r2` 起末尾加 `LS`（见下文）。`John Cusack` 同时近似 `Joan Cusack` 时严格命中胜出。
 4. 多人串：按 `;`、`; and `、` and `、`&` 拆段，逐段走第 3 步；全部成段命中才取代原行。`Black and Blue Productions` 不命中，保留原行。
 5. 确定 `person_id`：已在 `task5.person_external_id` 的复用；否则写 `imdb_person_ext`。
 6. 写 `movie_person_resolved`（`source_coverage`、`status`、`credit_order`、`imdb_ordering`、`resolution_note`）与 `credit_alignment`（`page_person_id`、`raw_name`、`segment`、`resolved_person_id`、`level`）。
@@ -228,6 +228,44 @@
 `task5.movie_person_source` 没有采集时间列，署名顺序平票直接取最小序号（R42），不再引用 `fetched_at`。
 
 对齐只在同作品内生效，不修改任务 5 的人物。同一人在别的作品仍可能是页面 `person_id`；`credit_alignment` 提供这条线索，任务 9 查询人物时可据此联结。
+
+### 8a. 姓名兼容放宽（`t7r2`、`t7r3`，R16、R38、R41）
+
+**动机**：`cv0001`（`t7r1`）下 `J.P.Dutta` 与 `J.P. Dutta`、`Rakesh Chaturvedi` 与 `Rakesh Chaturvedi Om` 被判不兼容，`D` 信号偏亮，页面独有导演被标 `conflict_pending`（R41）。用户 2026-11-02 授权放宽，改变 R16、R38 的规则含义。
+
+**做法**：不修改 `etl_task5`。`rules.py` 在调用 `names.parse` 前预规范化（粘连缩写拆开、句点后补空格、折叠空白，`normalize_name_format`），预规范化后仍用 `level` 比较；`level` 返回 `None` 时再判最低等级 `LS`（同片词序子集）。`RuleSet.name_relax` 控制是否放宽，`ls_page_shorter` 控制 `LS` 方向；两者只在开启时进入 `link`、`multivalue` 的规则签名，因此 `t7r1`、`t7r2` 的阶段键与 `cv0001`、`cv0002` 完全一致（单测钉住）。
+
+**三版规则**：
+
+| 版本 | 预规范化 | `LS` | 状态 |
+|---|---|---|---|
+| `t7r1` | 无 | 无 | `cv0001`，保留 |
+| `t7r2` | 有 | 双向：较短一方（至少 2 个严格键词）是较长一方的连续前缀或后缀 | `cv0002`，保留；被 `t7r3` 取代 |
+| `t7r3` | 有 | 方向性：页面名较短，IMDb 名是页面名的前缀或后缀扩展；页面名按空白分词至少 2 个词，连字符名算 1 个词 | `cv0003`，当前默认 |
+
+**为什么 `t7r2` 被取代**：`cv0002` 抽查发现 `LS` 双向会把页面拼接串对齐到其中一人。页面拼接串（逗号、斜杠、空格拼接，`split_multi_person` 不拆）比 IMDb 名长，是 IMDb 名的超串：`Whoopi Goldberg Justin Kirk` 被对齐到 `Justin Kirk`（`Whoopi Goldberg` 丢失），`Michael Wrann, …, Will, Cole` 被对齐到 `Will Cole`，`Aruna Irani,Govinda,…` 被对齐到 `Aruna Irani`；`George Meeker Trevor Bardette` 同时是 `George Meeker` 的后缀与 `Trevor Bardette` 的前缀而并列，16 条并列使 9 部作品的 `starring`（只含这一个拼接串）从 `resolved` 变成 `conflict_unresolved`；`Carla-Rae Holland` 因 `strict` 把连字符拆成 2 词而绕过“单个词”限制。`t7r3` 方向性后，页面拼接串比 IMDb 名长，不触发 `LS`；连字符名算 1 个词；并列只剩原有的 1 条 `L1`；`starring` 的 `conflict_unresolved` 回到 64。`Van Patten` 对 `Dick Van Patten` 这类页面名是 IMDb 名的子串的情形，靠“唯一最高等级命中”兜底（同片只有一个候选时仍对齐，是已知风险）；`Anna Nicholas` 对 `A.R. Nicholas` 属任务 5 已有的 `LI` 兼容（预规范化把 `A.R.` 拆成 `A. R.` 后命中），不改。
+
+**效果（`cv0001` / `cv0002` / `cv0003`）**：
+
+| 指标 | `cv0001` | `cv0002` | `cv0003` |
+|---|---|---|---|
+| 熔断 | 7 | 7 | 7 |
+| `D` 亮 / 弱匹配 `D` 单信号 | 107 / 97 | 87 / 80 | 99 / 92 |
+| 弱匹配单信号 `RT` / `Y` | 86 / 7 | 89 / 7 | 89 / 7 |
+| 署名对齐成功（其中 `LS`） | 3,358（0） | 3,475（111） | 3,435（71） |
+| 同等级并列未对齐 | 1 | 17 | 1 |
+| 无兼容成员 | 2,826 | 2,693 | 2,749 |
+| 页面独有导演 `conflict_pending`（其中 R41 原因 / 涉及作品） | 267（219 / 210） | 251（199 / 190） | 259（211 / 202） |
+| `director_source_disagreement`（作品） | 210 | 190 | 202 |
+| `director` 状态 `conflict_unresolved` / `missing` / `resolved` | 42 / 2,017 / 6,600 | 同 | 同 |
+| `starring` `conflict_unresolved` | 64 | 73 | 64 |
+| 字段选择变化（相对前一版本） | — | 179 | `cv0002`→`cv0003` 84；`cv0001`→`cv0003` 98（`cast` 68、`director` 8、`starring` 22） |
+
+放宽只让页面独有导演 `conflict_pending` 从 267 降到 259，没有降到接近零：剩下的页面独有导演大多是真的不同人（如页面 `Akira Kurosawa` 对 IMDb `Jean Renoir`），少数是拼写差异更大的同一人，不在放宽范围。`t7r3` 的 R41 原因数比 `t7r2` 多 12（199 → 211）：`t7r2` 里页面一侧更长的 8 个导演被对齐（`director` 对齐 626 → 618，如 `Norman Dawn/Norman Kennedy`、`Phil Karlson - Swing Parade`），另 4 个拼接串导演并列（`director` 并列 4 → 0）；它们在 `t7r3` 里没有兼容成员，作为页面独有导演与 IMDb 导演并存，按 R41 标 `conflict_pending`。
+
+**`cv0003` 抽查**：新增 `LS` 71 条，随机 20 条（`md5` 排序）全部看来是同一人，多为页面省略了后半姓或配偶姓（`Priyanka Chopra`/`Priyanka Chopra Jonas`、`Cynthia Sikes`/`Cynthia Sikes Yorkin`、`Aishwarya Rai`/`Aishwarya Rai Bachchan`、`Wai-Man Chan`/`Michael Wai-Man Chan`）；71 条的去重清单里仍有若干靠常识也难以确认：`Tony Leung`→`Tony Leung Chiu-wai`（同名演员之一）、`Van Patten`→`Dick Van Patten`（家族姓）、`William Morgan`→`William Morgan Sheppard`、`Peter Scott`→`Peter Scott Palmer`、`Jennifer Lee`→`Jennifer Lee Pryor`。预规范化与 `LI` 命中 6 条：`J.P.Dutta`、`Chris St. Croix`（`L1`），`J.P. McCarthy`、`F.J. Gottlieb`、`Alan C. Peterson`（`LI`，看来同一人），`Anna Nicholas`→`A.R. Nicholas`（`LI`，可疑，不改）。`LS` 对齐成立是工程判断，不是已验证事实；盲测样本里 `LS` 项只有 1 项，不足以单独给出 `LS` 的准确率。
+
+**已知局限：页面拼接串**：`split_multi_person` 只拆 `;`、` and `、`&`（R39）。逗号、斜杠、空格拼接的名单早已存在于数据里，`cv0001` 起就作为页面独有成员被采用（`cv0003` 同）。实测（`cv0003`，页面独有成员，启发式：含 `,` `/` `;` ` - ` 或不少于 5 个词）：`cast` 258、`director` 64、`starring` 214，涉及 301 部作品；已逐段处理的 `unsplit_multi_person` 质量问题 239 条。用户 2026-11-02 决定这次不扩大 R39 的分隔符，保留为已知局限。
 
 ### 9. 版本层（R44–R48）
 
@@ -263,7 +301,7 @@
 | E1 | 标题跨源、跨版本差异 | `title` | 15 | `conflict_unresolved` ≥ min(可用, 4) |
 | E2 | 年份分歧、上界矛盾、熔断 | `release_year` | 15 | 同上 |
 | E3 | 片长各 `diff_class` | `runtime_minutes` | 20 | 同上 |
-| E4 | 导演 8、署名对齐 8、署名顺序 4 | `director`、`credit_align:<role>:<page_person_id>`、`billing:<role>:<person_id>` | 20 | 署名对齐至少一半取 `L4` |
+| E4 | 导演 8、署名对齐 8、署名顺序 4 | `director`、`credit_align:<role>:<page_person_id>`、`billing:<role>:<person_id>` | 20 | 署名对齐至少一半取 `L4`；`LS` 进入轮转桶（`t7r2` 起） |
 | E5 | 类型映射与并集 | `genres` | 15 | 含 `unmapped` 词面的作品优先 |
 | E6 | 分级跨版本冲突 | `mpaa_rating` | 15 | `conflict_unresolved` ≥ min(可用, 4) |
 | E7 | 发行商 10、发售日 10 | `publisher`、`product_release_date` | 20 | 带 `date_flags` 的优先 |
@@ -339,3 +377,8 @@
 | 盲测比较口径（T7-07） | `director` 的系统值取采用成员的姓名（IMDb 姓名优先），按严格姓名键无序比较；`credit_align` 的值是同一人的 `nconst`（没有同一人填 `none`），系统 `aligned` 为 `resolved`、同等级并列未对齐为 `conflict_unresolved`，只抽单人署名；`billing` 的值是署名序号，只抽跨版本序号不一致的人物；`genres` 按受控词无序集合比较；发售日用 ISO 日期 | R65 的“是否同一人”需要可核实的标识，姓名拼写差异不应让对齐判错 |
 | 指标定义（T7-07） | 动作准确率 = 系统动作与人工一致 / 非 `unsure`；值准确率只在系统 `resolved` 且人工 `resolve` 的项里算（动作不一致已由动作准确率体现，避免重复扣分）；`conflict_unresolved` 精确率与召回率分别以系统保留、人工保留为分母；`unsure` 与分母为零均单独呈现 | R65 |
 | AI 草稿（T7-07） | `generate_ai_draft(row)` 只接收盲测行，是规则式脚本而非大模型；`ai_reason` 只写入草稿；导入时 `ai_doubt` 为真或与草稿动作、值不同的项必须有 `human_evidence`，`note` 与 `ai_reason` 相同被拒绝，默认要求 120 项齐全才写入（全有或全无） | R66；任务 6 中代码生成的存疑备注被原样采纳的教训 |
+| 规则版本与默认（2026-11-02，t7r2、t7r3） | `RULESETS` 登记 `t7r1`、`t7r2`、`t7r3`；`etl_task7.RULE_VERSION` 仍为 `t7r1`（基准规则），`CURRENT_RULE_VERSION`（`RunInputs`、`PipelineParams` 与 DAG 默认值）为 `t7r3`；`t7r1`、`t7r2` 的四个阶段签名与 `cv0001`、`cv0002` 存下的阶段键一致，单测钉住 | 保证旧版本可复现；新字段 `name_relax`、`ls_page_shorter` 只在开启时进入签名 |
+| `credit_alignment.level` 加 `LS`（t7r2） | `sql/601` 的 CHECK 加 `'LS'`；迁移 601 已应用到正式库，所以 `apply_task7_schema` 在“已应用”分支里幂等地把旧 CHECK 换成含 `LS` 的新 CHECK（DAG 的 `check_inputs` 调用它，`cv0002` 的运行自动完成了升级）；不新增迁移编号，AC20 的迁移清单不变 | 用户接受 |
+| E4 抽样桶加 `LS`（t7r2） | `evaluate.SLOTS` 的 `credit_align` 桶为 `tie_not_aligned`、`LS`、`L3`、`L2`、`LI`、`L1`，预留桶仍是 `L4`（至少一半） | 否则 `LS` 项只会作为补足项出现；用户接受 |
+| 评价集随版本更替（2026-11-02） | `eval_set_id` 为 `ev_<版本>`；`ev_cv0001`（120 项，从未导入标注）及其文件 `cv0001/eval/` 保留，被 `ev_cv0003`（`cv0003/eval/`）取代；`cv0002` 未导出评价集（`ev_cv0002` 不存在）。开发池不变。两个评价集的 120 项里 119 项相同（评价池抽样确定性，姓名项变化只影响署名对齐项） | `eval_set` 主键是 `ev_<版本>`，无冲突，无需删除任何行 |
+| 版本并存的存储开销（2026-11-02） | `task7` 三个版本并存后占用约 1,408 MB（`cv0001` 单版本 492 MB），超过 T7-08 记录的 500 MB 单版本预算；每个版本保存完整阶段结果，`edition_resolve` 阶段结果因阶段键相同被复用，作品阶段不复用 | 如需回收空间，可在用户确认后删除旧版本的阶段行；本次未删除任何版本 |

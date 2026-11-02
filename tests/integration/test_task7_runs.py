@@ -274,6 +274,7 @@ def test_ac20_migration_601_applied_before_t7r2_is_upgraded_in_place_to_allow_le
             "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE contype = 'c' "
             "AND conrelid = 'task7.credit_alignment'::regclass").fetchall() if "L4" in d]
 
+    h.seed(conn, small_world())                              # 重置并建好 task7 的表结构（迁移 601 含 LS）
     (new_def,) = level_defs()
     assert "'LS'" in new_def
     # 还原成 t7r2 之前的旧约束，再应用
