@@ -124,14 +124,13 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC10 共享 `tconst` 去重与分类
 
-- [ ] 未执行。
+- [x] 2026-11-02 通过（AI 运行）：4 条任务 6 共享问题（其中同一对作品两条）→ 3 对；已熔断为 `false_positive_link`、标题相等且导演兼容为 `likely_duplicate_movie`、标题相等但导演不兼容为 `undetermined`；任务 4 与其他上游表摘要不变；只取上映版本所属运行的 `shared_tconst_with_movie`。
 
 ```bash
-# （计划）验证重复问题合并与三类分类
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_link_assess.py -k "ac10"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`2 passed, 8 deselected`，退出码 `0`。
 
 ## AC11 消解版本、阶段依赖、复用与差异
 
@@ -293,7 +292,7 @@ git ls-files | grep -Ei '(^|/)\.env$|^outputs/|eval_items|eval_pairs|cluster_sam
 
 ## AC21 关联评估与错配熔断
 
-- [ ] 未执行。
+- [ ] 部分（2026-11-02，AI 运行）：L1–L10 的四信号、熔断条件、单信号不熔断、强关联不熔断、`Emma VHS` 与 `Departed, The` 不亮 T、信号与证据持久化、`movie_scalar` 读取同一判定均通过（`-k "ac21"` 8 项）；`movie_multivalue` 读取同一判定待 T7-04，保持未勾选。
 
 ```bash
 # （计划）验证四信号、姓名兼容比较、熔断条件、单信号不熔断与强关联不熔断

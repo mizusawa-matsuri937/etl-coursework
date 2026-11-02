@@ -26,17 +26,15 @@
 
   期望：最后一行 `151 passed`，退出码 `0`。
 
-- [ ] T7-02 关联评估：有效 `tconst`、四信号、错配熔断、共享 `tconst` 分类。关联 AC10、AC21。
+- [x] T7-02 关联评估：有效 `tconst`、四信号、错配熔断、共享 `tconst` 分类。关联 AC10、AC21。
   - 文件：`src/etl_task7/link_assess.py`、`tests/integration/test_task7_link_assess.py`。
-  - 目标：按 `movie_id` 分批写 `link_assessment`；导演比较复用 `etl_task5.names.level`；共享 `tconst` 去重后写 `shared_tconst_result`；信号、原因与证据完整持久化。
-  - 完成情况：未执行（计划）。
+  - 完成情况：2026-11-02 完成，10 项集成测试通过：L1–L10 的四信号与熔断（L1–L3 熔断，L4–L9 不熔断，强关联 L6 不熔断）、导演比较复用 `etl_task5.names` 的 `parse`/`level`、共享 `tconst` 4 条问题 → 3 对（`false_positive_link`、`likely_duplicate_movie`、`undetermined`）且任务 4 摘要不变。AC10 通过；AC21 的 `movie_multivalue` 读取同一判定待 T7-04。
 
   ```bash
-  # （计划）关联评估集成测试
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_link_assess.py
   ```
 
-  期望（计划）：全部通过，退出码 `0`。
+  期望：最后一行 `10 passed`，退出码 `0`。
 
 - [ ] T7-03 作品层标量字段：标题、原名、别名、年份决策表、片长差异表、分级。关联 AC02–AC06、AC16。
   - 文件：`src/etl_task7/movies_scalar.py`、`tests/integration/test_task7_movies_scalar.py`。

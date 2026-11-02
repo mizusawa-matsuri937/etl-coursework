@@ -11,3 +11,5 @@
 | `test_task7_editions.py` | `_scope_world`：五类任务 6 上映状态、只经 contains 出现的成员作品、无关联合集 `B0EMPTY`、`tv_series` 商品 `B0TV`、干扰版本 | AC01 版本层范围 |
 | `test_task7_editions.py` | `_attribute_world`：同一作品的 DVD 宽屏版与 VHS 全屏版、含该作品的合集 | AC02 版本属性隔离 |
 | `test_task7_editions.py` | `_ac09_world`：E1 发行商 `Warner Home Video` 与 `Warner Bros.`、发售日与上架日；E2 `Sony Pictures` 与 `Universal Studios`；E3 多区域多值特征；E4 带标记的发售日；E5 包装 `2-Disc Set` | AC09 |
+| `test_task7_link_assess.py` | `_ac21_world`：L1 弱匹配 Y∧RT，L2 Y∧D，L3 T∧RT，L4 `John Cherry` 对 `John R. Cherry III`，L5 只亮 RT，L6 强关联 Y∧RT，L7 页面人物无 `nconst` 但姓名相同，L8 `Emma VHS` 与 `Departed, The`，L9 评论证据早于 IMDb 年，L10 无可比证据 | AC21 |
+| `test_task7_link_assess.py` | `_ac10_world`：P1 已熔断、P2 标题相等且导演兼容（同一对两条问题）、P3 标题相等但导演不兼容 | AC10 |
