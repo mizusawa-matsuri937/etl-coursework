@@ -143,8 +143,9 @@ def assess_links(conn: psycopg.Connection, ctx: RunContext, rules: RuleSet, *, b
                        if r["relation_type"] == "edition" and r["asin"] in ed]
                 rt_state, rt_detail = runtime_signal(title["runtime_minutes"], eds, rules)
                 d_state, d_detail = director_signal(pdirs.get(m, []), dirs.get(tconst, []))
-                page_keys = sorted({title_key(clean_page_display_title(a["raw_value"] or ""))
-                                    for a in titles.get(m, ()) if a["raw_value"]})
+                # R15：页面标题键 = 任务 4 断言的 normalized_value（括号说明已从键里去掉）；为空时才回退到清洁标题
+                page_keys = sorted({a["normalized_value"] or title_key(clean_page_display_title(a["raw_value"] or ""))
+                                    for a in titles.get(m, ()) if a["normalized_value"] or a["raw_value"]})
                 t_state = title_signal(page_keys, keys.get(tconst, []), rules.subset_min_words)
                 halted, reason = decide_halt(weak, y_state == "bad", rt_state == "bad", d_state == "bad",
                                              t_state == "bad")

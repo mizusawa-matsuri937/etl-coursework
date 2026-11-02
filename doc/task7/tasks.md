@@ -18,33 +18,33 @@
 
 - [x] T7-01 迁移 601、运行审计与咨询锁、规则纯函数、商品版本层消解。关联 AC01、AC02、AC09、AC16。
   - 文件：`sql/601_task7_schema.sql`、`src/etl_task7/{__init__,rules,run,selection,sources,editions}.py`、`tests/fixtures/task7/`、`tests/unit/test_task7_rules.py`、`tests/integration/{_task7_helpers,test_task7_editions}.py`；`tests/integration/conftest.py` 增加一行 `DROP SCHEMA IF EXISTS task7`。
-  - 完成情况：2026-11-02 完成，规则单元测试 140 项与版本层集成测试 11 项通过（共 151）；迁移 601 含 27 张表与冲突类型闭集 CHECK；版本层取 `task4.product_edition` 的 matched 商品，6 个标量字段与 7 项多值特征落到 `edition_stage_result`。AC16、AC09 通过；AC01、AC02 的作品层与 `movie_resolved`/`edition_resolved` 物化部分待后续阶段。
+  - 完成情况：2026-11-02 完成，规则单元测试 141 项与版本层集成测试 11 项通过（共 152）；迁移 601 含 27 张表与冲突类型闭集 CHECK；版本层取 `task4.product_edition` 的 matched 商品，6 个标量字段与 7 项多值特征落到 `edition_stage_result`。AC16、AC09 通过；AC01、AC02 的作品层与 `movie_resolved`/`edition_resolved` 物化部分待后续阶段。
 
   ```bash
   docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task7_rules.py tests/integration/test_task7_editions.py
   ```
 
-  期望：最后一行 `151 passed`，退出码 `0`。
+  期望：最后一行 `152 passed`，退出码 `0`。
 
 - [x] T7-02 关联评估：有效 `tconst`、四信号、错配熔断、共享 `tconst` 分类。关联 AC10、AC21。
   - 文件：`src/etl_task7/link_assess.py`、`tests/integration/test_task7_link_assess.py`。
-  - 完成情况：2026-11-02 完成，10 项集成测试通过：L1–L10 的四信号与熔断（L1–L3 熔断，L4–L9 不熔断，强关联 L6 不熔断）、导演比较复用 `etl_task5.names` 的 `parse`/`level`、共享 `tconst` 4 条问题 → 3 对（`false_positive_link`、`likely_duplicate_movie`、`undetermined`）且任务 4 摘要不变。AC10 通过；AC21 的 `movie_multivalue` 读取同一判定待 T7-04。
+  - 完成情况：2026-11-02 完成，12 项集成测试通过：L1–L10 的四信号与熔断（L1–L3 熔断，L4–L9 不熔断，强关联 L6 不熔断）、导演比较复用 `etl_task5.names` 的 `parse`/`level`、T 信号读任务 4 规范键（`normalized_value`），共享 `tconst` 4 条问题 → 3 对（`false_positive_link`、`likely_duplicate_movie`、`undetermined`）且任务 4 摘要不变。AC10 通过；AC21 的 `movie_multivalue` 读取同一判定待 T7-04。
 
   ```bash
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_link_assess.py
   ```
 
-  期望：最后一行 `10 passed`，退出码 `0`。
+  期望：最后一行 `12 passed`，退出码 `0`。
 
 - [x] T7-03 作品层标量字段：标题、原名、别名、年份决策表、片长差异表、分级。关联 AC02–AC06、AC16。
   - 文件：`src/etl_task7/movies_scalar.py`、`tests/integration/test_task7_movies_scalar.py`。
-  - 完成情况：2026-11-02 完成，32 项集成测试通过（AC01 作品层 3、AC02 2、AC03 4、AC04 11、AC05 4、AC06 5，另有 3 项分批故障恢复冒烟）：读 `link_assessment` 决定是否采用 IMDb；`edition` 与 `contains` 候选严格区分；写 `movie_scalar_stage_result`、`runtime_diff`、`movie_title_alias`；推断上界只进参考列。AC03–AC06 通过；AC01、AC02 的 `movie_resolved` 物化与类型不下推待 T7-04/T7-05。
+  - 完成情况：2026-11-02 完成，33 项集成测试通过（AC01 作品层 3、AC02 2、AC03 5、AC04 11、AC05 4、AC06 5，另有 3 项分批故障恢复冒烟）：读 `link_assessment` 决定是否采用 IMDb；`edition` 与 `contains` 候选严格区分；写 `movie_scalar_stage_result`、`runtime_diff`、`movie_title_alias`；推断上界只进参考列。AC03–AC06 通过；AC01、AC02 的 `movie_resolved` 物化与类型不下推待 T7-04/T7-05。
 
   ```bash
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_movies_scalar.py
   ```
 
-  期望：最后一行 `32 passed`，退出码 `0`。
+  期望：最后一行 `33 passed`，退出码 `0`。
 
 - [ ] T7-04 作品层多值字段：类型词面处置与并集、同片署名对齐、多人串、IMDb 人物登记、署名顺序、覆盖范围。关联 AC07、AC08、AC22。
   - 文件：`src/etl_task7/movies_multivalue.py`、`tests/integration/test_task7_movies_multivalue.py`。

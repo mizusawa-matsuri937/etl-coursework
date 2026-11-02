@@ -118,6 +118,20 @@ def test_ac16_title_match_class_same_alias_other():
     assert k("Seven Samurai") == "seven samurai"
 
 
+def test_ac16_title_match_class_uses_task4_normalized_key():
+    """R20：任务 4 规范键命中 IMDb primary、original 或 aka 时至少为 alias；same 的条件不放宽；单实词子集仍不算。"""
+    raw = "300 Limited Collectors Edition and Digital Copy"                 # 清洁标题保留了没见过的括号说明
+    assert title_match_class(raw, "300", None, []) == "other"                # 只看清洁标题：无关
+    assert title_match_class(raw, "300", None, [], page_key="300") == "alias"
+    assert title_match_class(raw, "Three Hundred", "300", [], page_key="300") == "alias"
+    assert title_match_class(raw, "Three Hundred", None, ["300"], page_key="300") == "alias"
+    assert title_match_class("Seven Samurai (Criterion Collection)", "Seven Samurai", None, [],
+                             page_key="seven samurai") == "alias"            # AC03 M1 不变
+    assert title_match_class("Seven Samurai", "Seven Samurai", None, [], page_key="seven samurai") == "same"
+    assert title_match_class(raw, "Other Film", None, [], page_key="300") == "other"
+    assert title_match_class("Wallace (X)", "Wallace and Gromit", None, [], page_key="wallace") == "other"
+
+
 @pytest.mark.parametrize("a, b, ok", [
     ("The Kid", "Kid, The", False),                      # 冠词位置不同不属于规范键一致（键含 the）
     ("The Kid", "Kid", True),                            # 规范键去前导冠词后相同

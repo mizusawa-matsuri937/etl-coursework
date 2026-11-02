@@ -318,3 +318,4 @@
 | 页面候选的匹配可靠度 | `singleton`、`human` 为 `1.00`；`auto_decision` 取任务 4 决策置信度，缺失时 `0.90`；版本层候选来自本 ASIN 页面，为 `1.00` | 作品层候选还要经过任务 4 的商品归并 |
 | 作品层分级、片长候选 | 每个 `edition` 商品一条，引用版本层选中的候选 ID 与原始值，而不是重新读页面 | 版本层同 ASIN 内的冲突已先消解，作品层不再重复处理 |
 | 质量问题代码 | `cross_source_mismatch_halt`（熔断，`link_assess`）、`weak_link_single_signal`、`cross_source_override`、`severe_mismatch_unresolved`、`severe_runtime_conflict`、`unknown_mpaa_rating` | R18、R25、R26、R31、R33 点名了其中一部分，其余按冲突类型命名 |
+| T 信号的页面标题键 | 读 `task4.field_assertion` 的 `normalized_value`（任务 4 规范键，括号说明已去掉），`normalized_value` 为空时才回退到 `title_key(clean_page_display_title(raw_value))`；`title_match_class` 同样接收该键，命中 IMDb 任一标题键时至少为 `alias` | `clean_page_display_title` 为保留副标题会留下没见过的括号（如 `300 (Limited Collector's Edition + Digital Copy)`），重算的键带说明词，使 T 误亮、《300》类正确关联被熔断；试算读的就是规范键，也是 R15 的“页面标题键” |

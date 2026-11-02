@@ -206,14 +206,17 @@ def title_signal(page_keys: Iterable[str], imdb_keys: Iterable[str], min_words: 
 
 
 def title_match_class(page_title: str, primary: str | None, original: str | None, akas: Iterable[str],
-                      min_words: int = 2) -> str:
-    """R20：页面清洁标题与 IMDb 标题的关系。same = 与 primary_title 规范值相同；alias = 命中 original、aka 或与任一
-    标题实词子集；other = 无关。"""
+                      min_words: int = 2, page_key: str | None = None) -> str:
+    """R20：页面清洁标题与 IMDb 标题的关系。same = 清洁标题的规范键与 primary_title 相同；alias = 命中 original、aka、
+    与任一标题实词子集，或任务 4 规范键（page_key，断言的 normalized_value）命中 IMDb 任一标题键；other = 无关。
+    page_key 只能把 other 升为 alias，不放宽 same 的条件。"""
     key = title_key(page_title)
     if primary and key == title_key(primary):
         return "same"
     others = [t for t in (original, *akas) if t]
     if any(key == title_key(t) for t in others):
+        return "alias"
+    if page_key and any(page_key == title_key(t) for t in (primary, *others) if t):
         return "alias"
     page_tokens = signal_tokens(key)
     if any(title_relation(page_tokens, signal_tokens(title_key(t)), min_words) is not None

@@ -10,7 +10,7 @@
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望：2026-11-02（T7-03 完成时）实测最后一行 `985 passed`（任务 1–6 的 792 项不减少，任务 7 新增 193 项）；后续阶段会增加新测试，数字随之变化。
+期望：2026-11-02 实测最后一行 `989 passed`（任务 1–6 的 792 项不减少，任务 7 新增 197 项）；后续阶段会增加新测试，数字随之变化。
 
 ## AC00 计划文件规范
 
@@ -48,13 +48,13 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC03 标题、原名与别名
 
-- [x] 2026-11-02 通过（AI 运行）：M1 取 IMDb `Seven Samurai`/`Shichinin no samurai`，页面候选 `superseded_by_specific`，别名表 3 条 IMDb 标题（`primary`、`original`、`aka` 的区域 `ES`、语言 `es`）；M2 取 `The Kid`、`original_title` 为 `missing`；M3 `conflict_unresolved`；M4 取页面 `Wrong Trousers`、IMDb 候选 `rejected`、`original_title` 为 `conflict_unresolved`、别名表无 IMDb 行。同名别名只保留先出现者（见 design“实现补充约定”）。
+- [x] 2026-11-02 通过（AI 运行）：M1 取 IMDb `Seven Samurai`/`Shichinin no samurai`，页面候选 `superseded_by_specific`（任务 4 规范键命中 IMDb 标题至少为 `alias`），别名表 3 条 IMDb 标题（`primary`、`original`、`aka` 的区域 `ES`、语言 `es`）；M2 取 `The Kid`、`original_title` 为 `missing`；M3 `conflict_unresolved`；M4 取页面 `Wrong Trousers`、IMDb 候选 `rejected`、`original_title` 为 `conflict_unresolved`、别名表无 IMDb 行。同名别名只保留先出现者（见 design“实现补充约定”）。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_movies_scalar.py -k "ac03"
 ```
 
-期望：`4 passed, 28 deselected`，退出码 `0`。
+期望：`5 passed, 28 deselected`，退出码 `0`。
 
 ## AC04 上映年份决策表与推断上界隔离
 
@@ -185,13 +185,13 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC16 规则纯函数与边界情况
 
-- [x] 2026-11-02 通过（AI 运行）：标题清洁化与信号（单实词与括号年份、载体词与首尾冠词、`Emma VHS`、`Departed, The`）、PAL 公式与证据、年份决策表、熔断公式、发行商、碟数、多人串拆分、`NR/Unrated` 写法、未知 MPAA、类型词面处置、署名顺序、规则签名独立性与冲突类型闭集同 SQL CHECK。文件含 AC20 写语句静态检查，共 140 项。
+- [x] 2026-11-02 通过（AI 运行）：标题清洁化与信号（单实词与括号年份、载体词与首尾冠词、`Emma VHS`、`Departed, The`）、PAL 公式与证据、年份决策表、熔断公式、发行商、碟数、多人串拆分、`NR/Unrated` 写法、未知 MPAA、类型词面处置、署名顺序、规则签名独立性与冲突类型闭集同 SQL CHECK。文件含 AC20 写语句静态检查，共 141 项（含规范键命中 `alias` 的 R20 用例）。
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task7_rules.py
 ```
 
-期望：`140 passed`，退出码 `0`。
+期望：`141 passed`，退出码 `0`。
 
 ## AC17 多运行与多阶段键共存
 
@@ -288,7 +288,7 @@ git ls-files | grep -Ei '(^|/)\.env$|^outputs/|eval_items|eval_pairs|cluster_sam
 
 ## AC21 关联评估与错配熔断
 
-- [ ] 部分（2026-11-02，AI 运行）：L1–L10 的四信号、熔断条件、单信号不熔断、强关联不熔断、`Emma VHS` 与 `Departed, The` 不亮 T、信号与证据持久化、`movie_scalar` 读取同一判定均通过（`-k "ac21"` 8 项）；`movie_multivalue` 读取同一判定待 T7-04，保持未勾选。
+- [ ] 部分（2026-11-02，AI 运行）：L1–L10 的四信号、熔断条件、单信号不熔断、强关联不熔断、`Emma VHS` 与 `Departed, The` 不亮 T、信号与证据持久化、`movie_scalar` 读取同一判定均通过（`-k "ac21"` 10 项，含 T 信号读任务 4 规范键的回归）；`movie_multivalue` 读取同一判定待 T7-04，保持未勾选。
 
 ```bash
 # （计划）验证四信号、姓名兼容比较、熔断条件、单信号不熔断与强关联不熔断

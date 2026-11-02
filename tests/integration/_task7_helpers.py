@@ -18,7 +18,7 @@ from etl_task2.crawl.crawler import apply_crawl_schema
 from etl_task3 import LABEL_MAP_VERSION, PARSER_VERSION, RULE_VERSION as T3_RULE
 from etl_task3.classify import apply_task3_schema
 from etl_task4.imdb import apply_imdb_schema
-from etl_task4.normalize import title_key
+from etl_task4.normalize import split_title, title_key
 from etl_task4.run import apply_task4_schema
 from etl_task5.run import apply_task5_schema
 from etl_task6.run import apply_task6_schema
@@ -234,10 +234,10 @@ def _seed_edition(conn, eid, build, run3, ed: w7.Ed, world: w7.World) -> None:
                        section, page_ordinal(), rec)
 
     if ed.title is not None:
-        add("title", 1, ed.title, title_key(ed.title), "title")
+        add("title", 1, ed.title, split_title(ed.title).key, "title")      # 与任务 4 一致：括号说明从键里去掉
     for ordinal, _name, member_title in ed.members:
         _assert(conn, eid, NORM, PARSER_VERSION, "collection_member", f"{asin}#{ordinal}", "title", 1,
-                member_title, title_key(member_title), "title", 1, rec, rule_id="title.key")
+                member_title, split_title(member_title).key, "title", 1, rec, rule_id="title.key")
     for k, (minutes, section) in enumerate(ed.runtime, start=1):
         add("runtime_min", k, f"{minutes} minutes", str(minutes), section)
     for k, (raw, section) in enumerate(ed.publisher, start=1):

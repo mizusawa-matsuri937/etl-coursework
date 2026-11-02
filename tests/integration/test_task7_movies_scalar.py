@@ -253,6 +253,22 @@ def test_ac03_page_titles_merge_by_normalized_key_without_imdb(conn, ac03):
                         (s.mid("M2"),)).fetchone()[0] == 0
 
 
+def test_ac03_task4_normalized_key_hit_is_at_least_alias(conn):
+    """页面原串 300 (Limited Collector's Edition + Digital Copy) 的任务 4 规范键 300 命中 IMDb primary：
+    至少归为 alias（superseded_by_specific，formatting_or_alias），不能落到 other 记成 cross_source_override。"""
+    raw = "300 (Limited Collector's Edition + Digital Copy) [Blu-ray]"
+    s, ctx = _run(conn, world_of(case("N1", "imdb_t4_link", imdb_title="300", page_title=raw),
+                                 case("N2", "imdb_t4_link", imdb_title="Wallace and Gromit", page_title="Wallace (Special Case)")))
+    sel = h.movie_sel(conn, ctx, s, "N1", "title")
+    assert (sel["winning_value"], sel["conflict_type"]) == ("300", "formatting_or_alias")
+    cands = {c["source"]: c["status"] for c in _cands(conn, ctx, s, "N1", "title")}
+    assert cands == {"page_title": "superseded_by_specific", "imdb_t4_link": "adopted"}
+    assert _cands(conn, ctx, s, "N1", "title")[0]["source_ref"]["task4_title_key"] == "300"
+    # 控制：规范键 wallace 只是单实词，不命中 IMDb 的 wallace and gromit，仍是 other
+    sel2 = h.movie_sel(conn, ctx, s, "N2", "title")
+    assert sel2["conflict_type"] == "cross_source_override"
+
+
 def test_ac03_substantially_different_page_titles_stay_unresolved(conn, ac03):
     """M3：无 IMDb，规范标题键 red shadow 与 crimson ninja 实质不同，title 为 conflict_unresolved，候选 conflict_pending。"""
     s, ctx = ac03

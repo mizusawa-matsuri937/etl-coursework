@@ -164,6 +164,44 @@ def test_ac21_no_evidence_gives_na_and_unlinked_movies_have_no_row(conn):
     assert marked[s.mid("Loner")] == 0 and marked[s.mid("L10")] == 1 and SHARED_MARK in marked
 
 
+REAL_TITLES = [   # (IMDb 标题, 页面原串)：正式库里被误熔断的真实形态，页面括号说明在任务 4 规范键里已被去掉
+    ("300", "300 (Limited Collector's Edition + Digital Copy) [Blu-ray]"),
+    ("Ajnabee", "Ajnabee (2-Disc Set)"),
+    ("Amadeus", "Amadeus (Oscar O-Sleeve)"),
+    ("Sickhouse", "Sickhouse, The (DVD) (FS/WS)")]
+
+
+def test_ac21_title_signal_reads_task4_normalized_key_not_recleaned_title(conn):
+    """T 信号的页面键取任务 4 断言的 normalized_value（R15）：页面括号说明不进键。T ok 时再同时亮 D 也不熔断。"""
+    cases = [_case(f"T{n}", "imdb_t6_cooccur", imdb_title=imdb_title, page_title=raw,
+                  imdb_dirs=(("nm0000099", "Real Director"),), page_dirs=(("Other Person", None),))
+             for n, (imdb_title, raw) in enumerate(REAL_TITLES)]
+    s = h.seed(conn, h.world_of(*cases))
+    # 夹具与任务 4 一致：normalized_value 是去掉括号说明后的规范键，不含 limited、disc、oscar 等说明词
+    keys = dict(conn.execute("SELECT entity_id, normalized_value FROM task4.field_assertion WHERE field_name = 'title'"))
+    assert keys["B0T0"] == "300" and keys["B0T1"] == "ajnabee" and keys["B0T2"] == "amadeus"
+    ctx = h.run_stages(conn, s, upto="link_assess")
+    for n, (imdb_title, raw) in enumerate(REAL_TITLES):
+        row = _link(conn, ctx, s, f"T{n}")
+        assert row["sig_title"] == "ok", raw
+        assert row["sig_director"] == "bad" and row["cross_source_mismatch_halt"] is False, raw   # 只亮 D，不熔断
+        assert row["signal_detail"]["title"]["page_keys"] == [key_of(raw)], raw
+
+
+def key_of(raw: str) -> str:
+    from etl_task4.normalize import split_title
+    return split_title(raw).key
+
+
+def test_ac21_title_signal_falls_back_to_cleaning_when_normalized_key_is_missing(conn):
+    """断言的 normalized_value 为空时回退到清洁标题算法（原有行为）。"""
+    s = h.seed(conn, h.world_of(_case("Fb", "imdb_t6_cooccur", imdb_title="Emma", page_title="Emma VHS")))
+    conn.execute("UPDATE task4.field_assertion SET normalized_value = NULL WHERE field_name = 'title'")
+    ctx = h.run_stages(conn, s, upto="link_assess")
+    row = _link(conn, ctx, s, "Fb")
+    assert row["sig_title"] == "ok" and row["signal_detail"]["title"]["page_keys"] == ["emma vhs"]
+
+
 def test_ac21_movie_scalar_reads_the_same_assessment(conn, ac21):
     """movie_scalar 读取 link_assessment 的同一判定：熔断标记与有效 tconst 一致，已熔断作品不采用 IMDb 值。"""
     s, ctx = ac21

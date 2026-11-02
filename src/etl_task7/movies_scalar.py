@@ -78,7 +78,7 @@ def _title(alloc, movie, link, imdb, akas, page, records, downloaded, rules, sin
             {"asin": a["asin"], "assertion_id": a["assertion_id"], "source_record_id": a["source_record_id"],
              "entity_type": a["entity_type"], "relation_type": a["relation_type"],
              "member_ordinal": a["member_ordinal"], "section": a["section"], "ordinal": a["page_ordinal"],
-             "basis": a["basis"], "content_hash": rec.get("content_hash"), "snapshot_path": rec.get("snapshot_path")},
+             "basis": a["basis"], "task4_title_key": a["normalized_value"], "content_hash": rec.get("content_hash"), "snapshot_path": rec.get("snapshot_path")},
             page_match_reliability(a), rec.get("acquired_at")))
     cands += page_c
     imdb_ok = link is not None and imdb is not None and imdb["primary_title"]
@@ -94,7 +94,8 @@ def _title(alloc, movie, link, imdb, akas, page, records, downloaded, rules, sin
     if imdb_c is not None and not halted:
         title_keys_aka = [a["title"] for a in akas if a["title"]]
         classes = {c.cid: title_match_class(c.normalized_value or "", imdb["primary_title"], imdb["original_title"],
-                                            title_keys_aka, rules.subset_min_words) for c in page_c}
+                                            title_keys_aka, rules.subset_min_words,
+                                            c.source_ref.get("task4_title_key")) for c in page_c}
         same = [c for c in page_c if classes[c.cid] == "same"]
         alias = [c for c in page_c if classes[c.cid] == "alias"]
         other = [c for c in page_c if classes[c.cid] == "other"]
