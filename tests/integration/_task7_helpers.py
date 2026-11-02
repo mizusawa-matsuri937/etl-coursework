@@ -18,7 +18,8 @@ from etl_task2.crawl.crawler import apply_crawl_schema
 from etl_task3 import LABEL_MAP_VERSION, PARSER_VERSION, RULE_VERSION as T3_RULE
 from etl_task3.classify import apply_task3_schema
 from etl_task4.imdb import apply_imdb_schema
-from etl_task4.normalize import split_title, title_key
+from etl_task4.normalize import genre_tags, split_title, title_key
+from etl_task5.names import parse as parse_name
 from etl_task4.run import apply_task4_schema
 from etl_task5.run import apply_task5_schema
 from etl_task6.run import apply_task6_schema
@@ -253,6 +254,20 @@ def _seed_edition(conn, eid, build, run3, ed: w7.Ed, world: w7.World) -> None:
         conn.execute("INSERT INTO task3.page_field (extraction_id, asin, parser_version, section, ordinal, label_raw, "
                      "value_raw, field_key) VALUES (%s, %s, %s, %s, %s, 'Rated:', %s, 'mpaa_rating')",
                      (eid, asin, PARSER_VERSION, section, k, raw))
+    tag_no = 0
+    for k, raw in enumerate(ed.genre, start=1):
+        # 与任务 4 一致：整串写入任务 3 字段，任务 4 用 genre_tags 拆成断言（raw_value 是整串，normalized_value 是单个标签）
+        conn.execute("INSERT INTO task3.page_field (extraction_id, asin, parser_version, section, ordinal, label_raw, "
+                     "value_raw, field_key) VALUES (%s, %s, %s, 'product_overview', %s, 'Genre', %s, 'genre')",
+                     (eid, asin, PARSER_VERSION, k, raw))
+        for tag in genre_tags(raw):
+            tag_no += 1         # 断言序号在同一商品内连续（唯一键含序号）
+            _assert(conn, eid, NORM, PARSER_VERSION, "product_edition", asin, "genre", tag_no, raw, tag,
+                    "product_overview", k, rec, rule_id="genre.tag")
+    for k, raw in enumerate(ed.breadcrumb, start=1):
+        conn.execute("INSERT INTO task3.page_field (extraction_id, asin, parser_version, section, ordinal, label_raw, "
+                     "value_raw, field_key) VALUES (%s, %s, %s, 'breadcrumb', %s, NULL, %s, 'breadcrumb')",
+                     (eid, asin, PARSER_VERSION, k, raw))
     for k, raw in enumerate(ed.swatch, start=1):
         conn.execute("INSERT INTO task3.page_field (extraction_id, asin, parser_version, section, ordinal, label_raw, "
                      "value_raw, field_key) VALUES (%s, %s, %s, 'format_swatch', %s, NULL, %s, 'format_swatch')",
@@ -260,7 +275,9 @@ def _seed_edition(conn, eid, build, run3, ed: w7.Ed, world: w7.World) -> None:
 
 
 def seed_task5(conn: psycopg.Connection, eid: str, world: w7.World) -> None:
-    """任务 5 人物映射版本与页面导演（movie_person 的 director 行）。"""
+    """任务 5 人物映射版本、页面人物与作品–人物关系：person_identity、person、person_external_id、person_alias、
+    person_mention、mention_person、movie_person 及其来源提及 movie_person_source，形状与任务 5 的真实输出一致
+    （person_id 用任务 5 同一公式，姓名键由 etl_task5.names.parse 生成）。"""
     conn.execute("INSERT INTO task5.run (run_id, kind, extraction_id, t4_mapping_version_id, parser_version, norm_version, "
                  "rule_version, imdb_snapshot_id, human_set_hash, input_key, status, finished_at) "
                  "VALUES ('t5fix', 'person', %s, %s, %s, 't5n1', 't5r1', %s, 'none', 'fix', 'succeeded', now())",
@@ -269,25 +286,89 @@ def seed_task5(conn: psycopg.Connection, eid: str, world: w7.World) -> None:
                  "t4_mapping_version_id, parser_version, norm_version, rule_version, imdb_snapshot_id, human_set_hash, "
                  "counts) VALUES (%s, %s, 't5fix', 'fix', %s, %s, 't5n1', 't5r1', %s, 'none', '{}')",
                  (PMAP, eid, T4, PARSER_VERSION, SNAPSHOT))
+    created: set[str] = set()
+    edition_asins = {e.asin: e for e in world.editions}
+    counter = {"n": 0}
+
+    def person(name: str, nconst: str | None, aliases: tuple[str, ...], anchor_override: str | None = None) -> str:
+        pid = w7.person_id(name, nconst, anchor_override)
+        if pid in created:
+            return pid
+        created.add(pid)
+        anchor = anchor_override or (f"imdb:{nconst}" if nconst else f"mention:fix:{name}")
+        conn.execute("INSERT INTO task5.person_identity (anchor_key, person_id, created_run) VALUES (%s, %s, 't5fix') "
+                     "ON CONFLICT DO NOTHING", (anchor, pid))
+        conn.execute("INSERT INTO task5.person (person_mapping_version_id, person_id, status, has_external_id, "
+                     "external_route, anchor_key, canonical_name, canonical_source, mention_count, work_count) "
+                     "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1, 1)",
+                     (PMAP, pid, "external_verified" if nconst else "page_only", bool(nconst),
+                      "credits" if nconst else None, anchor, name, f"imdb:{nconst}" if nconst else anchor))
+        if nconst:
+            conn.execute("INSERT INTO task5.person_external_id (person_mapping_version_id, person_id, system, "
+                         "external_id, snapshot_id) VALUES (%s, %s, 'imdb', %s, %s)", (PMAP, pid, nconst, SNAPSHOT))
+        for alias in dict.fromkeys((name, *aliases)):
+            conn.execute("INSERT INTO task5.person_alias (person_mapping_version_id, person_id, alias, alias_types, "
+                         "source, occurrences) VALUES (%s, %s, %s, %s, 'page', 1)",
+                         (PMAP, pid, alias, ["identical"] if alias == name else ["variant"]))
+        return pid
+
+    def mention(asin: str, name: str, role: str, rank: int | None, pid: str) -> str:
+        counter["n"] += 1
+        section = "byline" if rank is not None else "detail_bullets"
+        key = f"{asin}:{section}:{counter['n']}:1"
+        nm = parse_name(name)
+        rec = conn.execute("SELECT source_record_id FROM task4.source_record WHERE locator->>'asin' = %s",
+                           (asin,)).fetchone()[0]
+        conn.execute(
+            "INSERT INTO task5.person_mention (extraction_id, parser_version, norm_version, mention_key, asin, "
+            "product_kind, section, page_ordinal, list_position, label_raw, role_class, is_byline, byline_rank, "
+            "raw_value, display_name, nickname, disambiguator, paren_text, suffix, honorific, strict_key, loose_key, "
+            "tokenset_key, family_key, initial_key, flags, status, source_record_id, run_id) "
+            "VALUES (%s, %s, 't5n1', %s, %s, %s, %s, %s, 1, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
+            "%s, '{}', 'resolvable', %s, 't5fix')",
+            (eid, PARSER_VERSION, key, asin, edition_asins[asin].kind if edition_asins[asin].kind in ("movie", "collection")
+             else "movie", section, counter["n"], "Director" if role == "director" else "Actors",
+             "director" if role == "director" else "actor", rank is not None, rank, name, nm.display, nm.nickname,
+             nm.disambiguator, nm.paren_text, nm.suffix, nm.honorific, nm.strict, nm.loose, nm.tokenset, nm.family,
+             nm.initial, rec))
+        conn.execute("INSERT INTO task5.mention_person (person_mapping_version_id, extraction_id, parser_version, "
+                     "norm_version, mention_key, person_id, group_key, attribution, basis) "
+                     "VALUES (%s, %s, %s, 't5n1', %s, %s, %s, 'movie', 'singleton')",
+                     (PMAP, eid, PARSER_VERSION, key, pid, "g:" + key))
+        return key
+
     for m in world.movies:
-        for name, nconst in m.directors:
-            pid = w7.person_id(name)
-            if not conn.execute("SELECT 1 FROM task5.person WHERE person_mapping_version_id = %s AND person_id = %s",
-                                (PMAP, pid)).fetchone():
-                conn.execute("INSERT INTO task5.person_identity (anchor_key, person_id, created_run) "
-                             "VALUES (%s, %s, 't5fix') ON CONFLICT DO NOTHING", (f"mention:{name}", pid))
-                conn.execute("INSERT INTO task5.person (person_mapping_version_id, person_id, status, has_external_id, "
-                             "external_route, anchor_key, canonical_name, canonical_source, mention_count, work_count) "
-                             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1, 1)",
-                             (PMAP, pid, "external_verified" if nconst else "page_only", bool(nconst),
-                              "credits" if nconst else None, f"mention:{name}", name, f"mention:{name}"))
-                if nconst:
-                    conn.execute("INSERT INTO task5.person_external_id (person_mapping_version_id, person_id, system, "
-                                 "external_id, snapshot_id) VALUES (%s, %s, 'imdb', %s, %s)",
-                                 (PMAP, pid, nconst, SNAPSHOT))
-            conn.execute("INSERT INTO task5.movie_person (person_mapping_version_id, movie_id, person_id, role, "
-                         "credit_order, source_labels, mention_count) VALUES (%s, %s, %s, 'director', 1, %s, 1)",
-                         (PMAP, w7.movie_id(m.name), pid, ["byline:Director"]))
+        mid = w7.movie_id(m.name)
+        credits = [w7.Credit(name, "director", nconst) for name, nconst in m.directors] + list(m.credits)
+        for c in credits:
+            pid = person(c.name, c.nconst, c.aliases, c.anchor)
+            ranks = [r for _a, r in c.ranks if r is not None]
+            conn.execute(
+                "INSERT INTO task5.movie_person (person_mapping_version_id, movie_id, person_id, role, credit_order, "
+                "order_conflict, source_labels, mention_count) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (PMAP, mid, pid, c.role, min(ranks) if ranks else (1 if c.role == "director" and not c.ranks else None),
+                 len(set(ranks)) > 1, ["byline:Director" if c.role == "director" else "byline:Actors"],
+                 max(len(c.ranks), 1)))
+            for asin, rank in c.ranks:
+                key = mention(asin, c.name, c.role, rank, pid)
+                conn.execute("INSERT INTO task5.movie_person_source (person_mapping_version_id, movie_id, person_id, "
+                             "role, mention_key, asin, byline_rank, list_position) VALUES (%s, %s, %s, %s, %s, %s, %s, 1)",
+                             (PMAP, mid, pid, c.role, key, asin, rank))
+            if c.role == "starring" and not any(x.role == "cast" and x.name == c.name for x in credits):
+                # 任务 5 把署名行演员同时写成 cast
+                conn.execute(
+                    "INSERT INTO task5.movie_person (person_mapping_version_id, movie_id, person_id, role, credit_order, "
+                    "order_conflict, source_labels, mention_count) VALUES (%s, %s, %s, 'cast', %s, %s, %s, %s) "
+                    "ON CONFLICT DO NOTHING",
+                    (PMAP, mid, pid, min(ranks) if ranks else None, len(set(ranks)) > 1, ["byline:Actors"],
+                     max(len(c.ranks), 1)))
+                for asin, rank in c.ranks:
+                    row = conn.execute("SELECT mention_key FROM task5.movie_person_source WHERE person_mapping_version_id = %s "
+                                       "AND movie_id = %s AND person_id = %s AND role = 'starring' AND asin = %s AND "
+                                       "byline_rank IS NOT DISTINCT FROM %s", (PMAP, mid, pid, asin, rank)).fetchone()
+                    conn.execute("INSERT INTO task5.movie_person_source (person_mapping_version_id, movie_id, person_id, "
+                                 "role, mention_key, asin, byline_rank, list_position) VALUES (%s, %s, %s, 'cast', %s, %s, %s, 1)",
+                                 (PMAP, mid, pid, row[0], asin, rank))
 
 
 def _seed_task6(conn, eid, world: w7.World, run6: str) -> None:
@@ -432,20 +513,26 @@ def world_of(*cases) -> w7.World:
 
 def run_stages(conn: psycopg.Connection, seeded: Seeded, *, upto: str = "movie_scalar", rules=None,
                batch_size: int = DEFAULT_BATCH, before_commit=None, ctx: RunContext | None = None,
-               **over: Any) -> RunContext:
-    """按依赖链逐阶段运行（测试用的直通驱动；runner 在 T7-05 实现）：edition_resolve → link_assess → movie_scalar。"""
-    from etl_task7 import editions, link_assess, movies_scalar
+               skip: tuple[str, ...] = (), **over: Any) -> RunContext:
+    """按依赖链逐阶段运行（测试用的直通驱动，不经 runner）：edition_resolve → link_assess → movie_scalar → movie_multivalue；
+    skip 里的阶段不运行（movie_scalar 与 movie_multivalue 互不依赖）。"""
+    from etl_task7 import editions, link_assess, movies_multivalue, movies_scalar
 
     ctx = ctx or start_run(conn, seeded.inputs(**over))
     rules = rules if rules is not None else ruleset(ctx.inputs.rule_version)
-    order = ("edition_resolve", "link_assess", "movie_scalar")
+    order = ("edition_resolve", "link_assess", "movie_scalar", "movie_multivalue")
     for stage in order[:order.index(upto) + 1]:
+        if stage in skip:
+            continue
         if stage == "edition_resolve":
             editions.resolve_editions(conn, ctx, rules, batch_size=batch_size, before_commit=before_commit)
         elif stage == "link_assess":
             link_assess.assess_links(conn, ctx, rules, batch_size=batch_size, before_commit=before_commit)
-        else:
+        elif stage == "movie_scalar":
             movies_scalar.resolve_movies_scalar(conn, ctx, rules, batch_size=batch_size, before_commit=before_commit)
+        else:
+            movies_multivalue.resolve_movies_multivalue(conn, ctx, rules, batch_size=batch_size,
+                                                        before_commit=before_commit)
     return ctx
 
 
@@ -488,6 +575,7 @@ def status_of(cands: list[dict[str, Any]]) -> dict[str, str]:
 
 UPSTREAM_TABLES = ("task3.page_field", "task4.field_assertion", "task4.product_movie", "task4.product_edition",
                    "task4.movie", "task4.source_record", "task4.imdb_title_key", "task5.movie_person", "task5.person",
+                   "task5.person_external_id", "task5.person_identity", "task5.person_alias", "task5.movie_person_source",
                    "task6.release_selection", "task6.release_candidate", "task6.product_release_date",
                    "task6.bound_evidence", "task6.quality_issue", "imdb.title", "imdb.title_aka",
                    "imdb.title_director", "imdb.name")

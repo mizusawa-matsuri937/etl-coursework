@@ -1,6 +1,6 @@
 # 任务 7 AC 完成情况（处理不同来源的信息冲突）
 
-状态：2026-10-30 编写，2026-11-02 随 spec 修订为 AC00–AC22。2026-11-02 完成 T7-01 至 T7-03：AC03–AC06、AC09、AC10、AC16 已通过并勾选，AC01、AC02、AC21 部分通过（保持未勾选并写明待后续阶段的部分），其余 AC 尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-10-30 编写，2026-11-02 随 spec 修订为 AC00–AC22。2026-11-02 完成 T7-01 至 T7-04：AC02–AC10、AC16、AC21、AC22 已通过并勾选，AC01 部分通过（保持未勾选并写明待后续阶段的部分），其余 AC 尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`）。
 
@@ -37,14 +37,13 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC02 候选保留、状态语义与版本属性隔离
 
-- [ ] 部分（2026-11-02，AI 运行）：候选定位与互斥状态、胜出值相同者都 `adopted`、`missing` 的 `considered_candidate_ids` 为空、冲突类型闭集、版本差异保留版本层、合集总片长与分级不下推、上游行摘要不变均已通过（版本层 + 作品层共 4 项）；合集类型不下推属 `movie_multivalue`（T7-04），保持未勾选。
+- [x] 2026-11-02 通过（AI 运行）：候选定位与互斥状态、胜出值相同者都 `adopted`、`missing` 的 `considered_candidate_ids` 为空、冲突类型闭集、版本差异保留版本层、合集总片长与分级不下推、上游行摘要不变（版本层 + 作品层 4 项）；合集盒子的类型与面包屑不下推给成员作品，只经 `contains` 出现的成员只取 IMDb 类型（`movie_multivalue` 2 项）。
 
 ```bash
-# （计划）验证候选互斥状态、missing 语义、冲突类型闭集、合集属性不下推与版本差异保留
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_editions.py tests/integration/test_task7_movies_scalar.py -k "ac02"
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_editions.py tests/integration/test_task7_movies_scalar.py tests/integration/test_task7_movies_multivalue.py -k "ac02"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`6 passed, 66 deselected`，退出码 `0`。
 
 ## AC03 标题、原名与别名
 
@@ -88,25 +87,23 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC07 类型映射、词面处置与多源并集
 
-- [ ] 未执行。
+- [x] 2026-11-02 通过（AI 运行）：G1 `genres = {Action, Adventure, Animation, Anime, Fantasy, Sci-Fi}`，`Action`、`Sci-Fi` 为 `both`，`see more` 被去除，`Movies & TV`、`DVD` 记 `noise`，`faith & spirituality` 记 `unmapped` 并写质量问题；G2 已熔断不含 IMDb 类型；G3 回归：整串 `Comedy, Romance, Kids & Family/10-12 Years` 逐标签映射（读 `normalized_value`；改读 `raw_value` 时 5 项失败）；G4、G5 为 `missing`。
 
 ```bash
-# （计划）验证词面规整、复合词拆分、noise 与 unmapped 逐行保留、并集来源标记
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_movies_multivalue.py -k "ac07"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`7 passed, 21 deselected`，退出码 `0`。
 
 ## AC08 演职员并集、角色边界、顺序与覆盖范围
 
-- [ ] 未执行。
+- [x] 2026-11-02 通过（AI 运行）：C1 `director` 含 D1（`both`）与 D2（`imdb_only`，`person_id` 按公式 `ps_` + sha256(`imdb:nm…`) 前 16 位），`cast` 含 S1 与 A2（A2 复用任务 5 已有的 `person_id`，不登记），`starring` 只含 S1，S1 序号 1、分布 `{1: 2, 2: 1}`、`billing_conflict_resolved`；C3 `John Doe` 为 `conflict_pending`、字段 `resolved`、`director_source_disagreement` 并写质量问题；`cast_coverage` 四种取值；C4 只有 IMDb 演员且 `starring` 为 `missing`；上游表摘要（含 `task5` 全部人物表）不变。
 
 ```bash
-# （计划）验证导演与演员并集、主演只取页面、稳定 person_id、署名顺序与 cast_coverage
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_movies_multivalue.py -k "ac08"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`10 passed, 18 deselected`，退出码 `0`。
 
 ## AC09 版本层标量与多值特征
 
@@ -288,22 +285,20 @@ git ls-files | grep -Ei '(^|/)\.env$|^outputs/|eval_items|eval_pairs|cluster_sam
 
 ## AC21 关联评估与错配熔断
 
-- [ ] 部分（2026-11-02，AI 运行）：L1–L10 的四信号、熔断条件、单信号不熔断、强关联不熔断、`Emma VHS` 与 `Departed, The` 不亮 T、信号与证据持久化、`movie_scalar` 读取同一判定均通过（`-k "ac21"` 10 项，含 T 信号读任务 4 规范键的回归）；`movie_multivalue` 读取同一判定待 T7-04，保持未勾选。
+- [x] 2026-11-02 通过（AI 运行）：L1–L10 的四信号、熔断条件、单信号不熔断、强关联不熔断、`Emma VHS` 与 `Departed, The` 不亮 T、信号与证据持久化、`movie_scalar` 读取同一判定（`link_assess` 10 项，含 T 信号读任务 4 规范键的回归）；`movie_multivalue` 读取同一判定：把一条未熔断评估改成已熔断后重跑，IMDb 类型与演职员随之消失（1 项）。
 
 ```bash
-# （计划）验证四信号、姓名兼容比较、熔断条件、单信号不熔断与强关联不熔断
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_link_assess.py -k "ac21"
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_link_assess.py tests/integration/test_task7_movies_multivalue.py -k "ac21"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`11 passed`，另有 `deselected`，退出码 `0`。
 
 ## AC22 同片署名对齐与多人串
 
-- [ ] 未执行。
+- [x] 2026-11-02 通过（AI 运行）：C5 `Garey Busey` 对齐为 `Gary Busey`（`both`、`L4`、原署名保留）；C6 取严格命中 `John Cusack`，`Joan Cusack` 为 `imdb_only`；C7 同等级两个命中不对齐、页面行 `conflict_pending`；C8 两段都对齐，原行被取代且保留在 `credit_alignment`；C9 部分命中、C10 无 IMDb、C11 `Black and Blue Productions` 保留原行、`conflict_pending` 并写 `unsplit_multi_person`；任何分段都未新造 `person_id`。纯函数 `align_name` 的单元测试另有 5 项。
 
 ```bash
-# （计划）验证错别字对齐、最高等级优先、并列不对齐、多人串全段与部分命中、不新造 person_id
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_movies_multivalue.py -k "ac22"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`8 passed, 20 deselected`，退出码 `0`。

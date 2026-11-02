@@ -301,7 +301,7 @@
 | 瞬时连接中断或死锁 | 判为暂时错误，最多重试 2 次 |
 | 未知 MPAA、未映射类型词面 | 写 `quality_issue`，不崩溃，不污染受控词表 |
 
-## 实现补充约定（T7-01 至 T7-03，2026-11-02）
+## 实现补充约定（T7-01 至 T7-06，2026-11-02）
 
 实现时对 spec 与上文没有明确规定之处采用的做法，均不改变规则含义与 AC 预期；若与用户的期望不同，只需改对应函数与测试。
 
@@ -319,3 +319,11 @@
 | 作品层分级、片长候选 | 每个 `edition` 商品一条，引用版本层选中的候选 ID 与原始值，而不是重新读页面 | 版本层同 ASIN 内的冲突已先消解，作品层不再重复处理 |
 | 质量问题代码 | `cross_source_mismatch_halt`（熔断，`link_assess`）、`weak_link_single_signal`、`cross_source_override`、`severe_mismatch_unresolved`、`severe_runtime_conflict`、`unknown_mpaa_rating` | R18、R25、R26、R31、R33 点名了其中一部分，其余按冲突类型命名 |
 | T 信号的页面标题键 | 读 `task4.field_assertion` 的 `normalized_value`（任务 4 规范键，括号说明已去掉），`normalized_value` 为空时才回退到 `title_key(clean_page_display_title(raw_value))`；`title_match_class` 同样接收该键，命中 IMDb 任一标题键时至少为 `alias` | `clean_page_display_title` 为保留副标题会留下没见过的括号（如 `300 (Limited Collector's Edition + Digital Copy)`），重算的键带说明词，使 T 误亮、《300》类正确关联被熔断；试算读的就是规范键，也是 R15 的“页面标题键” |
+| T 信号的“实词” | `content_words` 不计虚词（冠词与 `and`、`of`、`in`、`on`、`at`、`to`、`for`、`with`、`from`、`by`、`or`、`is`、`as`），实词子集与 `subset_min_words` 都按实词计 | 因此试算（简化实现）的 8 部熔断在实现中为 7 部：`The Love for Three Oranges` 因 `of`、`for` 不再被当作无关而不熔断，`Fishbone` 不再是 T 单信号；design 正文与 H08 的试算数字保持原样，由 T7-08 用实测替换 |
+| 署名对齐的对象与候选（T7-04） | 对象是页面未关联 `nconst` 的人物（含只在 `starring` 的人物），候选是尚未被 `nconst` 关联占用的同角色 IMDb 成员；页面人物取规范名与页面别名中最严的兼容等级；`starring` 复用 `cast` 的对齐结果（任务 5 把署名行演员同时写入 `cast`），所以 `credit_alignment` 的角色只有 `director` 与 `cast`；多个页面人物对齐到同一个 IMDb 人物时合并为一行 | `starring` 在对齐成功时使用对齐后的 `person_id`（仍标 `page_only`），避免同一人在同一作品的 `starring` 与 `cast` 中有两个 ID |
+| 对齐记录与多人串（T7-04） | 没有可比较的 IMDb 成员时，单人不写 `credit_alignment`（没有发生比较）；多人串无论有无 IMDb 都逐段写行。全部成段命中且各段命中不同人物才取代原行（各段 `aligned`）；否则原行保留，各段 `outcome = unsplit_multi_person`，命中的段保留 `nconst`、等级作证据，`resolved_person_id` 为空 | R39：不为分段新造 `person_id`；`Black and Blue Productions` 因此原样保留 |
+| 页面独有导演（T7-04） | 当前仍是 `adopted` 的页面独有导演，在作品有未熔断 IMDb 且 IMDb 有导演时标 `conflict_pending`，包括页面已关联 `nconst` 但不在 IMDb 导演中的；没有可用 IMDb 导演时页面导演照常采用 | R41 按字面执行；实测 267 位、涉及 210 部作品，见 T7-08 的统计 |
+| 署名顺序与成员顺序（T7-04） | 只统计该作品 `edition` 商品的署名行序号（合集盒子的署名行不是该作品的署名顺序），没有时回退任务 5 的 `credit_order`；IMDb 独有成员的 `credit_order` 在页面最大序号之后顺延；多值字段的 `winning_value` 为采用成员的 `person_id`（类型为受控词）按署名顺序用 `|` 连接 | R42；候选数组为空，成员明细在 `movie_person_resolved` 与 `movie_genre` |
+| 多值字段的冲突类型与置信度（T7-04） | 字段级 `conflict_type` 按优先级取：`director_source_disagreement` > `billing_conflict_resolved` > `complementary_union`（页面与 IMDb 成员并存）> `formatting_or_alias`（有对齐）> `none`；全部成员无法采用时为 `conflict_unresolved` 与 `intra_source_tie_unresolved`；置信度取 `conf_union`（0.90），只有 IMDb 独有成员时取 `conf_imdb_only`（0.80），含 IMDb 成员时不超过关联基础可靠度 | R13 闭集没有“多人串”专用类型，沿用 `intra_source_tie_unresolved` |
+| 类型词面行（T7-04） | `movie_genre_term` 按（作品、区域、小写词面）一行，`asins` 去重；`genre` 区取任务 4 断言的 `normalized_value`，`breadcrumb` 区取任务 3 字段的 `value_raw`；IMDb 类型不在受控词表内时不入 `genres`，写 `unmapped_genre_term`（`section = imdb`） | 同一页面标签串里重复的标签（如两个年龄段词都带 `Kids & Family`）按 ASIN 去重，所以逐行统计略少于按断言行统计（实测 5,311 行断言对应 5,201 行去重后的页面词面） |
+| IMDb 人物登记（T7-04） | `imdb_person_ext` 以 `nconst` 为全局键，`ON CONFLICT DO NOTHING`；任务 5 的 `person_external_id` 已有的人物复用其 `person_id` 不登记；`person_identity` 已有 `imdb:<nconst>` 锚点时取其 `person_id` 并标 `in_task5_identity` | R40 |

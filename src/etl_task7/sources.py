@@ -287,6 +287,115 @@ def page_directors(conn: psycopg.Connection, i: RunInputs, movies: list[str]) ->
     return out
 
 
+def imdb_principals(conn: psycopg.Connection, snapshot: str, tconsts: list[str]) -> dict[str, list[dict[str, Any]]]:
+    """tconst → IMDb 主要演员（title_principal 中 category 为 actor、actress），按 ordering 排序（R37）。
+    title_principal 只含主要演职员，不是完整演员表（R43）。"""
+    out: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for chunk in _chunks(sorted(set(tconsts))):
+        for tc, ordering, nconst, category, name in conn.execute(
+                "SELECT p.tconst, p.ordering, p.nconst, p.category, n.primary_name FROM imdb.title_principal p "
+                "LEFT JOIN imdb.name n ON n.snapshot_id = p.snapshot_id AND n.nconst = p.nconst "
+                "WHERE p.snapshot_id = %s AND p.tconst = ANY(%s) AND p.category IN ('actor', 'actress') "
+                "ORDER BY p.tconst, p.ordering", (snapshot, chunk)):
+            out[tc].append({"ordinal": ordering, "nconst": nconst, "name": name, "category": category})
+    return out
+
+
+def imdb_names(conn: psycopg.Connection, snapshot: str, nconsts: list[str]) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for chunk in _chunks(sorted(set(nconsts))):
+        for nconst, name, birth, death in conn.execute(
+                "SELECT nconst, primary_name, birth_year, death_year FROM imdb.name WHERE snapshot_id = %s "
+                "AND nconst = ANY(%s)", (snapshot, chunk)):
+            out[nconst] = {"primary_name": name, "birth_year": birth, "death_year": death}
+    return out
+
+
+def imdb_person_ids(conn: psycopg.Connection, i: RunInputs, nconsts: list[str]) -> dict[str, dict[str, Any]]:
+    """nconst → 任务 5 已有的人物（R40）：先看人物映射版本的 person_external_id（origin = task5_external），
+    再看 person_identity 的 imdb:<nconst> 锚点（origin = task5_identity）；都没有的不出现在结果里。"""
+    out: dict[str, dict[str, Any]] = {}
+    pmap = i.t5_person_mapping_version_id
+    for chunk in _chunks(sorted(set(nconsts))):
+        for nconst, pid in conn.execute(
+                "SELECT external_id, person_id FROM task5.person_external_id WHERE person_mapping_version_id = %s "
+                "AND system = 'imdb' AND external_id = ANY(%s)", (pmap, chunk)):
+            out[nconst] = {"person_id": pid, "origin": "task5_external"}
+        rest = [n for n in chunk if n not in out]
+        if rest:
+            for anchor, pid in conn.execute("SELECT anchor_key, person_id FROM task5.person_identity "
+                                            "WHERE anchor_key = ANY(%s)", ([f"imdb:{n}" for n in rest],)):
+                out[anchor[len("imdb:"):]] = {"person_id": pid, "origin": "task5_identity"}
+    return out
+
+
+def page_credits(conn: psycopg.Connection, i: RunInputs, movies: list[str]
+                 ) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """movie → 角色 → 任务 5 页面人物（R37）：person_id、规范名与页面别名、nconst、任务 5 署名顺序及各来源提及
+    （ASIN 与署名行序号，R42 按商品统计用）。角色内按 person_id 排序。"""
+    out: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
+    pmap = i.t5_person_mapping_version_id
+    for chunk in _chunks(movies):
+        rows = conn.execute(
+            "SELECT mp.movie_id, mp.role, mp.person_id, mp.credit_order, mp.order_conflict, p.canonical_name, "
+            "e.external_id FROM task5.movie_person mp JOIN task5.person p "
+            "ON p.person_mapping_version_id = mp.person_mapping_version_id AND p.person_id = mp.person_id "
+            "LEFT JOIN task5.person_external_id e ON e.person_mapping_version_id = mp.person_mapping_version_id "
+            "AND e.person_id = mp.person_id AND e.system = 'imdb' "
+            "WHERE mp.person_mapping_version_id = %s AND mp.movie_id = ANY(%s) "
+            "ORDER BY mp.movie_id, mp.role, mp.person_id", (pmap, chunk)).fetchall()
+        pids = sorted({r[2] for r in rows})
+        aliases: dict[str, list[str]] = defaultdict(list)
+        for sub in _chunks(pids):
+            for pid, alias in conn.execute(
+                    "SELECT person_id, alias FROM task5.person_alias WHERE person_mapping_version_id = %s "
+                    "AND source = 'page' AND person_id = ANY(%s) ORDER BY person_id, alias", (pmap, sub)):
+                aliases[pid].append(alias)
+        srcs: dict[tuple[str, str, str], list[tuple[str, int | None]]] = defaultdict(list)
+        for movie, pid, role, asin, rank in conn.execute(
+                "SELECT movie_id, person_id, role, asin, byline_rank FROM task5.movie_person_source "
+                "WHERE person_mapping_version_id = %s AND movie_id = ANY(%s) ORDER BY asin, mention_key",
+                (pmap, chunk)):
+            srcs[(movie, pid, role)].append((asin, rank))
+        for movie, role, pid, order, conflict, name, nconst in rows:
+            names = [name] + [a for a in aliases.get(pid, ()) if a != name]
+            out[movie][role].append({"person_id": pid, "name": name, "names": names, "nconst": nconst,
+                                     "credit_order": order, "order_conflict": conflict,
+                                     "sources": srcs.get((movie, pid, role), [])})
+    return out
+
+
+def genre_terms(conn: psycopg.Connection, i: RunInputs, links: dict[str, list[dict[str, Any]]]
+                ) -> dict[str, list[dict[str, Any]]]:
+    """movie → 页面类型词面（R34、R36）：只读 edition 商品，合集盒子的类型不下推给成员作品（R05）。
+    genre 区取任务 4 断言的 normalized_value（已按逗号、斜线拆成单个标签；raw_value 是整串，不能直接映射），
+    breadcrumb 区取任务 3 页面字段的 value_raw。每条带 asin、区域、词面。"""
+    asin_movies: dict[str, list[str]] = defaultdict(list)
+    for movie, rows in links.items():
+        for r in rows:
+            if r["relation_type"] == "edition" and movie not in asin_movies[r["asin"]]:
+                asin_movies[r["asin"]].append(movie)
+    asins = sorted(asin_movies)
+    out: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    found = assertions(conn, i, ["genre"], asins)
+    for asin in asins:
+        for a in found.get(asin, ()):
+            if a["entity_type"] != "product_edition" or not a["normalized_value"]:
+                continue
+            for movie in asin_movies[asin]:
+                out[movie].append({"asin": asin, "section": "genre", "term": a["normalized_value"],
+                                   "ordinal": a["ordinal"], "assertion_id": a["assertion_id"]})
+    crumbs = page_fields(conn, i, asins, ["breadcrumb"])
+    for asin in asins:
+        for f in crumbs.get(asin, ()):
+            if not f["value_raw"]:
+                continue
+            for movie in asin_movies[asin]:
+                out[movie].append({"asin": asin, "section": "breadcrumb", "term": f["value_raw"],
+                                   "ordinal": f["ordinal"], "assertion_id": None})
+    return out
+
+
 # ---------------------------------------------------------------- 本任务的阶段结果
 
 def edition_results(conn: psycopg.Connection, i: RunInputs, asins: list[str]) -> dict[str, dict[str, Any]]:

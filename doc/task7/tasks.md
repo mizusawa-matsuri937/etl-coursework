@@ -1,6 +1,6 @@
 # 任务 7 开发任务（处理不同来源的信息冲突）
 
-状态：2026-10-30 编写计划；2026-11-02 经复核修订（用户同意按复核结论修订），新增 `link_assess` 阶段，规则与验收重新编号为 R01–R66、AC00–AC22，任务调整为 T7-00 至 T7-09。T7-00 已执行并通过；T7-01 至 T7-03 于 2026-11-02 实现并本地提交，命令与期望已按实际运行核对；T7-04 至 T7-09 尚未实现，其验证命令与期望仍标注为 `（计划）`。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-10-30 编写计划；2026-11-02 经复核修订（用户同意按复核结论修订），新增 `link_assess` 阶段，规则与验收重新编号为 R01–R66、AC00–AC22，任务调整为 T7-00 至 T7-09。T7-00 已执行并通过；T7-01 至 T7-04 于 2026-11-02 实现并本地提交，命令与期望已按实际运行核对；T7-05 至 T7-09 尚未实现，其验证命令与期望仍标注为 `（计划）`。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。每项 AC 的逐条复核命令见 [checklist](checklist.md)。
 
@@ -46,17 +46,16 @@
 
   期望：最后一行 `33 passed`，退出码 `0`。
 
-- [ ] T7-04 作品层多值字段：类型词面处置与并集、同片署名对齐、多人串、IMDb 人物登记、署名顺序、覆盖范围。关联 AC07、AC08、AC22。
-  - 文件：`src/etl_task7/movies_multivalue.py`、`tests/integration/test_task7_movies_multivalue.py`。
+- [x] T7-04 作品层多值字段：类型词面处置与并集、同片署名对齐、多人串、IMDb 人物登记、署名顺序、覆盖范围。关联 AC07、AC08、AC22，补完 AC02、AC21。
+  - 文件：`src/etl_task7/movies_multivalue.py`（另在 `sources.py` 增加 `imdb_principals`、`imdb_names`、`imdb_person_ids`、`page_credits`、`genre_terms`，在 `selection.py` 增加 `multi_selection`）、`tests/integration/test_task7_movies_multivalue.py`、`tests/unit/test_task7_multivalue.py`；`tests/fixtures/task7/world.py` 与 `tests/integration/_task7_helpers.py` 增加类型断言、面包屑与任务 5 页面人物（与真实输出同形）。
   - 目标：写 `movie_genre`、`movie_genre_term`、`credit_alignment`、`movie_person_resolved`、`imdb_person_ext`、`movie_multivalue_stage_result`；`starring` 只取页面；计算 `cast_coverage`；不修改 `task5`。
-  - 完成情况：未执行（计划）。
+  - 完成情况：2026-11-02 完成，集成 28 项与单元 8 项通过（AC07 7、AC08 10、AC22 8、AC02 合集类型 2、AC21 读取同一判定 1）；类型读任务 4 的 `normalized_value`，改读 `raw_value` 会使 AC07 的 5 项失败（已人工验证）。临时库 `etl_t7_rehearsal`（业务库完整副本）全链路：署名对齐 3,358 条（试算 3,335），IMDb 新增 `cast` 30,182、`director` 869，`imdb_person_ext` 22,157，页面类型词面未映射 276/5,311 行（与试算一致），面包屑未映射 331/30,146 行（试算 223，差异原因见 design 与交接）；每部未熔断关联作品的 IMDb 演员 49,838 个、导演 6,026 个与 `movie_person_resolved` 逐项相等。
 
   ```bash
-  # （计划）作品层多值字段集成测试
-  docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_movies_multivalue.py
+  docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_movies_multivalue.py tests/unit/test_task7_multivalue.py
   ```
 
-  期望（计划）：全部通过，退出码 `0`。
+  期望：最后一行 `36 passed`，退出码 `0`。
 
 - [ ] T7-05 版本物化、差异、恢复、报告、查询与核对。关联 AC11、AC12、AC14、AC17。
   - 文件：`src/etl_task7/{versions,runner,report,query,check}.py`、`tests/integration/test_task7_{runs,report}.py`。

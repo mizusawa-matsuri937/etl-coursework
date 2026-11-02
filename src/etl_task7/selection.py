@@ -102,3 +102,17 @@ def write_candidates(conn: psycopg.Connection, ctx: RunContext, stage_key: str, 
              c.reliability, c.status, c.reason, ctx.inputs.rule_version, ctx.run_id) for c in cands]
     copy_rows(conn, "task7.field_candidate", CAND_COLUMNS, rows)
     return len(rows)
+
+
+def multi_selection(status: str, value: str | None, conflict_type: str, rule: str, reason: str, confidence: float,
+                    detail: dict[str, Any] | None = None) -> dict[str, Any]:
+    """多值字段（genres、director、starring、cast）的选择记录（R11、R12）：成员明细在 movie_genre 与
+    movie_person_resolved，两个候选数组为空；winning_value 是成员的 '|' 连接摘要。
+    有 adopted 成员为 resolved，只有 conflict_pending 成员为 conflict_unresolved，无成员为 missing。"""
+    assert status in SELECTION_STATUSES, status
+    assert conflict_type in CONFLICT_TYPES, conflict_type
+    assert (status == "resolved") == (value is not None), (status, value)
+    return {"status": status, "winning_value": value, "selected_candidate_ids": [], "considered_candidate_ids": [],
+            "conflict_type": conflict_type, "selection_rule": rule, "reason": reason,
+            "confidence": round(float(confidence), 2) if status == "resolved" else 0.0,
+            "disagreement_detail": detail or {}}

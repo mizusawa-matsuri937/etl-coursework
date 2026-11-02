@@ -21,8 +21,11 @@ def movie_id(name: str) -> str:
     return "mv_" + hashlib.md5(name.encode()).hexdigest()[:16]
 
 
-def person_id(name: str) -> str:
-    return "ps_" + hashlib.md5(name.encode()).hexdigest()[:16]
+def person_id(name: str, nconst: str | None = None, anchor: str | None = None) -> str:
+    """页面人物的 person_id，与任务 5 同一公式 `ps_ + sha256(锚点)[:16]`：已关联 IMDb 的以 `imdb:<nconst>` 为锚点，
+    其余以固定的提及锚点 `mention:fix:<姓名>` 为锚点（夹具里同名页面人物视为同一人）。"""
+    anchor = anchor or (f"imdb:{nconst}" if nconst else f"mention:fix:{name}")
+    return "ps_" + hashlib.sha256(anchor.encode()).hexdigest()[:16]
 
 
 @dataclass
@@ -52,11 +55,29 @@ class Release:
 
 
 @dataclass
+class Credit:
+    """任务 5 人物映射里一部作品的一条页面署名（`movie_person` 与它的来源提及 `movie_person_source`）。
+    name 为页面写法（可含多人串）；nconst 为任务 5 已关联的 IMDb 人物；ranks 为各来源商品的署名行序号
+    (ASIN, 序号)，序号为 None 表示详情要点来源（没有署名顺序）；aliases 为同一人物的其他页面写法。"""
+    name: str
+    role: str                                       # director | starring | cast
+    nconst: str | None = None
+    ranks: tuple[tuple[str, int | None], ...] = ()
+    aliases: tuple[str, ...] = ()
+    anchor: str | None = None                       # 人物锚点；默认已关联用 imdb:<nconst>，否则 mention:fix:<姓名>
+
+    @property
+    def pid(self) -> str:
+        return person_id(self.name, self.nconst, self.anchor)
+
+
+@dataclass
 class Movie:
-    """任务 4 映射版本里的一部作品。directors：任务 5 页面导演 (姓名, nconst 或 None)。"""
+    """任务 4 映射版本里的一部作品。directors：任务 5 页面导演 (姓名, nconst 或 None)；credits：其余页面署名。"""
     name: str
     release: Release = field(default_factory=Release)
     directors: tuple[tuple[str, str | None], ...] = ()
+    credits: tuple[Credit, ...] = ()
 
 
 @dataclass
@@ -83,6 +104,8 @@ class Ed:
     cut_type: tuple[tuple[str, str], ...] = ()
     video_system: tuple[tuple[str, str], ...] = ()
     swatch: tuple[str, ...] = ()          # 任务 3 format_swatch 字段值
+    genre: tuple[str, ...] = ()           # 任务 3 概览区 Genre 字段的整串（逗号、斜线分隔），由任务 4 的 genre_tags 拆成断言
+    breadcrumb: tuple[str, ...] = ()      # 任务 3 面包屑各级（field_key = breadcrumb）
 
 
 @dataclass
