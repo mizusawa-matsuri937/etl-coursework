@@ -20,10 +20,10 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from etl_task5.cluster import person_id_for
-from etl_task5.names import level, parse
 
 from . import sources
-from .rules import (CONTROLLED_GENRES, RuleSet, choose_billing_order, classify_genre_term, split_multi_person)
+from .rules import (CONTROLLED_GENRES, RuleSet, choose_billing_order, classify_genre_term, name_level, parse_name,
+                    split_multi_person)
 from .run import (DEFAULT_BATCH, BeforeCommit, RunContext, add_quality_issue, copy_rows, mark_batch, mark_entities,
                   next_batch_no, pending_entities, require_stage_complete)
 from .selection import multi_selection
@@ -53,20 +53,21 @@ class Alignment:
     tied: tuple[str, ...] = ()                # 并列最高等级的 nconst
 
 
-def align_name(names: Sequence[str], candidates: Sequence[dict[str, Any]], levels: Sequence[str]) -> Alignment:
+def align_name(names: Sequence[str], candidates: Sequence[dict[str, Any]], levels: Sequence[str],
+               relax: bool = False) -> Alignment:
     """页面一个人物（全部页面写法）与同作品同角色 IMDb 候选的对齐（R38）：每个候选取各写法中最严格的兼容等级，
-    等级序 L1 > L2 > L3 > LI > L4；取唯一最高等级的命中；同等级多命中不对齐（tie_not_aligned）。
-    John Cusack 同时近似 Joan Cusack 时严格命中胜出。"""
-    parsed = [parse(n) for n in names if n]
+    等级序 L1 > L2 > L3 > LI > L4（t7r2 末尾加 LS）；取唯一最高等级的命中；同等级多命中不对齐（tie_not_aligned）。
+    John Cusack 同时近似 Joan Cusack 时严格命中胜出。relax（t7r2）：比较前预规范化格式，并认可 LS。"""
+    parsed = [parse_name(n, relax) for n in names if n]
     rank = {lv: k for k, lv in enumerate(levels)}
     hits: list[tuple[int, str, str]] = []             # (等级序, 等级, nconst)
     for c in candidates:
         if not c.get("name"):
             continue
-        cp = parse(c["name"])
+        cp = parse_name(c["name"], relax)
         best = None
         for p in parsed:
-            lv = level(p, cp)
+            lv = name_level(p, cp, relax)
             if lv is not None and (best is None or rank.get(lv, len(rank)) < rank.get(best, len(rank))):
                 best = lv
         if best is not None:
@@ -180,7 +181,7 @@ def _analyze_person(p: dict[str, Any], scope: str, cands: dict[str, dict[str, An
     if len(segments) == 1:
         if not pool:
             return Outcome("nomatch")
-        a = align_name(p["names"], pool, rules.align_levels)
+        a = align_name(p["names"], pool, rules.align_levels, rules.name_relax)
         row = (scope, p["person_id"], p["name"], 0, p["name"],
                idmap.get(a.nconst) if a.nconst else None, a.nconst, a.level, a.outcome)
         if a.outcome == "aligned":
@@ -189,7 +190,7 @@ def _analyze_person(p: dict[str, Any], scope: str, cands: dict[str, dict[str, An
                                         "ordering": c["ordinal"], "name": p["name"]}], [row], level=a.level)
         return Outcome("tie" if a.outcome == "tie_not_aligned" else "nomatch", rows=[row], tied=a.tied, level=a.level)
     # 多人串：只在有可对齐候选时逐段尝试，全部成段命中才取代原行（R39）
-    results = [align_name([seg], pool, rules.align_levels) if pool else Alignment("no_match") for seg in segments]
+    results = [align_name([seg], pool, rules.align_levels, rules.name_relax) if pool else Alignment("no_match") for seg in segments]
     ok = bool(pool) and all(r.outcome == "aligned" for r in results) and len({r.nconst for r in results}) == len(results)
     rows, targets = [], []
     for n, (seg, r) in enumerate(zip(segments, results)):

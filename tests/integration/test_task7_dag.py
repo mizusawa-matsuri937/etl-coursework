@@ -54,7 +54,7 @@ def test_ac13_dag_manual_trigger_retries_and_params(dag):
     assert all(t.retries == 2 for t in dag.tasks)
     assert set(dag.params) == {"extraction_id", "t4_mapping_version_id", "t5_person_mapping_version_id",
                                "t6_release_version_id", "imdb_snapshot_id", "rule_version", "batch_size", "fault_injection"}
-    assert dag.params["batch_size"] == 1000 and dag.params["rule_version"] == "t7r1"
+    assert dag.params["batch_size"] == 1000 and dag.params["rule_version"] == "t7r2"
 
 
 def test_ac13_dag_default_rule_version_is_registered(dag):

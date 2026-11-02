@@ -27,7 +27,7 @@ PARAMS = {
     "t5_person_mapping_version_id": Param(None, type=["null", "string"], description="任务 5 人物映射版本；默认 pmap0001"),
     "t6_release_version_id": Param(None, type=["null", "string"], description="任务 6 上映版本；默认 rv0001"),
     "imdb_snapshot_id": Param(None, type=["null", "string"], description="IMDb 快照编号；默认取映射版本所用的快照"),
-    "rule_version": Param("t7r1", type="string", description="冲突消解规则版本（见 etl_task7.rules.RULESETS）"),
+    "rule_version": Param("t7r2", type="string", description="冲突消解规则版本（见 etl_task7.rules.RULESETS；t7r1 是姓名兼容放宽前的版本）"),
     "batch_size": Param(1000, type="integer", minimum=1, description="每批提交的作品/商品数"),
     "fault_injection": Param(None, type=["null", "string"],
                              description="before_commit:<阶段>:<批号>、transient_once:<标记文件> 或 verify_fail；仅 ETL_ENV=test"),

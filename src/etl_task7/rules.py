@@ -1,4 +1,4 @@
-"""任务 7 的规则版本与纯函数判定（spec R09–R13、R15–R17、R20–R21、R24–R33、R34–R35、R39、R42、R45，规则版本 t7r1）。不访问数据库。
+"""任务 7 的规则版本与纯函数判定（spec R09–R13、R15–R17、R20–R21、R24–R33、R34–R35、R39、R42、R45，规则版本 t7r1、t7r2）。不访问数据库。
 
 RuleSet 集中所有默认值：置信度、信号阈值、片长容差、发行商后缀与区域优先级。改任何数值就是新规则版本：
 用 RuleSet.with_version 派生并登记到 RULESETS。四组字段分别构成四个阶段键的“规则签名”（design“输入键与阶段键”），
@@ -17,8 +17,9 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Sequence
 
 from etl_task4.normalize import ARTICLES, classify_segment, fold, title_key
+from etl_task5.names import Name, level as _t5_level, parse as _t5_parse
 
-from . import CURRENT_RULE_VERSION, RULE_VERSION
+from . import CURRENT_RULE_VERSION, RULE_VERSION, RULE_VERSION_RELAXED
 
 # 各阶段决策算法的标记：算法改动时升这里（与数值无关），进入对应阶段的规则签名
 ALGORITHM = {"edition": "e1", "link": "l1", "scalar": "s1", "multivalue": "m2"}
@@ -81,9 +82,12 @@ class RuleSet:
     conf_page_only: float = 0.80        # 无 IMDb 时只来自页面
     penalty_single_signal: float = 0.10  # R18：弱匹配单信号仍采用 IMDb 时的置信度扣减
     # ---- 作品层多值（movie_multivalue，R34–R43；T7-04 起使用）
-    align_levels: tuple[str, ...] = ("L1", "L2", "L3", "LI", "L4")   # R38：等级序，越靠前越严格
+    align_levels: tuple[str, ...] = ("L1", "L2", "L3", "LI", "L4")   # R38：等级序，越靠前越严格；t7r2 末尾加 LS
     conf_union: float = 0.90
     conf_imdb_only: float = 0.80
+    # ---- 姓名兼容放宽（R16、R38、R41；t7r2 起）：比较前预规范化格式，并在 L4 之后增加最低等级 LS（同片词序子集）。
+    # 它影响 link_assess 的 D 信号与 movie_multivalue 的署名对齐，所以同时进入两组规则签名；t7r1 的签名保持不变
+    name_relax: bool = False
 
     def with_version(self, version: str, **over: Any) -> "RuleSet":
         return dataclasses.replace(self, version=version, **over)
@@ -101,12 +105,17 @@ class RuleSet:
                   "multivalue": MULTIVALUE_FIELDS}[group]
         payload = {name: getattr(self, name) for name in fields}
         payload["algorithm"] = ALGORITHM[group]
+        if self.name_relax and group in ("link", "multivalue"):
+            payload["name_relax"] = True      # 只在开启时进入签名：t7r1 的阶段键因此与 cv0001 完全一致
         raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=list)
         return f"{group[0]}{hashlib.sha256(raw.encode()).hexdigest()[:12]}"
 
 
 DEFAULT_RULES = RuleSet(RULE_VERSION)
 RULESETS: dict[str, RuleSet] = {DEFAULT_RULES.version: DEFAULT_RULES}
+# t7r2（2026-11-02，用户授权）：姓名兼容放宽。t7r1 保持不变，cv0001 可复现
+RULESETS[RULE_VERSION_RELAXED] = DEFAULT_RULES.with_version(
+    RULE_VERSION_RELAXED, name_relax=True, align_levels=(*DEFAULT_RULES.align_levels, "LS"))
 assert CURRENT_RULE_VERSION in RULESETS
 
 
@@ -632,6 +641,45 @@ def discs_from_packaging(text: str | None) -> int | None:
         return None
     word = m.group(1).casefold()
     return int(word) if word.isdigit() else _NUM_WORDS[word]
+
+
+# ---------------------------------------------------------------- 姓名兼容（R16、R38、R41；t7r2 放宽）
+
+LEVEL_SUBSET = "LS"                       # 最低兼容等级：同片词序子集（Rakesh Chaturvedi 与 Rakesh Chaturvedi Om）
+_GLUED_INITIALS = re.compile(r"(?<=[^\W\d_])\.(?=[^\W\d_])")
+
+
+def normalize_name_format(raw: str) -> str:
+    """比较前的预规范化（t7r2）：粘连的缩写拆开（J.P.Dutta → J. P. Dutta，J.P. → J. P.），句点后缺空格补上，多余空白折叠。
+    只用于比较，原始署名永远不改；任务 5 的 names.parse 不动。"""
+    return " ".join(_GLUED_INITIALS.sub(". ", raw).split())
+
+
+def parse_name(raw: str, relax: bool = False) -> Name:
+    """姓名解析：relax（t7r2）时先做预规范化，再交给任务 5 的 parse。"""
+    return _t5_parse(normalize_name_format(raw) if relax else raw)
+
+
+def word_subset(a: Name, b: Name) -> bool:
+    """LS：较短一方至少 2 个词，且是较长一方词序列的连续前缀或后缀（严格键已折叠大小写与重音）。
+    中间多出词（Michael Jordan 与 Michael B. Jordan）不算，交给 level 原有规则；单个词的名字不触发。"""
+    if a.placeholder or b.placeholder:
+        return False
+    ta, tb = a.strict.split(), b.strict.split()
+    short, long_ = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    n = len(short)
+    if n < 2 or n == len(long_):
+        return False
+    return long_[:n] == short or long_[-n:] == short
+
+
+def name_level(a: Name, b: Name, relax: bool = False) -> str | None:
+    """两个姓名的兼容等级：任务 5 的 L1 > L2 > L3 > LI > L4；relax（t7r2）时再有最低等级 LS。不兼容为 None。
+    LS 只用于同一作品、同一角色内的比较（D 信号、署名对齐、R41 页面独有导演），不外用。"""
+    lv = _t5_level(a, b)
+    if lv is None and relax and word_subset(a, b):
+        return LEVEL_SUBSET
+    return lv
 
 
 # ---------------------------------------------------------------- 多人串（R39）

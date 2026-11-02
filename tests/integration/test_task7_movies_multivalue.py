@@ -472,6 +472,128 @@ def test_ac22_no_person_is_created_for_a_segment_and_task5_is_untouched(ac22):
     assert h.upstream_digest(conn) == before
 
 
+# ------------------------------------------------------------------ AC22 t7r2 姓名兼容放宽（R16、R38、R41）
+
+def _relax_world() -> w.World:
+    cases = []
+
+    def add(tag, dirs=(), principals=(), credits=()):
+        i, m, e = case(tag, "imdb_t4_link", imdb_title=f"{tag} Picture", imdb_dirs=dirs)
+        i.principals = tuple(principals)
+        m.credits = tuple(credits)
+        cases.append((i, m, e))
+
+    # 真实形态：267 位页面独有导演多为这两类，不放宽时 R41 把页面名标为 conflict_pending
+    add("C12", dirs=(("nm5000010", "J.P. Dutta"),), credits=[CR("J.P.Dutta", "director", None, (("B0C12", 1),))])
+    add("C13", dirs=(("nm5000020", "Rakesh Chaturvedi Om"),),
+        credits=[CR("Rakesh Chaturvedi", "director", None, (("B0C13", 1),))])
+    # 单个词的名字不触发 LS；中间多出一个词由 level 原有规则处理（L3，两版相同）
+    add("C14", principals=[("nm5000030", "Madonna Louise", "actress")],
+        credits=[CR("Madonna", "cast", None, (("B0C14", None),))])
+    add("C16", principals=[("nm5000050", "Michael B. Jordan", "actor")],
+        credits=[CR("Michael Jordan", "cast", None, (("B0C16", None),))])
+    # 同片同角色里两人都与页面名构成 LS：不对齐
+    add("C15", principals=[("nm5000040", "Rakesh Chaturvedi Om", "actor"), ("nm5000041", "Rakesh Chaturvedi Shah", "actor")],
+        credits=[CR("Rakesh Chaturvedi", "cast", None, (("B0C15", None),))])
+    # 多人串：一段是格式差异，一段是词序子集，t7r2 下全部成段命中
+    add("C17", dirs=(("nm5000060", "J.P. Dutta"), ("nm5000061", "Rakesh Chaturvedi Om")),
+        credits=[CR("J.P.Dutta; Rakesh Chaturvedi", "director", None, (("B0C17", 1),))])
+    return world_of(*cases)
+
+
+@pytest.fixture
+def ac22_relax(conn):
+    s = h.seed(conn, _relax_world())
+    old = h.run_stages(conn, s, upto="movie_multivalue", skip=("movie_scalar",), rule_version="t7r1")
+    new = h.run_stages(conn, s, upto="movie_multivalue", skip=("movie_scalar",), rule_version="t7r2")
+    return conn, s, old, new
+
+
+def test_ac22_t7r2_aligns_format_only_page_director_instead_of_marking_it_pending(ac22_relax):
+    conn, s, old, new = ac22_relax
+    page = w.person_id("J.P.Dutta")
+    # 修复前（t7r1）：页面独有导演 conflict_pending，字段为 director_source_disagreement
+    d = _people(conn, old, s, "C12", "director")
+    assert d[page]["status"] == "conflict_pending" and d[imdb_pid("nm5000010")]["status"] == "adopted"
+    assert _sel(conn, old, s, "C12", "director")["conflict_type"] == "director_source_disagreement"
+    assert "director_source_disagreement" in _issues(conn, old, s, "C12")
+    # t7r2：同一人，只剩一个 person_id，覆盖范围 both，没有 R41 分歧
+    d = _people(conn, new, s, "C12", "director")
+    assert set(d) == {imdb_pid("nm5000010")}
+    assert d[imdb_pid("nm5000010")]["source_coverage"] == "both" and d[imdb_pid("nm5000010")]["raw_names"] == ["J.P.Dutta"]
+    assert d[imdb_pid("nm5000010")]["resolution_note"]["alignment_level"] == "L1"
+    assert _sel(conn, new, s, "C12", "director")["conflict_type"] == "formatting_or_alias"
+    assert "director_source_disagreement" not in _issues(conn, new, s, "C12")
+    (a,) = _align(conn, new, s, "C12")
+    assert (a["raw_name"], a["level"], a["outcome"], a["resolved_person_id"]) == ("J.P.Dutta", "L1", "aligned", imdb_pid("nm5000010"))
+
+
+def test_ac22_t7r2_subset_name_aligns_at_level_ls(ac22_relax):
+    conn, s, old, new = ac22_relax
+    page = w.person_id("Rakesh Chaturvedi")
+    assert _people(conn, old, s, "C13", "director")[page]["status"] == "conflict_pending"           # 修复前
+    d = _people(conn, new, s, "C13", "director")
+    assert set(d) == {imdb_pid("nm5000020")} and d[imdb_pid("nm5000020")]["source_coverage"] == "both"
+    assert d[imdb_pid("nm5000020")]["resolution_note"]["alignment_level"] == "LS"
+    (a,) = _align(conn, new, s, "C13")
+    assert (a["raw_name"], a["level"], a["outcome"], a["nconst"]) == ("Rakesh Chaturvedi", "LS", "aligned", "nm5000020")
+    assert _sel(conn, new, s, "C13", "director")["status"] == "resolved"
+
+
+def test_ac22_t7r2_single_word_name_does_not_align(ac22_relax):
+    conn, s, old, new = ac22_relax
+    for ctx in (old, new):
+        cast = _people(conn, ctx, s, "C14", "cast")
+        assert cast[w.person_id("Madonna")]["source_coverage"] == "page_only"
+        assert cast[imdb_pid("nm5000030")]["source_coverage"] == "imdb_only"
+        (a,) = _align(conn, ctx, s, "C14")
+        assert (a["outcome"], a["resolved_person_id"], a["level"]) == ("no_match", None, None)
+
+
+def test_ac22_t7r2_middle_word_is_handled_by_the_existing_level_not_ls(ac22_relax):
+    conn, s, old, new = ac22_relax
+    for ctx in (old, new):
+        (a,) = _align(conn, ctx, s, "C16")
+        assert (a["level"], a["outcome"]) == ("L3", "aligned")
+
+
+def test_ac22_t7r2_two_subset_hits_in_the_same_film_and_role_do_not_align(ac22_relax):
+    conn, s, old, new = ac22_relax
+    page = w.person_id("Rakesh Chaturvedi")
+    # t7r1 里两人都不兼容，页面行照常采用；t7r2 里两人并列 LS：都不对齐，页面行保留冲突
+    for ctx, status in ((old, "adopted"), (new, "conflict_pending")):
+        cast = _people(conn, ctx, s, "C15", "cast")
+        assert cast[page]["status"] == status
+        assert cast[imdb_pid("nm5000040")]["source_coverage"] == "imdb_only"
+        assert cast[imdb_pid("nm5000041")]["source_coverage"] == "imdb_only"
+    (a,) = _align(conn, new, s, "C15")
+    assert (a["outcome"], a["level"], a["resolved_person_id"]) == ("tie_not_aligned", "LS", None)
+    assert _people(conn, new, s, "C15", "cast")[w.person_id("Rakesh Chaturvedi")]["resolution_note"]["alignment"] == {
+        "outcome": "tie_not_aligned", "level": "LS", "tied": ["nm5000040", "nm5000041"]}
+
+
+def test_ac22_t7r2_multi_person_string_aligns_through_format_and_subset_segments(ac22_relax):
+    conn, s, old, new = ac22_relax
+    raw = w.person_id("J.P.Dutta; Rakesh Chaturvedi")
+    assert _people(conn, old, s, "C17", "director")[raw]["status"] == "conflict_pending"
+    assert "unsplit_multi_person" in _issues(conn, old, s, "C17")
+    d = _people(conn, new, s, "C17", "director")
+    assert set(d) == {imdb_pid("nm5000060"), imdb_pid("nm5000061")} and raw not in d          # 原行被取代
+    assert all(p["source_coverage"] == "both" and p["status"] == "adopted" for p in d.values())
+    assert [(r["segment_name"], r["level"], r["outcome"]) for r in _align(conn, new, s, "C17")] == [
+        ("J.P.Dutta", "L1", "aligned"), ("Rakesh Chaturvedi", "LS", "aligned")]
+    assert "unsplit_multi_person" not in _issues(conn, new, s, "C17")
+
+
+def test_ac22_t7r2_creates_no_person_id_from_a_page_spelling(ac22_relax):
+    conn, s, _old, new = ac22_relax
+    pages = {w.person_id(n) for n in ("J.P.Dutta", "Rakesh Chaturvedi", "J.P.Dutta; Rakesh Chaturvedi")}
+    used = {r[0] for r in conn.execute("SELECT person_id FROM task7.movie_person_resolved WHERE extraction_id = %s "
+                                       "AND stage_key = %s AND status = 'adopted'",
+                                       (s.eid, new.inputs.stage_key("movie_multivalue")))}
+    assert not (used & pages)
+
+
 # ------------------------------------------------------------------ AC21 补完：读取同一条关联判定
 
 def test_ac21_movie_multivalue_reads_the_persisted_link_assessment(conn):

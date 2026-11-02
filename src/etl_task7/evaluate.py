@@ -67,7 +67,7 @@ SLOTS: tuple[dict[str, Any], ...] = (
      "buckets": ("conflict_unresolved", "director_source_disagreement", "formatting_or_alias", "complementary_union",
                  "none")},
     {"layer": "E4", "kind": "credit_align", "n": 8, "floor": False, "reserve": ("L4", 4),
-     "buckets": ("tie_not_aligned", "L3", "L2", "LI", "L1")},
+     "buckets": ("tie_not_aligned", "LS", "L3", "L2", "LI", "L1")},
     {"layer": "E4", "kind": "billing", "n": 4, "floor": False, "reserve": None,
      "buckets": ("billing_conflict_resolved",)},
     {"layer": "E5", "kind": "genres", "n": 15, "floor": False, "reserve": ("has_unmapped", 7),

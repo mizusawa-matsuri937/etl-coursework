@@ -13,8 +13,8 @@ import pytest
 import _task7_helpers as h
 from _task7_worlds import small_world
 from etl_task1.db import connect
-from etl_task7 import check, query
-from etl_task7.rules import DEFAULT_RULES, RULESETS
+from etl_task7 import CURRENT_RULE_VERSION, check, query
+from etl_task7.rules import RULESETS
 from etl_task7.run import RunBusy, apply_task7_schema, extraction_lock
 from etl_task7.runner import VerificationFailed, execute_conflict
 from etl_task7.versions import diff_versions
@@ -87,8 +87,9 @@ def with_d3(world: w.World) -> w.World:
 
 @pytest.fixture
 def alt_rules():
-    RULESETS["t7r1tol"] = DEFAULT_RULES.with_version("t7r1tol", runtime_tol_small=3)
-    RULESETS["t7r1pub"] = DEFAULT_RULES.with_version("t7r1pub", publisher_suffixes=(*DEFAULT_RULES.publisher_suffixes, "records"))
+    base = RULESETS[CURRENT_RULE_VERSION]            # 派生自当前默认规则，只改一项，其余阶段的签名才与默认相同
+    RULESETS["t7r1tol"] = base.with_version("t7r1tol", runtime_tol_small=3)
+    RULESETS["t7r1pub"] = base.with_version("t7r1pub", publisher_suffixes=(*base.publisher_suffixes, "records"))
     yield
     RULESETS.pop("t7r1tol", None)
     RULESETS.pop("t7r1pub", None)
@@ -263,6 +264,29 @@ def boom_at(stage: str, batch: int):
         if (st, no) == (stage, batch):
             raise RuntimeError(f"injected failure before commit of {st} batch {no}")
     return hook
+
+
+def test_ac20_migration_601_applied_before_t7r2_is_upgraded_in_place_to_allow_level_ls(conn):
+    """迁移 601 在 t7r2 之前已应用到正式库：apply_task7_schema 把 credit_alignment.level 的旧 CHECK 幂等地换成含 LS 的新 CHECK，
+    不新增迁移编号；已含 LS 时不做任何事。"""
+    def level_defs():
+        return [d for _n, d in conn.execute(
+            "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE contype = 'c' "
+            "AND conrelid = 'task7.credit_alignment'::regclass").fetchall() if "L4" in d]
+
+    (new_def,) = level_defs()
+    assert "'LS'" in new_def
+    # 还原成 t7r2 之前的旧约束，再应用
+    conn.execute("ALTER TABLE task7.credit_alignment DROP CONSTRAINT credit_alignment_level_check")
+    conn.execute("ALTER TABLE task7.credit_alignment ADD CONSTRAINT credit_alignment_level_check "
+                 "CHECK (level IN ('L1', 'L2', 'L3', 'LI', 'L4'))")
+    assert "'LS'" not in level_defs()[0]
+    assert apply_task7_schema(conn) is False                 # 迁移编号已应用，返回 False，但约束被换成含 LS 的
+    assert "'LS'" in level_defs()[0]
+    before = level_defs()
+    assert apply_task7_schema(conn) is False and level_defs() == before            # 再次应用不改变任何东西
+    versions = [r[0] for r in conn.execute("SELECT version FROM public.schema_migration ORDER BY version")]
+    assert versions.count("601") == 1
 
 
 @pytest.mark.parametrize("stage", STAGES)

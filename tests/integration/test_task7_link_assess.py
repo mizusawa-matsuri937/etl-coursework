@@ -114,6 +114,48 @@ def test_ac21_name_compatibility_does_not_light_director_signal(conn, ac21):
         assert _issues(conn, ctx, s, movie) == {}
 
 
+def _relax_world() -> w.World:
+    return _world(
+        # 真实例子：J.P.Dutta 与 J.P. Dutta 只差格式；Rakesh Chaturvedi 与 Rakesh Chaturvedi Om 是词序子集；
+        # 三例都是弱匹配且 Y 亮（页面标题年份 2005 对 IMDb 1990），D 是否亮决定熔断与否
+        _case("L11", "imdb_t5_hint", title_years=(2005,), imdb_dirs=(("nm0000011", "J.P. Dutta"),),
+              page_dirs=(("J.P.Dutta", None),)),
+        _case("L12", "imdb_t6_cooccur", title_years=(2005,), imdb_dirs=(("nm0000012", "Rakesh Chaturvedi Om"),),
+              page_dirs=(("Rakesh Chaturvedi", None),)),
+        # 单个词的名字不触发 LS：D 仍亮，仍熔断
+        _case("L13", "imdb_t5_hint", title_years=(2005,), imdb_dirs=(("nm0000013", "Madonna Louise"),),
+              page_dirs=(("Madonna", None),)),
+        # 中间多出一个词（Michael Jordan 与 Michael B. Jordan）由 level 原有规则兼容（L3），t7r1 也不亮 D
+        _case("L14", "imdb_t5_hint", title_years=(2005,), imdb_dirs=(("nm0000014", "Michael B. Jordan"),),
+              page_dirs=(("Michael Jordan", None),)))
+
+
+def test_ac21_t7r2_relaxed_name_compatibility_removes_false_d_signals_and_t7r1_is_unchanged(conn):
+    """修复前（t7r1）L11、L12 的 D 亮并与 Y 一起熔断；t7r2 预规范化与 LS 后 D 不亮，只剩 Y 单信号，不熔断。
+    L13（单词名字）两版都熔断；L14 两版都不亮 D。"""
+    s = h.seed(conn, _relax_world())
+    old = h.run_stages(conn, s, upto="link_assess", rule_version="t7r1")
+    new = h.run_stages(conn, s, upto="link_assess", rule_version="t7r2")
+    assert old.inputs.stage_key("link_assess") != new.inputs.stage_key("link_assess")
+    for movie in ("L11", "L12"):
+        o = _link(conn, old, s, movie)
+        assert (o["sig_year"], o["sig_director"], o["cross_source_mismatch_halt"], o["halt_reason"]) == (
+            "bad", "bad", True, "Y+D")
+        n = _link(conn, new, s, movie)
+        assert (n["sig_year"], n["sig_director"], n["cross_source_mismatch_halt"], n["halt_reason"]) == (
+            "bad", "ok", False, None)
+        assert _issues(conn, new, s, movie).keys() == {"weak_link_single_signal"}
+    assert _link(conn, new, s, "L11")["signal_detail"]["director"]["matches"][0]["level"] == "L1"
+    assert _link(conn, new, s, "L12")["signal_detail"]["director"]["matches"][0]["level"] == "LS"
+    assert _link(conn, new, s, "L12")["signal_detail"]["director"]["matches"][0]["segment"] == "Rakesh Chaturvedi"
+    for ctx in (old, new):
+        l13 = _link(conn, ctx, s, "L13")
+        assert (l13["sig_director"], l13["cross_source_mismatch_halt"], l13["halt_reason"]) == ("bad", True, "Y+D")
+        l14 = _link(conn, ctx, s, "L14")
+        assert (l14["sig_director"], l14["cross_source_mismatch_halt"]) == ("ok", False)
+    assert _link(conn, new, s, "L14")["signal_detail"]["director"]["matches"][0]["level"] == "L3"
+
+
 def test_ac21_single_signal_is_not_halted_but_recorded(conn, ac21):
     """L5：弱匹配只亮 RT 不熔断，继续采用 IMDb，写质量问题 weak_link_single_signal；L9 只亮 Y（评论证据早于 IMDb 年）。"""
     s, ctx = ac21

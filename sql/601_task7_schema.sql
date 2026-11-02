@@ -335,7 +335,7 @@ CREATE TABLE task7.credit_alignment (
     segment_name      text NOT NULL,
     resolved_person_id text,
     nconst            text,
-    level             text CHECK (level IN ('L1', 'L2', 'L3', 'LI', 'L4')),
+    level             text CHECK (level IN ('L1', 'L2', 'L3', 'LI', 'L4', 'LS')),     -- LS 自 t7r2 起（同片词序子集）
     outcome           text NOT NULL CHECK (outcome IN ('aligned', 'tie_not_aligned', 'no_match',
                                                        'unsplit_multi_person')),
     run_id            text NOT NULL REFERENCES task7.run,

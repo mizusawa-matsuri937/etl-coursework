@@ -193,8 +193,9 @@ def test_ac17_unknown_or_foreign_run_id_is_rejected(conn):
 
 
 def _register(version: str) -> str:
-    from etl_task7.rules import DEFAULT_RULES, RULESETS
-    RULESETS[version] = DEFAULT_RULES.with_version(version, runtime_tol_small=3)
+    from etl_task7 import CURRENT_RULE_VERSION
+    from etl_task7.rules import RULESETS
+    RULESETS[version] = RULESETS[CURRENT_RULE_VERSION].with_version(version, runtime_tol_small=3)
     return version
 
 

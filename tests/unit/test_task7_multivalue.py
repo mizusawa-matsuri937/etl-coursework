@@ -5,9 +5,11 @@ from __future__ import annotations
 import pytest
 
 from etl_task7.movies_multivalue import align_name, cast_coverage
-from etl_task7.rules import DEFAULT_RULES
+from etl_task7.link_assess import director_signal
+from etl_task7.rules import DEFAULT_RULES, ruleset
 
-LEVELS = DEFAULT_RULES.align_levels
+LEVELS = DEFAULT_RULES.align_levels             # t7r1
+LEVELS2 = ruleset("t7r2").align_levels           # t7r2：末尾加 LS
 
 
 def cand(nconst: str, name: str | None, ordinal: int = 1) -> dict:
@@ -40,3 +42,44 @@ def test_ac22_best_level_over_all_page_spellings_is_used():
     (False, True, "imdb_principals_only"), (False, False, "none")])
 def test_ac08_cast_coverage_values(page, imdb, expected):
     assert cast_coverage(page, imdb) == expected
+
+
+# ------------------------------------------------------------------ t7r2 姓名兼容放宽（R16、R38、R41）
+
+def test_ac22_t7r2_aligns_format_only_and_subset_names_that_t7r1_cannot():
+    a = align_name(["J.P.Dutta"], [cand("nm1", "J.P. Dutta")], LEVELS2, True)
+    assert (a.outcome, a.nconst, a.level) == ("aligned", "nm1", "L1")
+    assert align_name(["J.P.Dutta"], [cand("nm1", "J.P. Dutta")], LEVELS).outcome == "no_match"          # 修复前：不兼容
+    b = align_name(["Rakesh Chaturvedi"], [cand("nm2", "Rakesh Chaturvedi Om")], LEVELS2, True)
+    assert (b.outcome, b.nconst, b.level) == ("aligned", "nm2", "LS")
+    assert align_name(["Rakesh Chaturvedi"], [cand("nm2", "Rakesh Chaturvedi Om")], LEVELS).outcome == "no_match"
+
+
+def test_ac22_two_subset_hits_are_a_tie_not_an_alignment():
+    """同片同角色里两人都与页面名构成 LS：不对齐，页面行交给调用方标 conflict_pending。"""
+    a = align_name(["Rakesh Chaturvedi"], [cand("nm1", "Rakesh Chaturvedi Om"), cand("nm2", "Rakesh Chaturvedi Shah")],
+                   LEVELS2, True)
+    assert a.outcome == "tie_not_aligned" and a.nconst is None and a.level == "LS" and a.tied == ("nm1", "nm2")
+
+
+def test_ac22_a_stricter_level_beats_a_subset_hit():
+    a = align_name(["Rakesh Chaturvedi"], [cand("nm1", "Rakesh Chaturvedi Om"), cand("nm2", "Rakesh Chaturvedi")],
+                   LEVELS2, True)
+    assert (a.outcome, a.nconst, a.level) == ("aligned", "nm2", "L1")
+
+
+def test_ac22_single_word_and_middle_word_cases_do_not_become_subset_hits():
+    assert align_name(["Madonna"], [cand("nm1", "Madonna Louise")], LEVELS2, True).outcome == "no_match"
+    a = align_name(["Michael Jordan"], [cand("nm1", "Michael B. Jordan")], LEVELS2, True)
+    assert (a.outcome, a.level) == ("aligned", "L3")                    # 由 level 原有规则处理，不是 LS
+
+
+def test_ac21_director_signal_t7r2_does_not_light_d_for_format_or_subset_differences():
+    page = lambda name: [{"person_id": "p1", "names": [name], "nconst": None}]       # noqa: E731
+    imdb = lambda name: [{"nconst": "nm1", "name": name}]                             # noqa: E731
+    for page_name, imdb_name, level_ in (("J.P.Dutta", "J.P. Dutta", "L1"),
+                                          ("Rakesh Chaturvedi", "Rakesh Chaturvedi Om", "LS")):
+        assert director_signal(page(page_name), imdb(imdb_name))[0] == "bad"          # t7r1：亮
+        state, detail = director_signal(page(page_name), imdb(imdb_name), True)
+        assert state == "ok" and detail["matches"][0]["level"] == level_
+    assert director_signal(page("Madonna"), imdb("Madonna Louise"), True)[0] == "bad"  # 单词不触发

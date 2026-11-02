@@ -21,8 +21,8 @@ from psycopg.types.json import Jsonb
 from etl_task1.db import sql_dir
 from etl_task3 import PARSER_VERSION
 
-from . import (DEFAULT_IMDB_SNAPSHOT, DEFAULT_PMAP, DEFAULT_T4_MAPPING_VERSION, DEFAULT_T6_RELEASE_VERSION,
-               RULE_VERSION, T4_NORM_VERSION)
+from . import (CURRENT_RULE_VERSION, DEFAULT_IMDB_SNAPSHOT, DEFAULT_PMAP, DEFAULT_T4_MAPPING_VERSION,
+               DEFAULT_T6_RELEASE_VERSION, T4_NORM_VERSION)
 
 SCHEMA_VERSION = "601"
 DEFAULT_BATCH = 1000
@@ -49,9 +49,22 @@ def apply_task7_schema(conn: psycopg.Connection) -> bool:
         if not {"302", "401", "501"} <= have:
             raise RuntimeError("前置表结构 302、401 与 501 尚未应用，不能创建 task7 表")
         if SCHEMA_VERSION in have:
+            _allow_subset_level(conn)
             return False
         conn.execute((sql_dir() / "601_task7_schema.sql").read_text(encoding="utf-8"))
     return True
+
+
+def _allow_subset_level(conn: psycopg.Connection) -> None:
+    """t7r2 在 credit_alignment.level 增加最低等级 LS。迁移 601 在 t7r2 之前已应用到正式库：这里把旧 CHECK 幂等地换成
+    含 LS 的新 CHECK（已含 LS 时不做任何事）。不新增迁移编号，AC20 的迁移清单保持不变。"""
+    for name, definition in conn.execute(
+            "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE contype = 'c' "
+            "AND conrelid = 'task7.credit_alignment'::regclass").fetchall():
+        if "level" in definition and "'L4'" in definition and "'LS'" not in definition:
+            conn.execute(f'ALTER TABLE task7.credit_alignment DROP CONSTRAINT "{name}"')
+            conn.execute("ALTER TABLE task7.credit_alignment ADD CONSTRAINT credit_alignment_level_check "
+                         "CHECK (level IN ('L1', 'L2', 'L3', 'LI', 'L4', 'LS'))")
 
 
 @dataclass(frozen=True)
@@ -63,7 +76,7 @@ class RunInputs:
     imdb_snapshot_id: str = DEFAULT_IMDB_SNAPSHOT
     parser_version: str = PARSER_VERSION
     norm_version: str = T4_NORM_VERSION
-    rule_version: str = RULE_VERSION
+    rule_version: str = CURRENT_RULE_VERSION
 
     def key(self) -> str:
         return "|".join((self.extraction_id, self.t4_mapping_version_id, self.t5_person_mapping_version_id,
