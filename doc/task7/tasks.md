@@ -60,7 +60,7 @@
 - [x] T7-05 版本物化、差异、恢复、报告、查询与核对。关联 AC11、AC12、AC14、AC17，补完 AC01。
   - 文件：`src/etl_task7/{versions,runner,report,query,check}.py`、`tests/integration/test_task7_{runs,report}.py`、`tests/integration/_task7_worlds.py`。
   - 目标：`finalize_version` 只从阶段表物化；验证阶段依赖链的增量重算、`report diff`、分批故障恢复与并发锁；实现 `report export`、`query movie|edition|conflicts`、`etl_task7.check`。
-  - 完成情况：2026-11-02 完成，24 项集成测试通过（AC01 物化 1、AC11 5、AC12 5、AC14 7、AC17 6）。临时库 `etl_t7_rehearsal`（业务库副本）全链路：`run1` 经 4 个阶段、物化、核对后 `succeeded`（215 秒，单进程串行），`movie_resolved` 8,659、`edition_resolved` 9,590，9 个作品层字段三种状态合计各 8,659，`check` 无问题；第二次运行 `reused`（1 秒），报告 10 个文件导出成功。核对在真实数据上发现并修正了两处过严的判据（见 design）。
+  - 完成情况：2026-11-02 完成，24 项集成测试通过（AC01 物化 1、AC11 5、AC12 5、AC14 7、AC17 6）。临时库 `etl_t7_rehearsal`（业务库副本）全链路：`run1` 经 4 个阶段、物化、核对后 `succeeded`（单进程串行，首次 215 秒，重测一次 643 秒，受机器负载影响，均在预算外的串行口径下，未做性能实测），`movie_resolved` 8,659、`edition_resolved` 9,590，9 个作品层字段三种状态合计各 8,659，`check` 无问题；第二次运行 `reused`（1–18 秒），报告 10 个文件导出成功。核对在真实数据上发现并修正了两处过严的判据（见 design）。
 
   ```bash
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_runs.py tests/integration/test_task7_report.py
