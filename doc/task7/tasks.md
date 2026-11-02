@@ -16,17 +16,15 @@
 
   期望：第一条只输出 `目标、范围、规则、AC测试、假设` 五行；第二条无输出；第三条输出 `66`。
 
-- [ ] T7-01 迁移 601、运行审计与咨询锁、规则纯函数、商品版本层消解。关联 AC01、AC02、AC09、AC16。
-  - 文件：`sql/601_task7_schema.sql`、`src/etl_task7/{__init__,rules,run,editions}.py`、`tests/fixtures/task7/`、`tests/unit/test_task7_rules.py`、`tests/integration/{_task7_helpers,test_task7_editions}.py`。
-  - 目标：建立 schema `task7` 全部表与约束（含 `conflict_type` 闭集 CHECK）；实现输入键、四个阶段键、审计与锁；实现规则纯函数；版本层范围取 `task4.product_edition`，完成 6 个标量字段（含 `discs`、`date_flags`）与 7 项多值特征。
-  - 完成情况：未执行（计划）。
+- [x] T7-01 迁移 601、运行审计与咨询锁、规则纯函数、商品版本层消解。关联 AC01、AC02、AC09、AC16。
+  - 文件：`sql/601_task7_schema.sql`、`src/etl_task7/{__init__,rules,run,selection,sources,editions}.py`、`tests/fixtures/task7/`、`tests/unit/test_task7_rules.py`、`tests/integration/{_task7_helpers,test_task7_editions}.py`；`tests/integration/conftest.py` 增加一行 `DROP SCHEMA IF EXISTS task7`。
+  - 完成情况：2026-11-02 完成，规则单元测试 140 项与版本层集成测试 11 项通过（共 151）；迁移 601 含 27 张表与冲突类型闭集 CHECK；版本层取 `task4.product_edition` 的 matched 商品，6 个标量字段与 7 项多值特征落到 `edition_stage_result`。AC16、AC09 通过；AC01、AC02 的作品层与 `movie_resolved`/`edition_resolved` 物化部分待后续阶段。
 
   ```bash
-  # （计划）规则单元测试与版本层集成测试
   docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task7_rules.py tests/integration/test_task7_editions.py
   ```
 
-  期望（计划）：全部通过，退出码 `0`。
+  期望：最后一行 `151 passed`，退出码 `0`。
 
 - [ ] T7-02 关联评估：有效 `tconst`、四信号、错配熔断、共享 `tconst` 分类。关联 AC10、AC21。
   - 文件：`src/etl_task7/link_assess.py`、`tests/integration/test_task7_link_assess.py`。

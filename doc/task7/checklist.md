@@ -26,7 +26,7 @@ grep -c "^- R[0-9][0-9] \[" doc/task7/spec.md
 
 ## AC01 输入版本、实体边界与处理范围
 
-- [ ] 未执行。
+- [ ] 部分（2026-11-02）：版本层已通过——每个 matched 商品在 `edition_stage_result` 恰好一行、无关联合集 `movie_ids = '{}'`、`tv_series` 不进入 task7、只读指定版本（`-k "ac01"` 当前 2 项通过）；作品层与 `movie_resolved`/`edition_resolved` 物化待后续阶段，保持未勾选。
 
 ```bash
 # （计划）验证只读指定版本、两层实体边界、无关联合集与三类 IMDb 关联可靠度
@@ -37,7 +37,7 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC02 候选保留、状态语义与版本属性隔离
 
-- [ ] 未执行。
+- [ ] 部分（2026-11-02）：版本层已通过——候选定位与互斥状态、`missing` 的 `considered_candidate_ids` 为空、冲突类型闭集、版本属性不互相覆盖、上游行摘要不变（`test_task7_editions.py -k "ac02"` 2 项通过）；作品层与合集不下推待后续阶段，保持未勾选。
 
 ```bash
 # （计划）验证候选互斥状态、missing 语义、冲突类型闭集、合集属性不下推与版本差异保留
@@ -114,14 +114,13 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC09 版本层标量与多值特征
 
-- [ ] 未执行。
+- [x] 2026-11-02 通过（AI 运行）：E1 发行商取 `Warner Home Video`（`formatting_or_alias`）、发售日取 `media_release` 并保留上架日（`semantic_distinction`）；E2 取 `Sony Pictures`（`intra_asin_publisher_conflict`）；E3 多值并集保留来源区域；E4 `date_flags` 与置信度 `0.60`；E5 `discs = 2` 有选择记录；另覆盖有断言时碟数优先、同 ASIN 多区域取区域优先级、上架日回退与 `missing`。
 
 ```bash
-# （计划）验证发行商归一、发售日语义与标记、discs 选择记录、7 项多值并集
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_editions.py -k "ac09"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`7 passed, 4 deselected`，退出码 `0`。
 
 ## AC10 共享 `tconst` 去重与分类
 
@@ -191,14 +190,13 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC16 规则纯函数与边界情况
 
-- [ ] 未执行。
+- [x] 2026-11-02 通过（AI 运行）：标题清洁化与信号（单实词与括号年份、载体词与首尾冠词、`Emma VHS`、`Departed, The`）、PAL 公式与证据、年份决策表、熔断公式、发行商、碟数、多人串拆分、`NR/Unrated` 写法、未知 MPAA、类型词面处置、署名顺序、规则签名独立性与冲突类型闭集同 SQL CHECK。文件含 AC20 写语句静态检查，共 140 项。
 
 ```bash
-# （计划）验证标题、PAL、MPAA、类型词面与多人串纯函数
 docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task7_rules.py
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`140 passed`，退出码 `0`。
 
 ## AC17 多运行与多阶段键共存
 
