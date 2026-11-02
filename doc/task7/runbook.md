@@ -5,7 +5,7 @@
 ## 1. 测试
 
 ```bash
-docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task7_rules.py tests/unit/test_task7_multivalue.py tests/integration/test_task7_editions.py tests/integration/test_task7_link_assess.py tests/integration/test_task7_movies_scalar.py tests/integration/test_task7_movies_multivalue.py tests/integration/test_task7_runs.py tests/integration/test_task7_report.py tests/integration/test_task7_dag.py
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task7_rules.py tests/unit/test_task7_multivalue.py tests/integration/test_task7_editions.py tests/integration/test_task7_link_assess.py tests/integration/test_task7_movies_scalar.py tests/integration/test_task7_movies_multivalue.py tests/integration/test_task7_runs.py tests/integration/test_task7_report.py tests/integration/test_task7_dag.py tests/integration/test_task7_evaluate.py
 ```
 
 集成测试会话开始时会清空 `etl_test`；下一节的端到端数据要在测试之后从头准备。
@@ -108,7 +108,13 @@ docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default
 
 ### 3.2 全量运行前先冻结开发池（R61，1,732 部作品）
 
-`evaluate freeze` 在 T7-07 实现，须在首次全量运行前执行，并须先应用迁移 `601`（先触发一次只做输入检查的运行，或在 T7-08 按当时的说明操作）。
+`evaluate freeze` 先幂等应用迁移 `601`（建 schema `task7`，写 `public.schema_migration` 的 `601`），再按 `md5(movie_id)` 排序取前 20% 冻结到 `task7.dev_pool`；已冻结时直接返回已有结果。须在首次全量运行前执行：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task7.evaluate freeze
+```
+
+期望：`"status": "frozen"`、`"dev_movies": 1732`、`"total_movies": 8659`、`"frozen_before_first_run": true`；重复执行为 `already_frozen`。
 
 ### 3.3 触发 DAG 与复用验证
 
@@ -158,4 +164,33 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task7.query con
 
 ## 4. 评价与标注（T7-07 / T7-09）
 
-`evaluate freeze|export|import|metrics` 在 T7-07 实现，本节随之补写（计划）。
+`python -m etl_task7.evaluate freeze|export|import|metrics` 的设计见 design“盲测评价设计”。要点：
+
+- 开发池 1,732 部（`md5(movie_id)` 前 20%）严格排除；版本层抽样时任一关联作品在开发池的 ASIN 也排除。
+- 七层 120 项：`E1` 标题 15、`E2` 年份 15、`E3` 片长 20、`E4` 演职员 20（导演 8、署名对齐 8、署名顺序 4）、`E5` 类型 15、`E6` 分级 15、`E7` 版本层 20（发行商 10、发售日 10）；系统给出 `resolved` 或 `conflict_unresolved` 的项才入池（`missing` 没有候选，无从评价）。`E1`、`E2`、`E3`、`E6` 先取 `min(可用数, 4)` 项 `conflict_unresolved`，署名对齐至少一半取 `L4`，类型中含未映射词面的作品优先，发售日带 `date_flags` 的优先；某层不足 120 项配额时按 `E3 → E4 → E1 → E7` 补足。各层实际分布写入 `task7.eval_set.strata`。
+- 盲测表 `eval_items.csv` 只有实体、目标字段、概况与原始候选证据（由上游原始表重新生成，按 `(source, source_key)` 排序，不读 `task7` 候选与选择表），编号 `t7_eval_0001`–`t7_eval_0120` 按 `md5(entity_id:target_field)` 全局打乱，不含胜出值、状态、冲突类型与层号。系统结果只存在 `task7.eval_item`，用于算指标。
+- `eval_items_draft.csv` 是 AI 预标注草稿：由规则式脚本只依据盲测行生成 `ai_action`、`ai_winning_value`、`ai_doubt`、`ai_reason`，不读 `task7` 选择结果。它只是核对线索，不是事实；`ai_reason` 不进入标注表。
+
+1. 冻结开发池（见 3.2）。
+2. 正式运行（见 3.3、3.4）完成后导出盲测表与草稿（输出到 `outputs/task7/<抽取>/<冲突消解版本>/eval/`：`eval_items.csv`、`eval_items_draft.csv`、`LABELING.md`）：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task7.evaluate export
+```
+
+已有导入的标注时拒绝重导，确需重导加 `--force`（会清除标注）。
+
+3. 标注人（付林轩）以 `eval_items_draft.csv` 为底稿，把结论填在 `human_action`（`resolve`/`keep_conflict`/`unsure`）、`human_winning_value`（`resolve` 时必填，格式见 `LABELING.md`）、`human_evidence`、`note`，另存为 `eval_items_labeled.csv`。`ai_doubt` 为 `true` 的项，或结论与 AI 建议不同的项，必须填 `human_evidence`（可核实的外部依据），否则导入拒绝；标为 `unsure` 的项除外。`note` 不得原样粘贴 `ai_reason`。
+4. 导入（校验通过才全部写入 `task7.eval_label`；默认要求 120 项齐全，可用 `--allow-partial` 部分导入）：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task7.evaluate import /opt/etl/outputs/task7/<抽取>/cv0001/eval/eval_items_labeled.csv --annotator 付林轩
+```
+
+5. 计算指标并写 `metrics.json`、`metrics.md`（总体、按层、按字段）：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task7.evaluate metrics
+```
+
+指标定义：`unsure` 单独计数，不进任何分母；分母为零记“无定义”。动作准确率 = 系统动作（`resolved` 对 `resolve`，`conflict_unresolved` 对 `keep_conflict`）与人工一致的项 / 非 `unsure` 项；值准确率 = 系统 `resolved` 且人工 `resolve` 的项里值一致的比例（动作不一致的项由动作准确率体现）；`conflict_unresolved` 精确率 = 系统保留冲突的项里人工也保留的比例；召回率 = 人工保留冲突的项里系统也保留的比例。指标只代表分层样本，不代表全量准确率。

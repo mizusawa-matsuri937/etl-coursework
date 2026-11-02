@@ -1,6 +1,6 @@
 # 任务 7 开发任务（处理不同来源的信息冲突）
 
-状态：2026-10-30 编写计划；2026-11-02 经复核修订（用户同意按复核结论修订），新增 `link_assess` 阶段，规则与验收重新编号为 R01–R66、AC00–AC22，任务调整为 T7-00 至 T7-09。T7-00 已执行并通过；T7-01 至 T7-06 于 2026-11-02 实现并本地提交，命令与期望已按实际运行核对；T7-07 至 T7-09 尚未实现，其验证命令与期望仍标注为 `（计划）`。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-10-30 编写计划；2026-11-02 经复核修订（用户同意按复核结论修订），新增 `link_assess` 阶段，规则与验收重新编号为 R01–R66、AC00–AC22，任务调整为 T7-00 至 T7-09。T7-00 已执行并通过；T7-01 至 T7-06 于 2026-11-02 实现并本地提交，命令与期望已按实际运行核对；T7-07 于 2026-11-02 实现；T7-08、T7-09 其验证命令与期望仍标注为 `（计划）`。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。每项 AC 的逐条复核命令见 [checklist](checklist.md)。
 
@@ -79,17 +79,16 @@
 
   期望：最后一行 `10 passed`（另有来自其他 DAG 文件的弃用警告，不来自 `amazon_movies_task7_conflict.py`），退出码 `0`。
 
-- [ ] T7-07 盲测评价工具。关联 AC15。
-  - 文件：`src/etl_task7/evaluate.py`、`tests/integration/test_task7_evaluate.py`、`doc/task7/runbook.md`（评价章节）。
+- [x] T7-07 盲测评价工具。关联 AC15。
+  - 文件：`src/etl_task7/evaluate.py`、`tests/integration/test_task7_evaluate.py`（`tests/integration/_task7_worlds.py` 增加 `eval_world`）、`doc/task7/runbook.md`（评价章节）。
   - 目标：实现 `evaluate freeze|export|import|metrics`；七层配额与 `conflict_unresolved` 保底；盲测证据由上游原始表生成；缺 `human_evidence` 的存疑项拒绝导入；`ai_reason` 不入标注。
-  - 完成情况：未执行（计划）。
+  - 完成情况：2026-11-02 完成，16 项测试通过（真实 120 项配额与保底、补足顺序、指标手算、值比较规范用合成候选池验证；开发池排除、盲测表不泄露、证据只读上游表、草稿只用盲测行、导入拒绝、指标用 14 项缩小配额的 `eval_world` 验证）；临时库 `etl_t7_rehearsal` 演练 `freeze`（1,732 部）与 `export`（120 项）成功。设计取舍见 design“实现补充约定”。
 
   ```bash
-  # （计划）评价工具集成测试
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_evaluate.py
   ```
 
-  期望（计划）：全部通过，退出码 `0`。
+  期望：最后一行 `16 passed`，退出码 `0`。
 
 - [ ] T7-08 正式库运行。关联 AC18、AC20。
   - 文件：`doc/task7/{design,tasks,checklist}.md`；`outputs/task7/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/cv0001/`（不入 Git）。

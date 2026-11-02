@@ -97,3 +97,61 @@ def rich_world() -> w.World:
     world = w.World(list(imdb.values()), movies, editions)
     world.shared = [("Q1b", "tt7000001", "Q1a", "candidate_shared"), ("Q2b", "tt7000002", "Q2a", "candidate_shared")]
     return world
+
+
+def eval_world() -> w.World:
+    """评价工具测试用的世界（约 40 部作品）：同一世界里有各类可分层抽样的项——标题别名、年份（一致、差 1 年、差多年、
+    熔断）、各类片长差异、分级（未评级与具体并存、两种具体分级）、署名对齐（页面人物无 nconst 的错别字）、
+    署名顺序不一致、类型（含未映射词面）、版本层发行商与发售日。"""
+    cases, extra = [], []
+    for k in range(1, 5):
+        cases.append(case(f"Ya{k}", "imdb_t4_link", imdb_year=1980 + k, title_years=(1980 + k,)))
+        cases.append(case(f"Yb{k}", "imdb_t4_link", imdb_year=1970 + k, title_years=(1971 + k,)))
+        cases.append(case(f"Yc{k}", "imdb_t4_link", imdb_year=1960 + k, title_years=(1966 + k,),
+                          imdb_dirs=((f"nm60000{k}", f"Same Director{k}"),), page_dirs=((f"Same Director{k}", None),)))
+        cases.append(case(f"Hl{k}", "imdb_t6_cooccur", imdb_year=1990, imdb_runtime=100, title_years=(2010,),
+                          page_runtime=140))
+    for k, delta in enumerate((0, 2, 4, 10, 45, 0, 2, 10), start=1):
+        cases.append(case(f"Rd{k}", "imdb_t4_link", imdb_runtime=100, page_runtime=100 + delta))
+    for k in range(1, 5):
+        c = case(f"Mr{k}", "imdb_t4_link", edition_extra=dict(rating=(("R (Restricted)", "detail_bullets"),)))
+        cases.append(c)
+        extra.append(E(f"B0Mr{k}B", f"Mr{k} Picture [VHS]", movie=f"Mr{k}",
+                       rating=(("PG (Parental Guidance)", "detail_bullets"),)))
+    for k in range(1, 4):
+        c = case(f"Mu{k}", "imdb_t4_link", edition_extra=dict(rating=(("R (Restricted)", "detail_bullets"),)))
+        cases.append(c)
+        extra.append(E(f"B0Mu{k}B", f"Mu{k} Picture [VHS]", movie=f"Mu{k}",
+                       rating=(("NR (Not Rated)", "detail_bullets"),)))
+    firsts = ("Gary", "Harry", "Larry", "Barry", "Terry", "Perry")
+    lasts = ("Busey", "Quade", "Hagman", "Pepper", "Gilliam", "Como")
+    for k in range(6):
+        c = case(f"Ca{k}", "imdb_t4_link")
+        c[0].principals = ((f"nm71000{k}", f"{firsts[k]} {lasts[k]}", "actor"),)
+        typo = f"{firsts[k][:-1]}e{firsts[k][-1]} {lasts[k]}"
+        c[1].credits = (CR(typo, "cast", None, ((f"B0Ca{k}", None),)),)
+        cases.append(c)
+    for k in range(1, 5):
+        c = case(f"Bl{k}", "imdb_t4_link")
+        c[0].principals = ((f"nm72000{k}", f"Lead Actor{k}", "actor"),)
+        c[1].credits = (CR(f"Lead Actor{k}", "starring", f"nm72000{k}", ((f"B0Bl{k}", 1), (f"B0Bl{k}B", 2), (f"B0Bl{k}C", 1))),)
+        cases.append(c)
+        extra += [E(f"B0Bl{k}B", f"Bl{k} Picture [VHS]", movie=f"Bl{k}"), E(f"B0Bl{k}C", f"Bl{k} Picture [Blu-ray]", movie=f"Bl{k}")]
+    for k in range(1, 5):
+        c = case(f"Gn{k}", "imdb_t4_link", edition_extra=dict(genre=("Action & Adventure, Science Fiction & Fantasy",
+                                                                    "faith_&_spirituality"),
+                                                              breadcrumb=("Movies & TV", "Anime & Manga")))
+        c[0].genres = ("Action", "Sci-Fi")
+        cases.append(c)
+    for k in range(1, 5):
+        cases.append((None, M(f"Mv{k}"), None))
+        extra += [E(f"B0Mv{k}A", f"Mv{k} Film [DVD]", movie=f"Mv{k}",
+                    publisher=(("Warner Home Video", "detail_bullets"), ("Warner Bros.", "product_overview")),
+                    dates=(("media_release", f"200{k}-05-20", ()), ("listing_first_available", f"201{k}-09-10", ()))),
+                  E(f"B0Mv{k}B", f"Mv{k} Film", movie=f"Mv{k}",
+                    publisher=(("Universal Studios", "product_overview"), ("Sony Pictures", "detail_bullets")),
+                    dates=(("media_release", f"200{k}-06-01", ("after_review_period",)),))]
+    imdb = {c[0].tconst: c[0] for c in cases if c[0] is not None}
+    movies = [c[1] for c in cases]
+    editions = [c[2] for c in cases if c[2] is not None] + extra
+    return w.World(list(imdb.values()), movies, editions)

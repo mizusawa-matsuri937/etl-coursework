@@ -166,14 +166,13 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC15 盲测评价工具
 
-- [ ] 未执行。
+- [x] 2026-11-02 通过（AI 运行）：16 项测试——真实 120 项配额（七层、E4 = 8 + 8 + 4、E7 = 10 + 10）、`conflict_unresolved` 保底为 `min(可用数, 4)`、署名对齐至少一半 `L4`、补足顺序 `E3 → E4 → E1 → E7`；指标与手算一致，分母为 0 记“无定义”；开发池严格排除（含关联作品在开发池的 ASIN）；盲测表无系统结果，打乱候选状态与顺序后导出字节相同，证据生成时执行的 SQL 不含 `task7.`；草稿可仅凭盲测行复现，`eval_label` 无 `ai_reason` 列；缺依据的存疑项、改判项、照抄 `ai_reason` 的备注被拒绝，拒绝时不写任何标注。
 
 ```bash
-# （计划）验证开发池排除、配额与保底、证据不读候选状态、存疑项依据、指标手算
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task7_evaluate.py -k "ac15"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`16 passed`，退出码 `0`。
 
 ## AC16 规则纯函数与边界情况
 
