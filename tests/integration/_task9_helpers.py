@@ -127,11 +127,16 @@ def seed(conn: psycopg.Connection, make_settings, tmp_path: Path, world: w7.Worl
     world = world if world is not None else t9_world()
     s = h7.seed(conn, world)                    # 任务 3–6 与 IMDb（清空并重建 task3–task7）
     _title_children(conn, "B0Lg")
+    _prod_shape_t6_candidates(conn)              # 以下三步把任务 4–6 的行补成正式库的形状（任务 7 运行前）
+    _merge_decisions(conn, world)
+    _missing_mentions(conn)
+    _person_links(conn, world)
     apply_task8_schema(conn)
     conn.execute("TRUNCATE task8.run, task8.stage_key CASCADE")
     cv = execute_conflict(conn, s.inputs(), batch_size=50).conflict_version_id
     other = execute_conflict(conn, s.inputs(rule_version="t7r1"), batch_size=50).conflict_version_id
     review_eid = _copy_reviews(conn, make_settings, tmp_path, reviews if reviews is not None else t9_reviews())
+    _review_times_and_bounds(conn, s)
     root = tmp_path / "t9root"
     _crawl(conn, root, world)
     _imdb_files(conn)
@@ -178,6 +183,244 @@ def _copy_reviews(conn: psycopg.Connection, make_settings, tmp_path: Path, recs:
         conn.execute(f"INSERT INTO public.review_staging ({', '.join(cols)}) SELECT %s, "
                      f"{', '.join(cols[1:])} FROM public.review_staging WHERE extraction_id = %s", (EID, e2))
     return e2
+
+
+# ---------------------------------------------------------------- 补成正式库形状（T9-02）
+# 任务 7 夹具的任务 4–6 行省略了几处正式库都有的列（任务 6 候选的 source_ref、合并决策、外部 ID 判定、评论时间、
+# 推断上界的证据）。任务 9 的派生边要从这些列找到父节点，所以按正式库的形状补齐（形状逐项对照 etl_movies 的只读查询，
+# 见 tests/fixtures/task9/README.md）；评论时间直接调用任务 6 自己的 reviews.product_review_times / movie_review_times。
+
+def _prod_shape_t6_candidates(conn: psycopg.Connection) -> None:
+    """任务 6 候选的 source_ref 与 source_key 按正式库：IMDb 为（文件、tconst、行号、快照、titleType），
+    页面标题年份为（via、ASIN、区域、序号、任务 4 断言 ID、来源记录），source_key = <ASIN>:<断言 ID>。"""
+    for cid, source, key, movie, stage in conn.execute(
+            "SELECT candidate_id, source, source_key, movie_id, stage_key FROM task6.release_candidate "
+            "WHERE extraction_id = %s ORDER BY candidate_id", (EID,)).fetchall():
+        if source != "amazon_title_year":
+            line = conn.execute("SELECT line_no FROM imdb.title WHERE snapshot_id = %s AND tconst = %s",
+                                (SNAPSHOT, key)).fetchone()
+            conn.execute("UPDATE task6.release_candidate SET source_ref = %s WHERE candidate_id = %s",
+                         (Jsonb({"file": "title.basics.tsv.gz", "tconst": key, "line_no": line[0] if line else None,
+                                 "snapshot": SNAPSHOT, "title_type": "movie"}), cid))
+            continue
+        t4 = "map0001" if stage.endswith("rv0002") else h7.T4
+        row = conn.execute(
+            "SELECT a.assertion_id, a.entity_id, a.source_record_id, a.source_locator FROM task4.product_movie pm "
+            "JOIN task4.field_assertion a ON a.extraction_id = %s AND a.entity_id = pm.asin AND a.parser_version = 't3p1' "
+            "AND a.norm_version = 't4n1' AND a.field_name IN ('title_year', 'title') "
+            "WHERE pm.mapping_version_id = %s AND pm.movie_id = %s AND pm.relation_type = 'edition' "
+            "ORDER BY (a.field_name = 'title_year') DESC, pm.asin, a.assertion_id LIMIT 1", (EID, t4, movie)).fetchone()
+        if row is None:
+            continue
+        aid, asin, rec, loc = row
+        n = conn.execute("SELECT count(*) FROM task6.release_candidate WHERE extraction_id = %s AND stage_key = %s "
+                         "AND movie_id = %s AND source = 'amazon_title_year' AND starts_with(source_key, %s)",
+                         (EID, stage, movie, f"{asin}:{aid}")).fetchone()[0]
+        conn.execute("UPDATE task6.release_candidate SET source_key = %s, source_ref = %s WHERE candidate_id = %s",
+                     (f"{asin}:{aid}" + (f":{n}" if n else ""),
+                      Jsonb({"via": "edition", "asin": asin, "ordinal": (loc or {}).get("ordinal"),
+                             "section": (loc or {}).get("section"), "assertion_id": aid, "member_ordinal": 0,
+                             "source_record_id": rec, "final_url": f"https://example.invalid/dp/{asin}"}), cid))
+
+
+MERGED = ("B0Lg", "B0LgC#1", "B0C1")     # 经任务 4 自动合并决策归到作品的商品（其余为 singleton）
+
+
+def _merge_decisions(conn: psycopg.Connection, world: w7.World) -> None:
+    """MERGED 中的商品改为 auto_decision：写任务 4 候选与合并决策（特征的证据为页面标题、导演断言与 IMDb 作品、
+    演职员行，形状同正式库 features.evidence），并让 product_movie 指向该决策。"""
+    tconst_of = {w7.movie_id(m.name): m.release.tconst for m in world.movies}
+    for entity in MERGED:
+        asin, _, member = entity.partition("#")
+        ordinal = int(member or 0)
+        row = conn.execute("SELECT movie_id FROM task4.product_movie WHERE mapping_version_id = %s AND asin = %s "
+                           "AND member_ordinal = %s", (h7.T4, asin, ordinal)).fetchone()
+        if row is None or not tconst_of.get(row[0]):
+            continue
+        movie, tconst = row[0], tconst_of[row[0]]
+        etype = "collection_member" if member else "product_edition"
+        page = [r[0] for r in conn.execute(
+            "SELECT assertion_id FROM task4.field_assertion WHERE extraction_id = %s AND entity_id = %s "
+            "AND entity_type = %s AND field_name = 'title' AND norm_version = 't4n1' AND parser_version = 't3p1'",
+            (EID, entity, etype))]
+        title_line = conn.execute("SELECT line_no FROM imdb.title WHERE snapshot_id = %s AND tconst = %s",
+                                  (SNAPSHOT, tconst)).fetchone()[0]
+        actors = [{"file": "title.principals.tsv.gz", "nconst": n, "line_no": ln} for n, ln in conn.execute(
+            "SELECT nconst, line_no FROM imdb.title_principal WHERE snapshot_id = %s AND tconst = %s ORDER BY ordering",
+            (SNAPSHOT, tconst))]
+        directors = [{"file": "title.crew.tsv.gz", "nconst": n, "line_no": ln} for n, ln in conn.execute(
+            "SELECT nconst, line_no FROM imdb.title_director WHERE snapshot_id = %s AND tconst = %s ORDER BY ordinal",
+            (SNAPSHOT, tconst))]
+        cand = conn.execute("INSERT INTO task4.candidate (extraction_id, norm_version, imdb_snapshot_id, left_entity, "
+                            "right_kind, right_id, generator) VALUES (%s, 't4n1', %s, %s, 'imdb', %s, 'G1') "
+                            "RETURNING candidate_id", (EID, SNAPSHOT, entity, tconst)).fetchone()[0]
+        features = {"title": {"key": "fixture", "score": 2, "value": "G1"},
+                    "evidence": {"page": {"title": page, "director": [], "actor": [], "runtime": [], "title_year": []},
+                                 "imdb": {"title": {"file": "title.basics.tsv.gz", "line_no": title_line},
+                                          "actors": actors, "directors": directors}}}
+        dec = conn.execute("INSERT INTO task4.merge_decision (candidate_id, rule_version, run_id, tier, score, "
+                           "confidence, rank, margin, reason, features, thresholds) VALUES (%s, 't4r2', 't4fix', "
+                           "'auto', 6, 0.95, 1, 6, NULL, %s, '{}') RETURNING decision_id",
+                           (cand, Jsonb(features))).fetchone()[0]
+        conn.execute("UPDATE task4.product_movie SET basis = 'auto_decision', decision_id = %s WHERE "
+                     "mapping_version_id = %s AND asin = %s AND member_ordinal = %s", (dec, h7.T4, asin, ordinal))
+
+
+def _missing_mentions(conn: psycopg.Connection) -> None:
+    """任务 7 夹具里没有署名行序号的页面人物（如 page_dirs、只写 nconst 的导演）没有提及；正式库里每条
+    movie_person 都至少有一条来源提及（R34）。按 seed_task5 的写法在作品的第一个 edition 商品上补一条署名行提及。"""
+    from etl_task5.names import parse as parse_name
+    rows = conn.execute(
+        "SELECT mp.movie_id, mp.person_id, mp.role, p.canonical_name, "
+        "(SELECT min(pm.asin) FROM task4.product_movie pm WHERE pm.mapping_version_id = %s AND pm.movie_id = mp.movie_id "
+        " AND pm.relation_type = 'edition') FROM task5.movie_person mp JOIN task5.person p USING "
+        "(person_mapping_version_id, person_id) WHERE mp.person_mapping_version_id = %s AND NOT EXISTS (SELECT 1 FROM "
+        "task5.movie_person_source s WHERE s.person_mapping_version_id = mp.person_mapping_version_id "
+        "AND s.movie_id = mp.movie_id AND s.person_id = mp.person_id AND s.role = mp.role) "
+        "ORDER BY mp.movie_id, mp.person_id, mp.role", (h7.T4, h7.PMAP)).fetchall()
+    keys: dict[tuple[str, str], str] = {}
+    for n, (movie, pid, role, name, asin) in enumerate(rows, start=1):
+        if asin is None:
+            continue
+        key = keys.get((movie, pid))
+        if key is None:
+            key = keys[(movie, pid)] = f"{asin}:byline:{90 + n}:1"
+            nm = parse_name(name)
+            kind, rec = conn.execute(
+                "SELECT e.product_kind, s.source_record_id FROM task4.product_edition e JOIN task4.source_record s "
+                "ON s.locator->>'asin' = e.asin WHERE e.extraction_id = %s AND e.asin = %s", (EID, asin)).fetchone()
+            conn.execute(
+                "INSERT INTO task5.person_mention (extraction_id, parser_version, norm_version, mention_key, asin, "
+                "product_kind, section, page_ordinal, list_position, label_raw, role_class, is_byline, byline_rank, "
+                "raw_value, display_name, nickname, disambiguator, paren_text, suffix, honorific, strict_key, loose_key, "
+                "tokenset_key, family_key, initial_key, flags, status, source_record_id, run_id) "
+                "VALUES (%s, 't3p1', 't5n1', %s, %s, %s, 'byline', %s, 1, %s, %s, true, 1, %s, %s, %s, %s, %s, %s, %s, "
+                "%s, %s, %s, %s, %s, '{}', 'resolvable', %s, 't5fix')",
+                (EID, key, asin, kind, 90 + n, "Director" if role == "director" else "Actors",
+                 "director" if role == "director" else "actor", name, nm.display, nm.nickname, nm.disambiguator,
+                 nm.paren_text, nm.suffix, nm.honorific, nm.strict, nm.loose, nm.tokenset, nm.family, nm.initial, rec))
+            conn.execute("INSERT INTO task5.mention_person (person_mapping_version_id, extraction_id, parser_version, "
+                         "norm_version, mention_key, person_id, group_key, attribution, basis) "
+                         "VALUES (%s, %s, 't3p1', 't5n1', %s, %s, %s, 'movie', 'singleton')",
+                         (h7.PMAP, EID, key, pid, "g:" + key))
+        conn.execute("INSERT INTO task5.movie_person_source (person_mapping_version_id, movie_id, person_id, role, "
+                     "mention_key, asin, byline_rank, list_position) VALUES (%s, %s, %s, %s, %s, %s, 1, 1)",
+                     (h7.PMAP, movie, pid, role, key, asin))
+
+
+LINK_KEY = f"{h7.T4}|t3p1|t5n1|t5r1|{SNAPSHOT}"
+
+
+def _person_links(conn: psycopg.Connection, world: w7.World) -> None:
+    """任务 5 的外部 ID 判定与归并依据按正式库：页面人物的规范名来源为 mention:<提及键>；已关联 IMDb 的页面人物，其第一条提及经 credits 途径（link_candidate
+    与 auto 判定，证据为 title_principal/title_director 的序号与行号），其余提及经 co_credit 第 2 轮跨作品决策并入；
+    person_external_id.basis_decision_ids 指向该判定。"""
+    tconst_of = {w7.movie_id(m.name): m.release.tconst for m in world.movies}
+    # 页面人物的规范名来源是其提及（正式库为 mention:<mention_key>；任务 7 夹具写的是锚点 mention:fix:<姓名>）
+    conn.execute("UPDATE task5.person p SET canonical_source = 'mention:' || x.k FROM (SELECT person_id, "
+                 "min(mention_key) AS k FROM task5.mention_person WHERE person_mapping_version_id = %s GROUP BY 1) x "
+                 "WHERE p.person_mapping_version_id = %s AND p.person_id = x.person_id "
+                 "AND starts_with(p.canonical_source, 'mention:fix:')", (h7.PMAP, h7.PMAP))
+    rows = conn.execute(
+        "SELECT mp.mention_key, mp.person_id, mp.group_key, x.external_id, s.movie_id, m.role_class "
+        "FROM task5.mention_person mp JOIN task5.person_external_id x ON x.person_mapping_version_id = "
+        "mp.person_mapping_version_id AND x.person_id = mp.person_id "
+        "JOIN task5.person_mention m ON m.extraction_id = mp.extraction_id AND m.mention_key = mp.mention_key "
+        "JOIN LATERAL (SELECT min(movie_id) AS movie_id FROM task5.movie_person_source s "
+        "              WHERE s.person_mapping_version_id = mp.person_mapping_version_id AND s.mention_key = mp.mention_key) s ON true "
+        "WHERE mp.person_mapping_version_id = %s ORDER BY mp.person_id, mp.mention_key", (h7.PMAP,)).fetchall()
+    first_group: dict[str, str] = {}
+    for key, pid, group, nconst, movie, role in rows:
+        tconst = tconst_of.get(movie)
+        if pid not in first_group:
+            first_group[pid] = group
+            table = "title_director" if role == "director" else "title_principal"
+            col = "ordinal" if table == "title_director" else "ordering"
+            hit = conn.execute(f"SELECT {col}, line_no FROM imdb.{table} WHERE snapshot_id = %s AND tconst = %s "
+                               "AND nconst = %s", (SNAPSHOT, tconst, nconst)).fetchone() if tconst else None
+            name = conn.execute("SELECT primary_name, line_no FROM imdb.name WHERE snapshot_id = %s AND nconst = %s",
+                                (SNAPSHOT, nconst)).fetchone()
+            if hit is None or name is None:
+                continue
+            lc = conn.execute(
+                "INSERT INTO task5.link_candidate (extraction_id, stage_key, mention_key, route, tconst, nconst, "
+                "category, level, work_movie_id, evidence) VALUES (%s, %s, %s, 'credits', %s, %s, %s, 'X1', %s, %s) "
+                "RETURNING link_candidate_id",
+                (EID, LINK_KEY, key, tconst, nconst, "director" if role == "director" else "actor", movie,
+                 Jsonb({"table": table, "ordinal": hit[0], "snapshot": SNAPSHOT, "imdb_name": name[0],
+                        "name_line_no": name[1], "credit_line_no": hit[1]}))).fetchone()[0]
+            ld = conn.execute("INSERT INTO task5.link_decision (link_candidate_id, rule_version, run_id, tier, reason, "
+                              "confidence, thresholds) VALUES (%s, 't5r1', 't5fix', 'auto', 'x1_unique_credit', 0.95, "
+                              "'{}') RETURNING link_decision_id", (lc,)).fetchone()[0]
+            conn.execute("UPDATE task5.mention_person SET basis = 'credits' WHERE person_mapping_version_id = %s "
+                         "AND mention_key = %s", (h7.PMAP, key))
+            conn.execute("UPDATE task5.person_external_id SET basis_decision_ids = basis_decision_ids || %s::bigint, "
+                         "name_line_no = %s WHERE person_mapping_version_id = %s AND person_id = %s",
+                         (ld, name[1], h7.PMAP, pid))
+        else:
+            a, b = first_group[pid], group          # 比较按数据库排序规则（CHECK group_a < group_b）
+            pc = conn.execute("INSERT INTO task5.person_candidate (extraction_id, stage_key, group_a, group_b, generator) "
+                              "VALUES (%s, %s, least(%s::text, %s::text), greatest(%s::text, %s::text), 'C2') "
+                              "ON CONFLICT DO NOTHING RETURNING person_candidate_id",
+                              (EID, LINK_KEY, a, b, a, b)).fetchone()
+            if pc is None:
+                continue
+            for rnd, tier in ((1, "review"), (2, "auto")):
+                conn.execute("INSERT INTO task5.person_decision (person_candidate_id, rule_version, round, run_id, tier, "
+                             "score, confidence, reason, features, thresholds) VALUES (%s, 't5r1', %s, 't5fix', %s, 5, "
+                             "0.9, 'co_credit_collaborators', %s, '{}')",
+                             (pc[0], rnd, tier, Jsonb({"collaborators": 2, "n_level": "N1"})))
+            conn.execute("UPDATE task5.mention_person SET basis = 'co_credit', round = 2 "
+                         "WHERE person_mapping_version_id = %s AND mention_key = %s", (h7.PMAP, key))
+
+
+def _review_times_and_bounds(conn: psycopg.Connection, s) -> None:
+    """评论时间由任务 6 自己的 reviews.product_review_times / movie_review_times 写入；推断上界补上正式库都有的
+    bound_evidence 行（basis、B1–B5 或 M1–M4）与 inferred_release_bound 的 basis、conditions。"""
+    from etl_task6 import reviews as t6reviews
+    from etl_task6.rules import ruleset as t6ruleset, _shift
+    from etl_task6.run import RunInputs as T6Inputs, start_run as t6_start
+    ctx6 = t6_start(conn, T6Inputs(extraction_id=EID, t4_mapping_version_id=h7.T4, t5_person_mapping_version_id=h7.PMAP,
+                                   imdb_snapshot_id=SNAPSHOT))
+    t6reviews.product_review_times(conn, ctx6)
+    t6reviews.movie_review_times(conn, ctx6)
+    conn.execute("UPDATE task6.run SET status = 'succeeded', finished_at = now() WHERE run_id = %s", (ctx6.run_id,))
+    b3 = t6ruleset("t6r1").b3_days
+    for movie, when, precision, evidence in conn.execute(
+            "SELECT movie_id, bound_time, bound_precision, chosen_evidence FROM task6.inferred_release_bound "
+            "WHERE release_version_id = %s", (h7.RV,)).fetchall():
+        if evidence == "review":
+            t = conn.execute("SELECT earliest_source_review_id, earliest_asin, earliest_review_time, second_review_time "
+                             "FROM task6.movie_review_time WHERE extraction_id = %s AND t4_mapping_version_id = %s "
+                             "AND movie_id = %s", (EID, h7.T4, movie)).fetchone()
+            if t is None:
+                continue
+            basis = {"source_review_id": t[0], "asin": t[1]}
+            ok3 = t[3] is not None and t[3].date().isoformat() <= _shift(t[2].date().isoformat(), b3)
+            checks = {"B1": True, "B2": True, "B3": ok3, "B4": True, "B5": True}
+            when = t[2].date()
+        else:
+            d = conn.execute("SELECT d.asin, d.assertion_id, d.value_date FROM task6.product_release_date d "
+                             "JOIN task4.product_movie pm ON pm.mapping_version_id = %s AND pm.asin = d.asin "
+                             "AND pm.relation_type = 'edition' WHERE d.extraction_id = %s AND pm.movie_id = %s "
+                             "AND d.kind = 'media_release' ORDER BY d.value_date, d.assertion_id LIMIT 1",
+                             (h7.T4, EID, movie)).fetchone()
+            if d is None:
+                continue
+            basis = {"asin": d[0], "assertion_id": d[1]}
+            checks = {"M1": True, "M2": True, "M3": True, "M4": True}
+            when = d[2]
+        conn.execute("DELETE FROM task6.bound_evidence WHERE release_version_id = %s AND movie_id = %s AND evidence = %s",
+                     (h7.RV, movie, evidence))
+        conn.execute("INSERT INTO task6.bound_evidence (release_version_id, movie_id, evidence, evidence_time, "
+                     "evidence_precision, basis, checks, passed, failed_checks, confidence) VALUES (%s, %s, %s, %s, %s, "
+                     "%s, %s, %s, %s, 0.6)", (h7.RV, movie, evidence, when, precision, Jsonb(basis), Jsonb(checks),
+                                              all(checks.values()), [k for k, v in checks.items() if not v]))
+        conn.execute("UPDATE task6.inferred_release_bound SET bound_time = %s, conditions = %s, basis = %s "
+                     "WHERE release_version_id = %s AND movie_id = %s",
+                     (when, Jsonb(checks), Jsonb({"note": "最早评论" if evidence == "review"
+                                                  else "最早的 media_release 商品发售日期",
+                                                  "evidence_time": when.isoformat()}), h7.RV, movie))
 
 
 def _title_children(conn: psycopg.Connection, asin: str) -> None:

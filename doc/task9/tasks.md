@@ -1,6 +1,6 @@
 # 任务 9 开发任务（字段级数据血缘）
 
-状态：2026-11-03 编写计划；T9-00 已执行并通过（AC00）；T9-01 已完成；T9-02 至 T9-08 未开始。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-11-03 编写计划；T9-00 已执行并通过（AC00）；T9-01、T9-02 已完成；T9-03 至 T9-08 未开始。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。标注“（计划）”的命令在对应任务实现前不可运行，实现后实际核对再改写期望。每项 AC 的逐条复核命令见 [checklist](checklist.md)。每个实现阶段完成后先在业务库副本 `etl_t9_rehearsal` 演练（design“业务库副本演练”），再进入下一阶段。
 
@@ -37,17 +37,25 @@
 
   期望：第一条在 `SET` 之后输出 `imdb_row|not_checked|202298`、`page_snapshot|ok|9590`、`review_record|not_checked|217435`；第二条输出 `candidate|120231`、`derived|9010`、`extract|1062036`。
 
-- [ ] T9-02 集成层：派生边、实体合并边、推断依赖与只读重放补定位。规则：R14、R16–R22；关联 AC06–AC09。
-  - 文件：`src/etl_task9/{derivations,relocate}.py`、`tests/integration/{test_task9_derivations,test_task9_relocate}.py`。
+- [x] T9-02 集成层：派生边、实体合并边、推断依赖与只读重放补定位。规则：R14、R16–R22；关联 AC06–AC09。
+  - 文件：`src/etl_task9/{derivations,relocate}.py`、`src/etl_task9/{assertions,rules,runner}.py`（集成层断言、算法标记 `a2`/`d2`、`--through derivations`）、`tests/integration/{test_task9_derivations,test_task9_relocate}.py`、`tests/integration/_task9_helpers.py`（夹具补成正式库形状）、`tests/fixtures/task9/README.md`。
   - 目标：操作类型闭集与 OpenLineage 标注；商品到作品、提及到人物的合并依据成边；评论上界的全部依赖评论；类型词面、版本特征与第二早评论的重放补定位及不一致检出；演练库上重放一致率与试算缺口（10,320、46,027、3,015）对照。
-  - 完成情况：未执行（计划）。
+  - 完成情况：2026-11-03 完成。20 项新测试通过；全量 `1237 passed, 1 failed`（失败的是任务 1 的 `test_resource_limits`：Docker 磁盘剩余 9.7 GB 低于 10 GB 保留阈值，由保留的演练副本占用，与本次改动无关）。副本 `stages --through derivations`：断言 1,548,754、派生边 2,106,585，无环、无悬空、无缺父节点；重放 34,531 + 46,027 + 3,015 全部一致；`task9` 当前一组键约 3.2 GB（超预算，见 design“T9-02 演练实测”）。
 
   ```bash
-  # 派生边与重放补定位集成测试（工作目录：项目根目录）（计划）
+  # 派生边与重放补定位集成测试（工作目录：项目根目录）
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_derivations.py tests/integration/test_task9_relocate.py
   ```
 
-  期望（计划）：全部通过，退出码 `0`。
+  期望：`20 passed`，退出码 `0`。
+
+  ```bash
+  # 可选：业务库副本上的断言与重放计数（只读；副本保留到 T9-07）
+  docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT level, count(*) FROM task9.assertion WHERE stage_key = 'a0d345df84d5280a' GROUP BY 1 ORDER BY 1"
+  docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT target_kind, consistent, count(*) FROM task9.relocation WHERE stage_key = 'd8f913d99aa00f0e' GROUP BY 1, 2 ORDER BY 1, 2"
+  ```
+
+  期望：第一条在 `SET` 之后输出 `candidate|156568`、`derived|330150`、`extract|1062036`；第二条输出 `edition_feature|t|46027`、`genre_term|t|34531`、`second_review|t|3015`。
 
 - [ ] T9-03 目标层：字段选择、`trace_status`、与目标层一致性、人工修订路径、评论与商品视图。规则：R04、R05、R10、R23–R27；关联 AC04、AC10。
   - 文件：`src/etl_task9/selections.py`、`sql/801_task9_schema.sql`（视图）、`tests/integration/test_task9_selections.py`。

@@ -1,13 +1,13 @@
 """任务 9 运行编排（spec R36–R40）。
 
-T9-01 只提供 run_stages：输入检查 → 抽取锁 → 按依赖链执行前若干阶段（kind = 'stage'，不物化血缘版本），用于测试与
+T9-01、T9-02 只提供 run_stages：输入检查 → 抽取锁 → 按依赖链执行前若干阶段（kind = 'stage'，不物化血缘版本），用于测试与
 业务库副本演练。阶段结果按阶段键保存：已完成的阶段直接跳过（完成标记），未完成的从第一个未提交的实体继续（R38）。
 完整运行（物化 lv 版本、verify、reused）与 DAG 步骤在 T9-05 加入，沿用任务 8 runner 的写法。
 
 命令（项目根目录；演练库见 design“业务库副本演练”）：
 
     docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t9_rehearsal crawler \
-        python -m etl_task9.runner stages --through assertions
+        python -m etl_task9.runner stages --through derivations
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from .run import (DEFAULT_BATCH, BeforeCommit, RunContext, RunInputs, add_counts
                   close_abandoned, extraction_lock, fail_run, finish_run, stage_complete, start_run)
 from .rules import STAGES
 
-IMPLEMENTED = ("sources", "assertions")      # T9-01；derivations、selections、impact 由后续阶段实现
+IMPLEMENTED = ("sources", "assertions", "derivations")   # T9-01、T9-02；selections、impact 由后续阶段实现
 
 
 def exec_stage(conn: psycopg.Connection, ctx: RunContext, stage: str, *, batch_size: int = DEFAULT_BATCH,
@@ -42,7 +42,10 @@ def exec_stage(conn: psycopg.Connection, ctx: RunContext, stage: str, *, batch_s
     if stage == "assertions":
         from . import assertions
         return assertions.build_assertions(conn, ctx, batch_size=batch_size, before_commit=before_commit)
-    raise NotImplementedError(f"阶段 {stage} 尚未实现（T9-01 只实现 {IMPLEMENTED}）")
+    if stage == "derivations":
+        from . import derivations
+        return derivations.build_derivations(conn, ctx, batch_size=batch_size, before_commit=before_commit)
+    raise NotImplementedError(f"阶段 {stage} 尚未实现（当前只实现 {IMPLEMENTED}）")
 
 
 def run_stages(conn: psycopg.Connection, inputs: RunInputs, *, through: str = "assertions",

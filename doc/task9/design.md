@@ -299,6 +299,37 @@ Legend 抽查（`mv_24a89e3536e837e6`）：`release_year` 登记任务 6 候选 
 
 发现的上游事实（留给 T9-02）：人名集合里 `nm17757708` 出现在 `imdb.title_principal` 与 `task7.imdb_person_ext`，但不在 `imdb.name`（名字文件里没有这一行），所以人名源记录比实体少 1 条；从它出发的路径只能到演职员行，不能到人名行。
 
+## T9-02 实现要点与对计划的修正
+
+- **集成层断言放在 assertions 阶段**（算法标记 `a1 → a2`）：合并、外部 ID 判定、提及 → 人物、人物规范名与外部 ID、任务 7 IMDb 独有人物、署名对齐、演职员成员、类型词面与类型成员、版本多值特征、推断上界都翻译成 `candidate`/`derived` 断言（`etl_task9.assertions.integration_units`，字段名与成员键见该模块说明）。这样全部断言在同一个阶段键下，T9-03/T9-04 只需按 `(stage_key, assertion_id)` 查；多值字段的每个最终成员都有一条 derived 断言（类型 `task7.movie_genre`、演职员 `task7.movie_person_resolved`、版本特征 `task7.edition_resolved`），字段选择只需连到它。`a2` 与 `d1 → d2`（见下）都发生在 `t9r1` 生成任何血缘版本之前，只改阶段键、不换规则版本；`lv0001` 生成之后再改算法必须换规则版本。
+- **派生边分族写入**（`etl_task9.derivations.FAMILIES`）：抽取边（断言 → 源记录）也物化为边，不用视图拼接，原因是 R18 要求每条边带上游运行与写入时间，而各上游表的运行列不一致（任务 4 断言、IMDb 行、评论没有逐行运行），在写边时统一补齐（任务 4 取映射版本的运行、IMDb 取快照、评论取任务 1 装载运行）；代价是约 106 万行。边按子断言 ID 的前 3 位十六进制分 4,096 个桶作为 `entity_stage` 的实体，与数据同事务提交；最后一个单元 `graph_check` 补 IMDb 人名缺行的路径并检查 R19，再写阶段完成标记。
+- **操作类型的取法**：抽取 `extract`；任务 4 拆分 `split`；候选取自上游值 `normalize`；作品候选取自版本选择 `select`；商品 → 作品、外部 ID 判定与证据 `link`；提及 → 人物 `merge`（`rule_id` 为依据 `credits`/`filmography`/`within_work`/`co_credit`/`singleton`，`detail` 带轮次、组、`link_decision_ids`、`person_decision_ids`）；规范名与外部 ID 的来源 `select`；署名对齐 `align`；演职员与类型成员的来源 `union`，页面词面 → 受控词 `vocab_map`；发售日期上界 `infer`；评论上界 `aggregate`；重放补出的边 `relocate`（`relocated = true`，`upstream_task = task7`，`rule_version` 为被重放的上游规则版本，便于 R33 按 `t7r3` 找到）。
+- **合并决策只登记被采用的**：`task4.merge_decision` 只翻译 `product_movie` 引用的 4,774 条（未采用的合并候选是实体候选，不是字段候选，其 IMDb 行大多不在“被引用的 IMDb 行”里，见 T9-01 修正 4）；外部 ID 判定登记 pmap 的 link 阶段键下全部 31,563 条（含 review）。
+- **starring 沿用 cast 的对齐**（演练发现，`d1 → d2`）：任务 7 每个页面人物只在 cast 角色下对齐一次，starring 成员直接沿用；第一次演练有 502 个 starring 成员没有父边。修正为：成员连到其 `page_person_ids` 在本角色下的全部提及（`union`），页面人物经对齐成为成员本人时再连到任一角色下的对齐断言（`align`）。夹具补了同形案例（`test_ac06_starring_member_reuses_cast_alignment`）。
+- **重放**（`etl_task9.relocate`）：类型词面调用 `etl_task7.sources.product_links`、`genre_terms` 与 `etl_task7.rules.classify_genre_term`；版本特征调用 `etl_task7.sources.assertions`、`page_fields` 与 `etl_task7.editions.feature_values`（整商品结果须等于 `attributes_detail`，再对每条断言、每个字段单独调用得到来源）；第二早评论没有可调用的纯函数（任务 6 的排序写在 `movie_review_times` 里且会写表），按同一排序在 `relocate.earliest_two` 里重写，并用 `etl_task6.rules` 的 `b3_days`、`_shift` 复核 B3，一致性由与上游值逐项比对保证。不一致只写 `relocation.consistent = false` 与 `replay_mismatch`，不写重放边。
+- **IMDb 人名缺行**：`nm17757708` 的 `task7.imdb_person_ext` 断言连不到 `imdb.name`，改连同一 nconst 的演职员行断言（`rule_id = imdb_name_missing`）并写 1 条 `dangling_edge` 质量问题（`detail.reason` 说明缺人名行）；T9-03 判定它的 `trace_status` 时应把这条问题列出。
+- **夹具补形**：任务 7 夹具省略了正式库都有的列（任务 6 候选 `source_ref`、合并决策、外部 ID 判定、来源提及、评论时间、上界证据），`_task9_helpers` 在任务 7 运行前按正式库形状补齐，评论时间调用任务 6 自己的写入函数，逐项说明见 `tests/fixtures/task9/README.md`。
+- **留给 T9-03/T9-04 的接口**：`derivations.check_graph(conn, ctx, edge_keys=[d, l], ak, sk)` 同时检查选择边（`child_kind = 'selection'`，选择边写在 selections 阶段键下）；`derivations.insert_edges` 写小批量边；`relocation` 表按 `target_kind`、`target_id`（`movie|区域|词面`、`asin|特征|值`、`movie_id`）给出一致性，页面侧成员 `trace_status` 取 `relocated` 还是 `partial` 以此为准；人物别名（`task5.person_alias`）尚无断言，T9-03 可由 `mention_person` 断言按显示名连接。
+
+## T9-02 演练实测（业务库副本 `etl_t9_rehearsal`，2026-11-03）
+
+`docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t9_rehearsal crawler python -m etl_task9.runner stages --through derivations`，退出码 0。第一次（`a2`、`d1`）墙钟 4 分 26 秒（`sources` 跳过；`assertions` 81 秒；`derivations` 183 秒），检出 502 个 starring 成员没有父边（见上）；修正后第二次（`d2`，assertions 跳过）墙钟 2 分 54 秒，`derivations` 172 秒。阶段短键：`s11f2e418823b9fe`、`a0d345df84d5280a`、`d8f913d99aa00f0e`。副本里另保留 T9-01 的 `a65adeae3bb06227` 与第一次的 `db275e5c0b4e3fe1`（未删除）。
+
+| 项目 | 预算或试算 | 实测（`d8f913d99aa00f0e`） | 说明 |
+|---|---|---|---|
+| 断言（`a2`） | 约 80–100 万（预算） | 1,548,754（extract 1,062,036、candidate 156,568、derived 330,150） | 比 T9-01 多 357,477 条集成层断言：合并决策 4,774、商品 → 作品 8,960、外部 ID 判定 31,563、提及 → 人物 53,250、人物规范名 29,635、外部 ID 13,233、IMDb 独有人物 22,157、署名对齐 6,747、演职员成员 81,064、类型词面 34,531、类型成员 18,558、版本特征 46,027、推断上界 6,978 |
+| 派生边合计 | 约 150 万（预算） | 2,106,585 | 超出约 40%：预算未计抽取边（1,062,036） |
+| 按操作 | — | extract 1,062,036；link 276,300；aggregate 217,435；union 132,045；normalize 125,979；relocate 121,283；select 74,913；merge 53,250；align 17,213；vocab_map 13,158；split 9,010；infer 3,963 | 12 种操作全部出现；全部边 `upstream_run_id`、`occurred_at` 非空 |
+| 无环与终止（R19） | — | 悬空 0、无父节点 0、环上节点 0 | 第一次演练无父节点 502（已修正） |
+| 类型页面成员 | 断链 10,320（试算） | 词面 34,531 条全部一致（`replay_mismatch` 0）；页面侧成员 10,320（both 4,127、page_only 6,193）全部经一致的词面连到页面断言 | 试算按原值前缀粗配只配上 6,485/13,505 个（ASIN, 词面） |
+| 版本多值特征 | 断链 46,027（试算） | 46,027 全部一致（`replay_mismatch` 0），每个值都有重放边 | 9,575 个商品整商品 `feature_values` 与 `attributes_detail` 完全相等 |
+| 第二早评论 | 断链 3,015（试算） | 3,015 全部一致（`replay_mismatch` 0），补出源评论 ID | 最早评论 ID、两条时间与 B3 都与任务 6 一致 |
+| 推断上界依赖评论 | 217,435（试算） | aggregate 边 217,435，`direct_dependency` 6,030（每部 2 条），其中第二早 3,015 条 `relocated` | Legend：546 条，2 条直接依赖，第二早评论与最早同日（1999-08-23） |
+| 发售日期上界 | 3,963 | infer 边 3,963 | — |
+| 演职员成员 | 80,612 + 452 | 81,064 条成员断言全部有父边：页面侧（both、page_only）50,085 条都有本角色提及，IMDb 侧（both、imdb_only）55,864 条都有演职员行，经对齐的 4,644 条另有对齐边 | — |
+| 质量问题（d 键） | — | 1（`nm17757708` 缺 `imdb.name` 行，改连演职员行） | T9-01 已记录的上游事实 |
+| `task9` 体量 | 全部阶段 1.5–2.5 GB（预算） | 副本合计 5,354 MB（含 T9-01 的 `a1` 与第一次的 `d1` 两组旧键）；按行数比例估算当前一组键（s、a2、d2）约 3.2 GB：`source_record` 584 MB、`assertion` 约 1.4 GB、`derivation` 约 1.0 GB、`relocation` 约 56 MB、`entity_stage` 约 90 MB | 已超预算上限且尚未计字段选择与影响闭包。原因：抽取边物化约 0.5 GB（见上）、集成层断言 36 万条、各表主键与索引都是长文本键；未为凑预算删减范围（H02、H04）。T9-08 正式库只有一组键；磁盘可用约 100 GB |
+
 ## 夹具设计（R42）
 
 任务 7 的教训是夹具与真实输出不同形会掩盖缺陷。任务 9 的夹具在 `etl_test` 中按顺序建立任务 1–8 的真实表结构（应用迁移 `001`–`701`），用各任务自己的装载或写入函数生成上游行（任务 1 装载器读合成 gzip；任务 3–8 用各自 `tests/fixtures` 的写法），保证 jsonb 键名、数组与阶段键与正式库一致；只有 IMDb 与快照文件是小型合成文件。`tests/integration/conftest.py` 增加 `DROP SCHEMA IF EXISTS task9`。每个 AC 独立初始化。

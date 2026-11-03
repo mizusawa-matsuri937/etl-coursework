@@ -1,6 +1,6 @@
 # 任务 9 AC 完成情况（字段级数据血缘）
 
-状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T9-01 完成后 AC02、AC05 通过并勾选，AC01、AC03 部分完成（未勾选）；其余未执行。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T9-01 完成后 AC02、AC05 通过并勾选，AC01、AC03 部分完成（未勾选）；T9-02 完成后 AC06–AC09 通过并勾选；其余未执行。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`，`psql -Atc` 输出首行会多一个 `SET`）。标注“（计划）”的命令在对应任务实现前不可运行，实现后实际核对再改写期望。
 
@@ -26,14 +26,14 @@ grep -c "^- R[0-9][0-9] \[" doc/task9/spec.md
 
 ## AC01 输入版本、分层与上游只读
 
-- [ ] 部分完成（T9-01，2026-11-03）：原始层与暂存层通过——上游各 schema 全表行数与摘要不变、迁移 801 新对象只在 `task9`、只读指定抽取、IMDb 快照、`t3p1`/`t4n1`、`rv`、`cv` 阶段键，版本不一致或 cv 未核实时确定性失败，并发确定性失败。“范围外实体不生成选择”“评分统计无逐条依赖边”待 T9-02、T9-03，故不勾选。
+- [ ] 部分完成（T9-01，2026-11-03）：原始层与暂存层通过——上游各 schema 全表行数与摘要不变、迁移 801 新对象只在 `task9`、只读指定抽取、IMDb 快照、`t3p1`/`t4n1`、`rv`、`cv` 阶段键，版本不一致或 cv 未核实时确定性失败，并发确定性失败。T9-02（2026-11-03）补上派生边部分：运行前后上游不变、只写 task9、没有任务 8 统计表的断言或边（R05）。“范围外实体不生成选择”待 T9-03，故不勾选。
 
 ```bash
 # 原始层与暂存层部分：只读指定版本、上游不变、只写 task9
-docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_sources.py tests/integration/test_task9_assertions.py -k "ac01"
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_sources.py tests/integration/test_task9_assertions.py tests/integration/test_task9_derivations.py -k "ac01"
 ```
 
-期望：`10 passed, 22 deselected`，退出码 `0`。T9-03 实现后再加入 `test_task9_selections.py` 的 AC01 用例（计划）。
+期望：`12 passed, 33 deselected`，退出码 `0`。T9-03 实现后再加入 `test_task9_selections.py` 的 AC01 用例（计划）。
 
 
 ## AC02 源记录定位与获取时间
@@ -85,47 +85,69 @@ docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_
 
 ## AC06 多值成员与实体合并边
 
-- [ ] 未执行（计划）。
+- [x] 2026-11-03 通过（T9-02）：对齐的导演成员同时连到对齐断言（页面提及）与 IMDb title.crew 行；同一人的 starring 与 cast 两行；多人串原样保留；B0Lg、B0LgC#1 连到合并决策，B0LgB 连到 singleton 规则；提及 → 人物的 merge 边带依据、轮次与决策引用；starring 沿用 cast 对齐的成员也连到本角色提及。业务库副本上 81,064 个演职员成员全部有父边（design“T9-02 演练实测”）。
 
 ```bash
-# 对齐成员、同人多角色、多人串、商品到作品、人物归并（计划）
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_derivations.py -k "ac06"
+# 对齐成员、同人多角色、多人串、商品到作品、人物归并、类型成员
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_derivations.py tests/integration/test_task9_relocate.py -k "ac06"
 ```
 
-期望（计划）：相关用例全部通过，退出码 `0`。
+期望：`7 passed, 26 deselected`，退出码 `0`。
 
 ## AC07 派生边闭集、无环与终止
 
-- [ ] 未执行（计划）。
+- [x] 2026-11-03 通过（T9-02）：操作类型都在闭集内且 OpenLineage 标注一致，每条边有 `rule_id`、规则版本、上游运行与时间；无环、每条断言都走到源记录；注入的环、悬空父断言、悬空父源记录与缺父边的断言都被检出，闭集外的操作被表约束拒绝；故障后续跑与一次跑完相同。业务库副本 2,106,585 条边，悬空 0、无父节点 0、环 0。
 
 ```bash
-# 操作类型闭集、边属性、无环、路径终止于源记录、注入环与悬空边（计划）
-docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_derivations.py -k "ac07"
+# 操作类型闭集、边属性、无环、路径终止于源记录、注入环与悬空边、续跑
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_derivations.py tests/integration/test_task9_relocate.py -k "ac07"
 ```
 
-期望（计划）：相关用例全部通过，退出码 `0`。
+期望：`5 passed, 28 deselected`，退出码 `0`。
+
+```bash
+# 可选：业务库副本上按操作类型的边数（只读；副本保留到 T9-07）
+docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT operation, count(*) FROM task9.derivation WHERE stage_key = 'd8f913d99aa00f0e' GROUP BY 1 ORDER BY 1"
+```
+
+期望：在 `SET` 之后输出 12 行：`aggregate|217435`、`align|17213`、`extract|1062036`、`infer|3963`、`link|276300`、`merge|53250`、`normalize|125979`、`relocate|121283`、`select|74913`、`split|9010`、`union|132045`、`vocab_map|13158`。
 
 ## AC08 只读重放补定位
 
-- [ ] 未执行（计划）。
+- [x] 2026-11-03 通过（T9-02）：类型词面补出 genre 区的任务 4 断言 ID 与面包屑的区域、序号；版本特征补出来源断言；第二早评论补出源评论 ID；都标 `relocated`。上游值被改得不一致时写 `replay_mismatch`、不写重放边，上游各表不变。业务库副本：类型词面 34,531、版本特征 46,027、第二早评论 3,015 全部一致（对照试算缺口 10,320、46,027、3,015）。字段 `trace_status = partial` 的落地在 T9-03 的字段选择中再验证。
 
 ```bash
-# 类型词面、版本特征、第二早评论补定位与 replay_mismatch（计划）
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_relocate.py -k "ac08"
+# 类型词面、版本特征、第二早评论补定位与 replay_mismatch
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_derivations.py tests/integration/test_task9_relocate.py -k "ac08"
 ```
 
-期望（计划）：相关用例全部通过，退出码 `0`。
+期望：`5 passed, 28 deselected`，退出码 `0`。
+
+```bash
+# 可选：业务库副本上的重放一致性与质量问题（只读）
+docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT target_kind, consistent, count(*) FROM task9.relocation WHERE stage_key = 'd8f913d99aa00f0e' GROUP BY 1, 2 ORDER BY 1, 2"
+docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT issue_code, detail->>'nconst', count(*) FROM task9.quality_issue WHERE stage_key = 'd8f913d99aa00f0e' GROUP BY 1, 2"
+```
+
+期望：第一条在 `SET` 之后输出 `edition_feature|t|46027`、`genre_term|t|34531`、`second_review|t|3015`（没有 `f` 行，即 `replay_mismatch` 为 0）；第二条输出 `dangling_edge|nm17757708|1`（`imdb.name` 缺该人名行，路径改连演职员行，见 design）。
 
 ## AC09 推断上界的全部依赖
 
-- [ ] 未执行（计划）。
+- [x] 2026-11-03 通过（T9-02）：Legend 三个 edition 商品 7 条评论全部为 aggregate 父节点，最早与第二早标 `direct_dependency`（第二早为重放补出），合集评论不在内；只有发售日期证据的 Mv1 以所用 media_release 断言为父节点（infer，带 M1–M4）；上界断言记录 B1–B5、两种证据与算法 `etl_task6.bounds.build_bounds`、规则 `t6r1`。业务库副本 aggregate 边 217,435 条（等于试算），直接依赖 6,030。
 
 ```bash
-# 评论上界 7 条 aggregate 父节点、直接依赖标记、合集排除、发售日期上界（计划）
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_derivations.py -k "ac09"
+# 评论上界 7 条 aggregate 父节点、直接依赖标记、合集排除、发售日期上界
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_derivations.py tests/integration/test_task9_relocate.py -k "ac09"
 ```
 
-期望（计划）：相关用例全部通过，退出码 `0`。
+期望：`2 passed, 31 deselected`，退出码 `0`。
+
+```bash
+# 可选：业务库副本上评论上界的依赖边（只读）
+docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT count(*), count(*) FILTER (WHERE role = 'direct_dependency'), count(*) FILTER (WHERE relocated) FROM task9.derivation WHERE stage_key = 'd8f913d99aa00f0e' AND operation = 'aggregate'"
+```
+
+期望：在 `SET` 之后输出 `217435|6030|3015`。
 
 ## AC10 字段选择、状态与一致性
 
