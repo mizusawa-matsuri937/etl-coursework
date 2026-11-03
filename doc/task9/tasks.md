@@ -1,6 +1,6 @@
 # 任务 9 开发任务（字段级数据血缘）
 
-状态：2026-11-03 编写计划；T9-00 已执行并通过（AC00）；T9-01 至 T9-03 已完成；T9-04 除 AC15 的按实体增量重建外完成（待用户决定方案）；T9-05 至 T9-08 未开始。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-11-03 编写计划；T9-00 已执行并通过（AC00）；T9-01 至 T9-03 已完成；T9-04 除 AC15 的按实体增量重建外完成（待用户决定方案）；T9-05 已完成；T9-06 至 T9-08 未开始。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。标注“（计划）”的命令在对应任务实现前不可运行，实现后实际核对再改写期望。每项 AC 的逐条复核命令见 [checklist](checklist.md)。每个实现阶段完成后先在业务库副本 `etl_t9_rehearsal` 演练（design“业务库副本演练”），再进入下一阶段。
 
@@ -96,17 +96,25 @@
 
   期望：第一条在 `SET` 之后输出 `887035|5`；第二条输出 `"value_text": "1985",`、`"status": "resolved",`、`"decision_rule": "year.table:YR2",` 三行。
 
-- [ ] T9-05 版本与完整运行、分批恢复与并发锁、`verify`、报告与实例、Airflow DAG、runbook。规则：R36–R40、R44、R45；关联 AC16、AC17。
-  - 文件：`src/etl_task9/{runner,pipeline,check,report}.py`、`dags/amazon_movies_task9_lineage.py`、`scripts/seed_task9_e2e.py`、`tests/integration/{test_task9_runs,test_task9_dag,test_task9_report}.py`、`doc/task9/runbook.md`。
+- [x] T9-05 版本与完整运行、分批恢复与并发锁、`verify`、报告与实例、Airflow DAG、runbook。规则：R36–R40、R44、R45；关联 AC16、AC17。
+  - 文件：`src/etl_task9/{runner,pipeline,check,report,versions}.py`、`dags/amazon_movies_task9_lineage.py`、`scripts/seed_task9_e2e.py`、`tests/integration/{test_task9_runs,test_task9_dag,test_task9_report}.py`、`doc/task9/runbook.md`、`tests/fixtures/task9/README.md`。
   - 目标：10 节点 DAG，`verify` 通过才 `succeeded`；`compose.e2e.yaml` 下经真实 scheduler 跑通成功、重跑 `reused`、上游缺失、`verify` 失败四种情况后切回正常配置；`report export` 覆盖率与四类作业示例。
-  - 完成情况：未执行（计划）。
+  - 完成情况：2026-11-03 完成。16 项新测试通过，全量 `1278 passed`；真实 scheduler 四种情况符合预期，已切回正常配置（runbook 第 2 节）；副本 `runner run` 生成 `lv0001` 并 `verified`，重跑 `reused`，`check` 退出码 0，导出 19 例。
 
   ```bash
-  # 运行、DAG 与报告集成测试（工作目录：项目根目录）（计划）
+  # 运行、DAG 与报告集成测试（工作目录：项目根目录）
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_runs.py tests/integration/test_task9_dag.py tests/integration/test_task9_report.py
   ```
 
-  期望（计划）：全部通过，退出码 `0`；真实 scheduler 端到端步骤写入 runbook。
+  期望：`16 passed`，退出码 `0`（另有 Airflow 的弃用警告）。
+
+  ```bash
+  # 可选：副本上的血缘版本与核对（只读；副本保留到 T9-07）
+  docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT lineage_version_id, status FROM task9.lineage_version; SELECT status, count(*) FROM task9.run WHERE kind = 'lineage' GROUP BY 1 ORDER BY 1"
+  docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t9_rehearsal crawler python -m etl_task9.check > /dev/null; echo "exit=$?"
+  ```
+
+  期望：第一条在 `SET` 之后输出 `lv0001|verified`、`reused|1`、`succeeded|1`；第二条输出 `exit=0`。
 
 - [ ] T9-06 抽查评价工具：审核表、AI 草稿、导入校验、指标。规则：R46–R49；关联 AC18。
   - 文件：`src/etl_task9/evaluate.py`、`tests/integration/test_task9_evaluate.py`。

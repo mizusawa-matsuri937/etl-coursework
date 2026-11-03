@@ -43,3 +43,6 @@
 | `test_task9_query.py` | B0Lg 快照、Legend 的 tconst、Y2 导演 nm6000001、评论 LU1：查询结果与测试里沿派生边手工追踪的闭包与最短路径相同 | AC13 |
 | `test_task9_query.py` | Es One（credits 1 条、co_credit 第 2 轮 2 条提及，外部 ID nm7000010，C1 的 starring 与 cast） | AC14 |
 | `test_task9_impact.py` | 改写 B0Lg 快照；IMDb 文件不在容器（unavailable）；`year.table:*` 规则与规则版本 `t6r1`；测试登记的任务 7 规则版本 `t7x9`（只改片长容差 5 → 2）生成第二个 cv，两个血缘版本 `lv0001`、`lv0002` 的 diff | AC15 |
+| `test_task9_runs.py` | 同输入运行两次（reused）；批大小 5、assertions 第 2 批提交前注入故障后续跑，与清空 task9 后一次跑完的内容摘要相同；另一连接持锁；verify 注入失败后重跑；DAG 七个步骤共用一条运行、另一个 DAG run 全部 reused | AC16 |
+| `test_task9_dag.py` | DAG 10 个节点与触发规则、重试 2 次、参数默认值；按 DAG 顺序执行的成功与 reused、上游 cv 缺失、verify 失败后重跑、非测试环境拒绝故障注入、before_commit 故障后续跑 | AC16 |
+| `test_task9_report.py` | 世界加 Mv1 只有发售日期证据的上界（年份缺失）；导出 summary.json、examples.md、report.md、quality_issues.csv 与 checksums.json | AC17 |

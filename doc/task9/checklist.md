@@ -1,6 +1,6 @@
 # 任务 9 AC 完成情况（字段级数据血缘）
 
-状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T9-01 完成后 AC02、AC05 通过并勾选；T9-02 完成后 AC06–AC09 通过并勾选；T9-03 完成后 AC01、AC03、AC04、AC10 通过并勾选；T9-04 完成后 AC11–AC14 通过并勾选，AC15 部分通过（按实体增量重建待定）未勾选；其余未执行。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T9-01 完成后 AC02、AC05 通过并勾选；T9-02 完成后 AC06–AC09 通过并勾选；T9-03 完成后 AC01、AC03、AC04、AC10 通过并勾选；T9-04 完成后 AC11–AC14 通过并勾选，AC15 部分通过（按实体增量重建待定）未勾选；T9-05 完成后 AC16、AC17 通过并勾选；其余未执行。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`，`psql -Atc` 输出首行会多一个 `SET`）。标注“（计划）”的命令在对应任务实现前不可运行，实现后实际核对再改写期望。
 
@@ -10,7 +10,7 @@
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望：2026-11-03 任务 8 完成时为 `1186 passed`；T9-01 完成后为 `1218 passed`（新增 32 项，原有测试不减少）；T9-04 完成后为 `1262 passed`。
+期望：2026-11-03 任务 8 完成时为 `1186 passed`；T9-01 完成后为 `1218 passed`（新增 32 项，原有测试不减少）；T9-04 完成后为 `1262 passed`；T9-05 完成后为 `1278 passed`。
 
 ## AC00 计划文件规范
 
@@ -238,25 +238,25 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC16 版本、幂等、恢复、并发与 DAG
 
-- [ ] 未执行（计划）。
+- [x] 2026-11-03 通过（T9-05）：同输入两次运行第二次 `reused` 且各表不变；批大小 5、assertions 第 2 批提交前注入故障后只有第 1 批落库，续跑结果与清空后一次跑完的内容摘要相同；另一连接持锁时确定性失败且不写行；DAG 10 个节点按序连接、`finalize_report` 与 `gate` 为 `all_done`、重试上限 2；`verify` 注入失败时运行 `failed`、版本 `unverified`，重跑后在原版本上 `verified`。真实 scheduler 四种情况见 runbook 第 2 节（已切回正常配置）。
 
 ```bash
-# 重跑 reused、注入故障后恢复、并发锁、DAG 拓扑与 verify 失败重跑（计划）
+# 重跑 reused、注入故障后恢复、并发锁、DAG 拓扑与 verify 失败重跑
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_runs.py tests/integration/test_task9_dag.py -k "ac16"
 ```
 
-期望（计划）：相关用例全部通过，退出码 `0`；真实 scheduler 端到端步骤见 runbook（计划，可选）。
+期望：`13 passed`，退出码 `0`（另有 Airflow 的弃用警告）。真实 scheduler 端到端步骤见 [runbook](runbook.md) 第 2 节（可选，会切换 Airflow 配置，做完必须切回）。
 
 ## AC17 报告与实例
 
-- [ ] 未执行（计划）。
+- [x] 2026-11-03 通过（T9-05）：`summary.json` 的源记录、断言、派生边、闭包计数与数据库重算一致，覆盖率按实体、字段与 `trace_status` 分列且分列之和等于总数；`examples.md` 覆盖五个演示查询与四类作业示例；导出不含评论正文与 HTML，`checksums.json` 与文件实际 SHA-256 一致。副本导出 19 例，覆盖率全部 1.0。
 
 ```bash
-# summary.json 与数据库一致、覆盖率分列、examples.md 覆盖四个查询与四类作业示例（计划）
+# summary.json 与数据库一致、覆盖率分列、examples.md 覆盖四个查询与四类作业示例
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_report.py -k "ac17"
 ```
 
-期望（计划）：相关用例全部通过，退出码 `0`。
+期望：`3 passed`，退出码 `0`。
 
 ## AC18 抽查评价工具
 

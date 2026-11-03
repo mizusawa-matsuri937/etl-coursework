@@ -86,6 +86,32 @@ def resolve(conn: psycopg.Connection, lineage_version_id: str | None = None, inp
 
 # ---------------------------------------------------------------- 血缘版本（R36、R40）
 
+# 物化版本时记录、verify 与 check 时重算的上游行数（只取本版本输入范围内的行，R03）
+UPSTREAM_COUNTS = {
+    "task2.product_manifest": "SELECT count(*) FROM task2.product_manifest WHERE extraction_id = %(eid)s",
+    "task3.product_classification": "SELECT count(*) FROM task3.product_classification WHERE extraction_id = %(eid)s "
+                                    "AND rule_version = %(t3)s",
+    "task4.product_movie": "SELECT count(*) FROM task4.product_movie WHERE mapping_version_id = %(map)s",
+    "task4.field_assertion": "SELECT count(*) FROM task4.field_assertion WHERE extraction_id = %(eid)s",
+    "task5.person": "SELECT count(*) FROM task5.person WHERE person_mapping_version_id = %(pmap)s",
+    "task5.mention_person": "SELECT count(*) FROM task5.mention_person WHERE person_mapping_version_id = %(pmap)s",
+    "task6.release_selection": "SELECT count(*) FROM task6.release_selection WHERE release_version_id = %(rv)s",
+    "task7.movie_resolved": "SELECT count(*) FROM task7.movie_resolved WHERE conflict_version_id = %(cv)s",
+    "task7.edition_resolved": "SELECT count(*) FROM task7.edition_resolved WHERE conflict_version_id = %(cv)s",
+    "task8.dedup_version": "SELECT count(*) FROM task8.dedup_version WHERE review_dedup_version_id = %(rd)s "
+                           "AND status = 'verified'",
+    "imdb.source_file": "SELECT count(*) FROM imdb.source_file WHERE snapshot_id = %(snap)s",
+}
+
+
+def upstream_counts(conn: psycopg.Connection, inputs) -> dict[str, int]:
+    p = {"eid": inputs.extraction_id, "t3": inputs.t3_rule_version, "map": inputs.t4_mapping_version_id,
+         "pmap": inputs.t5_person_mapping_version_id, "rv": inputs.t6_release_version_id,
+         "cv": inputs.conflict_version_id, "rd": inputs.review_dedup_version_id, "snap": inputs.imdb_snapshot_id}
+    return {t: conn.execute(sql, p).fetchone()[0] for t, sql in UPSTREAM_COUNTS.items()}
+
+
+
 def next_version_id(conn: psycopg.Connection) -> str:
     n = conn.execute("SELECT count(*) FROM task9.lineage_version").fetchone()[0]
     return f"lv{n + 1:04d}"
@@ -125,7 +151,7 @@ def finalize_version(conn: psycopg.Connection, ctx: RunContext) -> tuple[str, di
     keys = {s: require_stage_complete(conn, ctx, s) for s in STAGES}
     with conn.transaction():
         conn.execute("SELECT pg_advisory_xact_lock(hashtext('etl_task9_versions'))")
-        counts = version_counts(conn, keys)
+        counts = {**version_counts(conn, keys), "upstream_counts": upstream_counts(conn, i)}
         existing = conn.execute("SELECT lineage_version_id, status FROM task9.lineage_version "
                                 "WHERE extraction_id = %s AND input_key = %s", (i.extraction_id, i.key())).fetchone()
         if existing is not None and existing[1] == "verified":

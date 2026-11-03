@@ -386,6 +386,20 @@ Legend 抽查（`mv_24a89e3536e837e6`）：`release_year` 登记任务 6 候选 
 | 查询耗时 | — | 每条约 1 秒（含容器启动） | field 输出约 80 KB，person 约 160 KB（含全部路径树） |
 | verify-sources | — | 快照 9,590 全部 ok，5 个 IMDb 文件 ok，约 13 秒；评论文件在 Airflow 容器核验 ok | `crawler` 容器无评论文件挂载，记 `unavailable` |
 
+## T9-05 实现要点与对计划的修正
+
+- **完整运行**（`etl_task9.runner.execute_lineage`，CLI `runner run`）：输入检查 → 迁移 → 抽取锁 → 复用判断（同输入键已有 `succeeded` 且版本 `verified` 的运行 → 只记一条 `reused` 审计）→ 五个阶段（已完成的阶段键跳过）→ `versions.finalize_version`（单事务写 `lineage_version`，`unverified`，计数含上游行数快照 `upstream_counts`）→ `check.verify` 通过才 `mark_verified`（版本 `verified`、运行 `succeeded`），否则运行 `failed`、版本保持 `unverified`，同输入重跑在原版本号上重写（R36–R40）。
+- **DAG 步骤**（`runner.run_stage`）：七个执行步骤共用一条 `kind = 'lineage'` 的运行，靠 `airflow_run_id` 找回；每步各持一次抽取咨询锁；重试或后续步骤把失败的运行改回 `running` 接着用；后续步骤核对运行的 `inputs` 与本步输入一致。第一个步骤命中可复用版本时整条 DAG run 记 `reused`，其余步骤直接返回。`pipeline.py` 与 DAG 文件写法同任务 8（确定性错误抛 `AirflowFailException` 不重试，暂时错误最多重试 2 次，`finalize_report`、`gate` 为 `all_done`）；故障注入解析直接复用任务 8 的 `_fault_hook`（只读 `fault_injection`），只在 `ETL_ENV=test` 生效。
+- **verify / check**（`etl_task9.check`）：在只读事务里核对五个阶段键的登记、父子关系与完成标记；派生图（`derivations.check_graph`，悬空、缺父、环）；`selections.check_values`（R26）；非空值缺口都有 `untraced_value` 质量问题（R25 的缺口如实列出、不当作通过条件；副本实测缺口为 0）；可追溯的非空值都有影响闭包行；版本计数与重算一致、上游行数与物化时相同；`check` 命令另要求版本 `verified`、运行 `succeeded`。
+- **导出**（`report export`，DAG 的 `finalize_report` 在核对通过时调用）：`outputs/task9/<抽取>/<血缘版本>/<run_key>/` 下的 `summary.json`（覆盖率按实体、按字段与 `trace_status`，源记录、断言（按级别与上游表）、派生边、重放补定位、闭包计数，质量问题，评论层视图按映射状态的核对数）、`report.md`、`quality_issues.csv`、`examples.md` 与 `checksums.json`。`examples.md` 由查询函数只读生成：五个演示查询各 3 例（field 取“采用 IMDb 且另有被拒候选的年份”、“页面与 IMDb 都有证据的导演”、标题；product 取单品、合集、未采集商品；review 取推断上界的直接依赖、隔离记录、非代表的复制；source 取快照、tconst、评论；person 取别名最多的 3 人）与四类作业示例各 1 例；评论只给定位与记录哈希，不含正文；页面不含 HTML。
+- **端到端种子**（`scripts/seed_task9_e2e.py`）：用任务 9 集成测试的夹具（`_task9_helpers.seed` 与 `add_products`），快照写到 `outputs/e2e/t9_seed/`（测试容器与 Airflow 容器都挂载了 `outputs/`），DAG 参数 `snapshot_root` 指向它。
+- **对计划的修正**：DAG 增加参数 `snapshot_root`（e2e 的快照不在项目根）；`check` 的缺口判定是“缺口都有质量问题”而不是“缺口为 0”，以免夹具里故意制造的证据问题（AC03、AC08）让核对失败，正式库的“全部可追溯”由 AC20 的查询另行检验。
+
+## T9-05 实测（2026-11-03）
+
+- **真实 scheduler**（`compose.e2e.yaml`，写 `etl_test`，步骤见 runbook 第 2 节）：成功（10 个任务 success，`lv0001`）、同输入重跑（`reused`）、上游 `cv9999` 缺失（`check_inputs` failed 不重试、`gate` failed）、`verify_fail`（`verify` failed 一次、版本 `unverified`）后重跑（在原版本 `lv0002` 上重写为 `verified`）四种情况全部符合预期。第一轮遇到主机暂停（调度器心跳中断 1,044 秒），`verify` 失败的任务被执行器判为异常又跑了一次（两次都是确定性失败），所以重新准备数据后用 `b` 后缀 run-id 重做，`verify` 只执行一次。做完已 `docker compose up -d` 切回正常配置，三个 Airflow 服务正常、`ETL_DB_NAME=etl_movies`、无 DAG 导入错误。DAG 没有在正式库触发。
+- **业务库副本**（`etl_t9_rehearsal`，前五个阶段已完成）：`runner run` 生成 `lv0001`（`verified`，墙钟 23 秒，主要是 verify），同输入再跑为 `reused`（1 秒）；`check` 退出码 0（18 秒）；`report export` 12 秒，`examples.md` 19 例（五个查询各 3 例、四类作业示例各 1 例），覆盖率按实体 edition 105,597、movie 237,070、person 118,044、product_movie 8,960 全部 1.0，质量问题 1（`nm17757708` 缺人名行），评论层视图 mapped 7,849,553、quarantined 62,131、incomplete 12（合计 7,911,696）。前五个阶段全量从头运行约 7.5 分钟（T9-01 至 T9-04 各阶段实测之和），留给 T9-07 实测。
+
 ## 夹具设计（R42）
 
 任务 7 的教训是夹具与真实输出不同形会掩盖缺陷。任务 9 的夹具在 `etl_test` 中按顺序建立任务 1–8 的真实表结构（应用迁移 `001`–`701`），用各任务自己的装载或写入函数生成上游行（任务 1 装载器读合成 gzip；任务 3–8 用各自 `tests/fixtures` 的写法），保证 jsonb 键名、数组与阶段键与正式库一致；只有 IMDb 与快照文件是小型合成文件。`tests/integration/conftest.py` 增加 `DROP SCHEMA IF EXISTS task9`。每个 AC 独立初始化。
