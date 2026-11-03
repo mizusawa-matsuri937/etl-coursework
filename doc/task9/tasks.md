@@ -1,6 +1,6 @@
 # 任务 9 开发任务（字段级数据血缘）
 
-状态：2026-11-03 编写计划；T9-00 已执行并通过（AC00）；T9-01 至 T9-03 已完成；T9-04 除 AC15 的按实体增量重建外完成（待用户决定方案）；T9-05 已完成；T9-06 至 T9-08 未开始。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-11-03 编写计划；T9-00 已执行并通过（AC00）；T9-01 至 T9-03 已完成；T9-04 除 AC15 的按实体增量重建外完成（待用户决定方案）；T9-05、T9-06 已完成；T9-07、T9-08 未开始。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。标注“（计划）”的命令在对应任务实现前不可运行，实现后实际核对再改写期望。每项 AC 的逐条复核命令见 [checklist](checklist.md)。每个实现阶段完成后先在业务库副本 `etl_t9_rehearsal` 演练（design“业务库副本演练”），再进入下一阶段。
 
@@ -116,17 +116,17 @@
 
   期望：第一条在 `SET` 之后输出 `lv0001|verified`、`reused|1`、`succeeded|1`；第二条输出 `exit=0`。
 
-- [ ] T9-06 抽查评价工具：审核表、AI 草稿、导入校验、指标。规则：R46–R49；关联 AC18。
-  - 文件：`src/etl_task9/evaluate.py`、`tests/integration/test_task9_evaluate.py`。
+- [x] T9-06 抽查评价工具：审核表、AI 草稿、导入校验、指标。规则：R46–R49；关联 AC18。
+  - 文件：`src/etl_task9/evaluate.py`、`tests/integration/{_task9_helpers,test_task9_evaluate}.py`、`tests/fixtures/task9/README.md`、`doc/task9/runbook.md`（第 5 节）。
   - 目标：五层配额与补足；审核表含路径与原始证据摘录；草稿只读审核表与原始证据；缺依据的改判被拒。
-  - 完成情况：未执行（计划）。
+  - 完成情况：2026-11-03 完成。7 项新测试通过，全量 `1285 passed`（原 1,278 项不减）；正式库审核表留给 T9-08。L5 改为商品与评论两类交替抽样（见 design“T9-06 实现要点”）。
 
   ```bash
-  # 抽查评价集成测试（工作目录：项目根目录）（计划）
+  # 抽查评价集成测试（工作目录：项目根目录）
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_evaluate.py
   ```
 
-  期望（计划）：全部通过，退出码 `0`。
+  期望：`7 passed`，退出码 `0`。
 
 - [ ] T9-07 业务库副本全链路演练。规则：R43；关联 AC19。
   - 文件：`doc/task9/design.md`（“业务库副本全链路演练实测”）、`doc/task9/runbook.md`、`doc/task9/tasks.md`、`doc/task9/checklist.md`。

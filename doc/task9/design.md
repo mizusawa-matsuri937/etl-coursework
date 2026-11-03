@@ -400,13 +400,23 @@ Legend 抽查（`mv_24a89e3536e837e6`）：`release_year` 登记任务 6 候选 
 - **真实 scheduler**（`compose.e2e.yaml`，写 `etl_test`，步骤见 runbook 第 2 节）：成功（10 个任务 success，`lv0001`）、同输入重跑（`reused`）、上游 `cv9999` 缺失（`check_inputs` failed 不重试、`gate` failed）、`verify_fail`（`verify` failed 一次、版本 `unverified`）后重跑（在原版本 `lv0002` 上重写为 `verified`）四种情况全部符合预期。第一轮遇到主机暂停（调度器心跳中断 1,044 秒），`verify` 失败的任务被执行器判为异常又跑了一次（两次都是确定性失败），所以重新准备数据后用 `b` 后缀 run-id 重做，`verify` 只执行一次。做完已 `docker compose up -d` 切回正常配置，三个 Airflow 服务正常、`ETL_DB_NAME=etl_movies`、无 DAG 导入错误。DAG 没有在正式库触发。
 - **业务库副本**（`etl_t9_rehearsal`，前五个阶段已完成）：`runner run` 生成 `lv0001`（`verified`，墙钟 23 秒，主要是 verify），同输入再跑为 `reused`（1 秒）；`check` 退出码 0（18 秒）；`report export` 12 秒，`examples.md` 19 例（五个查询各 3 例、四类作业示例各 1 例），覆盖率按实体 edition 105,597、movie 237,070、person 118,044、product_movie 8,960 全部 1.0，质量问题 1（`nm17757708` 缺人名行），评论层视图 mapped 7,849,553、quarantined 62,131、incomplete 12（合计 7,911,696）。前五个阶段全量从头运行约 7.5 分钟（T9-01 至 T9-04 各阶段实测之和），留给 T9-07 实测。
 
+## T9-06 实现要点与对计划的修正
+
+- **四个命令**（`etl_task9.evaluate`，目录 `outputs/task9/<抽取>/<血缘版本>/eval/`）：`export --version lvNNNN` 要求版本 `verified`，抽样后写 `eval_set`（`ev_<lv>`，含各层目标、实际与补足数）、`eval_item`（选择键或评论键、路径与证据摘录的 SHA-256），导出 `eval_items.csv` 与 `LABELING.md`；已导入标注时拒绝重导（`--force` 清除标注后重导）。`draft` 只读 `eval_items.csv` 与原始证据文件生成 `eval_items_draft.csv`，不连数据库。`import --file --annotator` 整批校验后写 `eval_label`。`metrics` 输出 JSON 并写 `metrics.md`。
+- **抽样**（R46）：L1–L4 直接取 `field_selection` 的非空值按 `md5(selection_id)` 排序；L5 的商品归属（`product_movie` 选择）与评论归属（`rd` 版本的 `review_mapping` → `logical_review_work`，键为 `review:<source_review_id>`）各自按 md5 排序后交替排列，保证两类都被抽到（只按 md5 合并时夹具与正式库的前 10 个可能全是商品）。补足按 `L2 → L1 → L3` 取这些层的后续候选。
+- **审核表**（R47）：路径由 `query.Tracer`（每层最多 3 个父节点，其余写“共 N 个父节点，按操作…”）展开为“操作[rule_id|规则版本|上游任务] ← 上游表:键”；证据最多 6 条：页面给快照路径、正文哈希与该页面源记录的直接子断言原文（≤ 300 字符）；IMDb 给文件、行号，按行号从原始 gz 文件顺序读出原行（文件不在容器时标 `file_unavailable` 并附装载表行）；评论给记录号、起始行、记录哈希与正文前 80 个字符。审核表不含 `trace_status` 等系统状态列。
+- **AI 草稿**（R49）：逐条解压快照核对正文哈希并检索定位原文，IMDb 逐行比对最终值；`ai_read` 写每个文件的读取结果。快照不可读、哈希不一致、定位原文未找到或 IMDb 原文件不可读时 `ai_label = unsure`、`ai_doubt = true`；最终值出现在原始证据中时 `correct`；其余（值经规范化或受控词映射）`unsure` 并存疑，留给人工按路径里的规则核对。草稿不会给出 `incorrect`，错判只能由人工给出。
+- **导入校验**（R49）：`label` 闭集；`incorrect` ⇔ 有 `error_type`（闭集）；与 `ai_label` 不同或 `ai_doubt = true` 的项须填 `human_evidence`（标 `unsure` 的除外）；`note` 不得原样粘贴 `ai_reason`；任何一条不合格整批拒绝，不写入。
+- **指标**（R48）：正确率 = `correct` /（`correct` + `incorrect`），总体与分层，`unsure` 单列，分母为 0 记“无定义”；另给错误类型计数与标注人；`metrics.md` 声明只代表 60 条抽查样本、标注为 AI 预填与人工逐项审核。
+- **对计划的修正**：L5 由“合并后按 md5 排序”改为两类交替（理由见上）；快照哈希不一致也列为存疑原因。夹具补了任务 8 评论映射（见 `tests/fixtures/task9/README.md`）。正式库的审核表与草稿留给 T9-08 生成，T9-06 没有在正式库或副本上导出。
+
 ## 夹具设计（R42）
 
 任务 7 的教训是夹具与真实输出不同形会掩盖缺陷。任务 9 的夹具在 `etl_test` 中按顺序建立任务 1–8 的真实表结构（应用迁移 `001`–`701`），用各任务自己的装载或写入函数生成上游行（任务 1 装载器读合成 gzip；任务 3–8 用各自 `tests/fixtures` 的写法），保证 jsonb 键名、数组与阶段键与正式库一致；只有 IMDb 与快照文件是小型合成文件。`tests/integration/conftest.py` 增加 `DROP SCHEMA IF EXISTS task9`。每个 AC 独立初始化。
 
 ## 抽查评价设计（R46–R49）
 
-- 抽样：在 `lv0001` 的 `field_selection` 中按 `md5(selection_id)` 排序分层取前 N：`L1` 作品标量 15、`L2` 作品多值成员 15、`L3` 版本字段 10、`L4` 人物 10、`L5` 评论与商品归属 10（后者从 `v_review_lineage`、`v_product_lineage` 取）。
+- 抽样：在 `lv0001` 的 `field_selection` 中按 `md5(selection_id)` 排序分层取前 N：`L1` 作品标量 15、`L2` 作品多值成员 15、`L3` 版本字段 10、`L4` 人物 10、`L5` 评论与商品归属 10（商品归属取 `product_movie` 选择，评论归属取 `rd` 版本的评论映射与归属，两类交替排列，见“T9-06 实现要点”）。
 - 审核表（CSV，不入 Git）：实体、字段、最终值、处理路径（每步操作、`rule_id`、上游表与键），原始证据摘录（页面按定位取区域附近文字 ≤ 300 字符、IMDb 原行、评论定位与正文前 80 个字符），标注列 `label`、`error_type`、`human_evidence`。
 - AI 草稿：AI 只读审核表与原始证据文件，逐项写“读到的原始值”与判断，不读 `task9` 的状态列；人工（付林轩）逐项审核后导入，改判或存疑项须填依据（R49）。
 - 指标：血缘链正确率 = `correct` /（`correct` + `incorrect`），总体与分层；`unsure` 单列。只代表抽查样本。

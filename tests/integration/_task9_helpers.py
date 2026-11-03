@@ -519,6 +519,47 @@ def _dedup_versions(conn: psycopg.Connection, rows: list[tuple[str, str, str]]) 
         conn.execute("UPDATE task8.run SET review_dedup_version_id = %s WHERE run_id = %s", (rd, run))
 
 
+def add_review_mapping(conn: psycopg.Connection, t9: T9, rd: str = "rd0001") -> int:
+    """给任务 8 版本补评论映射（列与约束同迁移 701）：EID 下每条有产品 ID 的评论记录自成一条逻辑评论（代表记录），
+    每个 ASIN 一个家族，按该 cv 所用映射版本的 task4.product_movie 归属到作品。返回归属行数。"""
+    fam, ded, att = conn.execute("SELECT family_stage_key, dedup_stage_key, attribution_stage_key "
+                                 "FROM task8.dedup_version WHERE review_dedup_version_id = %s", (rd,)).fetchone()
+    t4 = conn.execute("SELECT t4_mapping_version_id FROM task7.conflict_version WHERE conflict_version_id = %s",
+                      (t9.cv,)).fetchone()[0]
+    conn.execute("DELETE FROM task8.review_family WHERE family_stage_key = %s", (fam,))     # 这些表不随 seed 的
+    conn.execute("DELETE FROM task8.review_mapping WHERE dedup_stage_key = %s", (ded,))     # TRUNCATE 级联清空
+    conn.execute("DELETE FROM task8.logical_review WHERE dedup_stage_key = %s", (ded,))
+    conn.execute("DELETE FROM task8.logical_review_work WHERE attribution_stage_key = %s", (att,))
+    recs = conn.execute("SELECT rr.record_no, rr.source_review_id, rs.product_id, rs.reviewer_id, rs.review_time_utc, "
+                        "rs.score, coalesce(rs.review_text_raw, '') FROM public.review_record rr "
+                        "JOIN public.review_staging rs USING (extraction_id, source_review_id) "
+                        "WHERE rr.extraction_id = %s AND rs.product_id IS NOT NULL ORDER BY rr.record_no",
+                        (EID,)).fetchall()
+    n = 0
+    for asin in sorted({r[2] for r in recs}):
+        fid = "rf_" + hashlib.sha256(f"{rd}|{asin}".encode()).hexdigest()[:16]
+        conn.execute("INSERT INTO task8.review_family (family_stage_key, family_id, min_asin, asin_count, "
+                     "signature_count, max_review_count, weak_support) VALUES (%s, %s, %s, 1, 1, 1, false)",
+                     (fam, fid, asin))
+    for no, sid, asin, who, at, score, text in recs:
+        lr = "lr_" + hashlib.sha256(f"{rd}|{no}".encode()).hexdigest()[:20]
+        fid = "rf_" + hashlib.sha256(f"{rd}|{asin}".encode()).hexdigest()[:16]
+        conn.execute("INSERT INTO task8.logical_review (dedup_stage_key, logical_review_id, reviewer_id, review_day, "
+                     "score, content_hash, text_md5, family_id, representative_record_no, copy_count, asin_count, "
+                     "partition_no) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, 1, 0)",
+                     (ded, lr, who or "unknown", (at or CRAWLED).date(), score or 0,
+                      hashlib.sha256(text.encode()).digest(), hashlib.md5(text.encode()).digest(), fid, no))
+        conn.execute("INSERT INTO task8.review_mapping (dedup_stage_key, record_no, source_review_id, asin, "
+                     "logical_review_id, mapping_status, match_level, partition_no, rule_version) "
+                     "VALUES (%s, %s, %s, %s, %s, 'mapped', 'representative', 0, 't8r1')", (ded, no, sid, asin, lr))
+        for (movie,) in conn.execute("SELECT DISTINCT movie_id FROM task4.product_movie WHERE mapping_version_id = %s "
+                                     "AND asin = %s", (t4, asin)).fetchall():
+            conn.execute("INSERT INTO task8.logical_review_work (attribution_stage_key, logical_review_id, movie_id, "
+                         "via_asins, also_on_collection) VALUES (%s, %s, %s, %s, false)", (att, lr, movie, [asin]))
+            n += 1
+    return n
+
+
 def run(conn: psycopg.Connection, t9: T9, through: str = "assertions", **kw) -> dict[str, Any]:
     kw.setdefault("snapshot_root", t9.snapshot_root)
     kw.setdefault("snapshot_workers", 2)

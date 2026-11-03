@@ -260,14 +260,21 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC18 抽查评价工具
 
-- [ ] 未执行（计划）。
+- [x] 2026-11-03 合成夹具通过：配额与 `L2 → L1 → L3` 补足、审核表路径与证据摘录、草稿读快照与 IMDb 原行、缺依据改判等四类不合格整批拒绝、指标与手算一致（含“无定义”）、命令行四步。
 
 ```bash
-# 五层配额、审核表、AI 草稿、导入校验、指标（计划）
+# 五层配额、审核表、AI 草稿、导入校验、指标、命令行（工作目录：项目根目录）
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_evaluate.py -k "ac18"
 ```
 
-期望（计划）：相关用例全部通过，退出码 `0`。
+期望：`7 passed`，退出码 `0`。
+
+```bash
+# 只看导入校验（缺外部依据的改判、缺错误类型、粘贴 ai_reason、标注值越界）
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_evaluate.py -k "ac18 and import_rejects"
+```
+
+期望：`1 passed, 6 deselected`。
 
 ## AC19 业务库副本全链路演练
 

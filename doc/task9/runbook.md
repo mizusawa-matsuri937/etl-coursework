@@ -5,7 +5,7 @@
 ## 1. 测试
 
 ```bash
-docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_sources.py tests/integration/test_task9_assertions.py tests/integration/test_task9_derivations.py tests/integration/test_task9_relocate.py tests/integration/test_task9_selections.py tests/integration/test_task9_query.py tests/integration/test_task9_impact.py tests/integration/test_task9_runs.py tests/integration/test_task9_report.py tests/integration/test_task9_dag.py
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_sources.py tests/integration/test_task9_assertions.py tests/integration/test_task9_derivations.py tests/integration/test_task9_relocate.py tests/integration/test_task9_selections.py tests/integration/test_task9_query.py tests/integration/test_task9_impact.py tests/integration/test_task9_runs.py tests/integration/test_task9_report.py tests/integration/test_task9_dag.py tests/integration/test_task9_evaluate.py
 ```
 
 集成测试会话开始时会清空 `etl_test`；下一节的端到端数据要在测试之后从头准备。
@@ -127,3 +127,27 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task9.impact ve
 ```bash
 docker compose exec -T airflow-scheduler python -m etl_task9.impact verify-sources --kinds review_record > /dev/null; echo "exit=$?"
 ```
+
+## 5. 血缘链抽查（T9-08，R46–R49）
+
+T9-06 只在合成夹具上验证过这些命令；正式库上的导出、草稿与导入属于 T9-08（计划）。文件写在 `outputs/task9/<抽取>/lv0001/eval/`（不入 Git）。
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task9.evaluate export --version lv0001
+```
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task9.evaluate draft --version lv0001
+```
+
+草稿 `eval_items_draft.csv` 由付林轩逐项审核：填 `label`（`correct`/`incorrect`/`unsure`），`incorrect` 填 `error_type`，改判或 `ai_doubt = true` 的项填 `human_evidence`（标 `unsure` 的除外），另存为 `eval_labels.csv`（规则见同目录 `LABELING.md`）。导入与指标：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task9.evaluate import --version lv0001 --file /opt/etl/outputs/task9/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/lv0001/eval/eval_labels.csv --annotator 付林轩
+```
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task9.evaluate metrics --version lv0001
+```
+
+IMDb 原始文件需在容器内可读（默认 `IMDB_DATA_DIR`）；不可读时审核表给装载表行并在草稿中存疑。
