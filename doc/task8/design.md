@@ -339,3 +339,37 @@ check_inputs → review_clean → review_family → review_dedup → review_attr
 | 合计 | 约 6.1 GB（上文预算 ≤ 4 GB） |
 
 超出预算的原因：两张大表都按 R02 保留 64 位十六进制的 `source_review_id`，`review_clean` 另有两项 MD5 与显示名原值，`review_mapping` 有三个索引（主键、逻辑评论、ASIN）；上文按每行约 130–150 B 估算，实测约 300 B。正式库运行前磁盘剩余 58 GB，6.1 GB 可以接受；如需压缩，可去掉 `review_clean` 的 `summary_md5`（目前只用于诊断）或把 `source_review_id` 存为 `bytea`（与任务 1 的文本类型不一致，暂不做）。耗时：清洗 581 秒（同时有全量测试在跑）、家族 53 秒、去重 388 秒，合计约 17 分钟，在 40 分钟预算内（不是性能实测）。
+
+## 实现补充约定（T8-04 至 T8-06）
+
+与上文表述不同处以本节为准；不改变 spec 的规则与用户确认的 H01–H04。
+
+- **归属阶段的两个批次单元**：`review_attribution` 依次为 `work`（一条 `INSERT … SELECT` 写 `logical_review_work`）与 `groups`（统计组、成员、统计组内近似评论候选与完成标记同一事务）。作品归属按 R27 只连 `cv0003` 中 `product_kind = 'movie'` 且 `movie_ids` 非空的单品，取 `movie_ids[1]`；同一逻辑评论在同一作品一行，`via_asins` 记全部单品；副本也在合集（`product_kind = 'collection'`）上时 `also_on_collection = true`。
+- **统计组的作品范围**：该 cv 版本 `edition_resolved` 全部 `movie_ids` 的并集（正式库 `cv0003` 为 8,659 部，与 `movie_resolved` 行数一致），加上 `likely_duplicate_movie` 的端点；没有归属评论的作品也各自成组，`movie_review_stats` 每部作品一行（评论数为 0）。`likely_duplicate_movie` 只读 `shared_tconst_result` 中 `link_stage_key` 等于该版本 `conflict_version.link_stage_key` 的行（同一抽取下其他阶段键与其他 `link_class` 不读），方向重复的对合并为一条边。组 ID 为 `sg_` + sha256(组内最小 `movie_id`) 前 16 位。
+- **统计组内的近似评论**：只比较同一用户、同一统计组、分属不同家族的逻辑评论（同一家族内的对已在 `review_dedup` 记录），候选 `stage = 'review_attribution'`，`basis.scope = 'stat_group'`；因一条逻辑评论的全部作品都在同一统计组（共享即连边），同一对不会在两个组重复出现。
+- **统计表的口径**（`versions.finalize_version`，一个事务）：商品层去重前为该 ASIN 的原始有效记录（含 12 条不完整记录所在的 ASIN），去重后为不同逻辑评论；`product_category` 取 `t3r2` 类别，合集按 cv 是否有作品拆为 `collection_with_movies` / `collection_without_movies`，待确认按 `input_group` 拆为 `not_collected` / `pending_collected`。作品层 `near_dup_candidates` 为两端都归属该作品的近似对数；统计组 `near_dup_pairs` 为两端都在组内的近似对数（含家族内与统计组内两种来源）。
+- **敏感性数字（R31）的保留规则**：把组内近似对连成分量，每个分量只保留评论日最早的一条（并列取较小 `logical_review_id`），其余不计；`sensitivity_rated` 与 `sensitivity_avg_score` 为保留后的分母与平均分（`rules.sensitivity`）。
+- **版本与运行**：`runner.execute_dedup` 串起输入检查、锁、复用判断、四个阶段、`finalize_version`（`unverified`）与 `verify`（`check.verify` 通过才 `mark_verified`，运行才 `succeeded`）；`runner.run_stage` 为 DAG 六个执行步骤共用一条 `task8.run`（按 `airflow_run_id` 找回）。`verify` 失败时运行 `failed`、版本 `unverified`，同输入重跑在原版本号上清掉统计行重写，阶段结果按阶段键直接复用。`check.verify` 在规则版本已登记（或调用方给出规则集）时按输入重算四个阶段键并比对，未登记时只核对依赖链与完成标记。
+- **版本差异**：`versions.diff_versions`（`python -m etl_task8.report diff`）列出 `stage`（哪些阶段键变化，即哪些阶段重算）、`count`（版本计数）、`movie`、`group`、`product`（统计表的新增、移除与字段变化）五层。
+- **共享内存**：`review_dedup` 的核验单元原先在 `work_mem = 256MB` 下走并行哈希连接，哈希表放在 `/dev/shm`（容器 1 GB），T8-04 演练中报 `DiskFull: could not resize shared memory segment … 536870912 bytes`；改为在该事务里另设 `enable_parallel_hash = off`（各进程在本地内存建表），重跑后核验通过，去重阶段 353 秒（T8-03 演练 388 秒）。
+- **报告与查询（T8-05）**：`report.build_summary` 的差异来源（R32）按“原始记录 − 逻辑评论 = 不完整记录 + 同 ASIN 重复 + 跨单品的平台复制 + 跨作品共享”四项拆分（各项由单品上的 mapped 记录数、不同 `(逻辑评论, ASIN)` 数、归属行数与不同逻辑评论数相减得到，四项之和恒等于差值）。实例每类取 3 例，按 `record_no` 或 ID 排序取前几项（可复现，不需要对全表算 `md5`）；正文只取前 80 个字符。导出另写 `checksums.json`。
+- **评价（T8-06）**：开发池按 `md5(reviewer_id)`（并列按 `reviewer_id`）排序取 `rn × 5 ≤ 用户数` 的用户；`V2` 先取多 ASIN `weak_support` 家族上的 `D3` 至多 10 项，余额按 `md5(item_key)`；不足 120 项时按 `V2 → V3 → V4` 从各层剩余项补足（`eval_set.strata` 记 `target`、`actual`、`filled`）。盲测表每侧只有用户、日期、评分、摘要、正文前 500 字符、ASIN、商品标题与类别（`V5` 两侧为作品标题与单品 ASIN），编号 `t8_eval_0001`… 按 `md5(item_key)` 全局排序。AI 草稿由 `generate_ai_draft`（没有数据库参数）只读盲测行生成。导入校验：标注值闭集、`ai_doubt` 或与 `ai_label` 不同且非 `unsure` 的项必须有 `human_evidence`、`note` 不得原样粘贴 `ai_reason`，任一不符整批拒绝。
+
+## 业务库副本演练实测（T8-04，`etl_t8_rehearsal`）
+
+2026-11-03 再次由 `CREATE DATABASE etl_t8_rehearsal TEMPLATE etl_movies OWNER etl_app` 建立（停 Airflow 三个服务后 2 分 05 秒，建好后立即恢复；磁盘剩余 58 GB → 28 GB），用 `python -m etl_task8.runner run` 完整运行。第一次运行在 `review_dedup` 的核验单元报共享内存 `DiskFull`（见上节），清洗（16 批 410 秒）、家族（53 秒）与去重的 `unmapped` 单元已提交；修复后同输入重跑从核验单元继续，生成 `rd0001` 并通过核对（运行 `succeeded`，7 分 13 秒，其中去重 353 秒、归属 5 秒）。`python -m etl_task8.check` 退出码 0、`problems` 为空；`report export` 导出 12 类实例各 3 例。耗时是同机记录，不是性能实测。
+
+| 项目 | 试算 | 演练实测 | 说明 |
+|---|---|---|---|
+| 归属作品的逻辑评论 | 257,733 | 257,733（归属行 274,208） | 一致 |
+| 归属 ≥ 2 部作品的逻辑评论 / 按 `movie_id` 求和多计 | 15,015 / 16,475 | 15,015 / 16,475 | 一致 |
+| 评分统计组 | 多作品组 259 个、涉及 541 部作品、最大 4 部 | 统计组 8,377 个（含单部作品组），多作品组 259 个、541 部作品、最大 4 部 | 一致；连边 `likely_duplicate_movie` 95 条、共享评论 273 条 |
+| 作品数 | 8,659 | 8,659（有归属评论 8,461） | 一致 |
+| 单品原始记录 → 逻辑评论 | 298,769 → 257,733 | 298,769（平均 4.0542）→ 257,733（平均 4.0303） | 差 41,036 = 同 ASIN 重复 583 + 跨单品平台复制 23,978 + 跨作品共享 16,475（不完整 0） |
+| 评论数因去重变化的作品 / 平均分变化 ≥ 0.1 / 最大变化 | 542 / 29 / 0.667 | 542 / 29 / 0.6667 | 一致 |
+| 只在合集上 / 合集与单品都有 | 13,994 / 1,827 | 13,994 / 1,827 | 一致 |
+| 近似评论 | “用户 × 作品”内 ≥ 0.9 的 756 对（750 对在同一 ASIN） | 统计组内两端都在组里的 745 对（家族内 738、跨家族 7） | 试算按作品分组且包含正文相同（只差摘要、日期或评分）的对；实现不比较正文 MD5 相同的两条（“实现补充约定”T8-01 起的近似评论一条），并按统计组而非单部作品划范围 |
+| 敏感性（每组近似评论只计一次） | — | 分母 257,733 → 257,056，平均分 4.0303 → 4.0298 | 影响很小 |
+| 商品类别（有效 / 隔离） | 见上文“归属与评分”表 | 电影 298,769 / 2,557；有作品合集 1,759 / 16；无作品合集 14,482 / 110；剧集 29,298 / 135；演唱会或其他 39,055 / 251；非电影 564 / 5；已采集待确认 493,088 / 3,892；未采集 6,972,550 / 55,153 | 与试算逐项一致 |
+| 映射、层次、家族、候选 | 见 T8-01 至 T8-03 | 与 T8-03 演练相同（逻辑评论 1,908,386，`D1` 4,501、`D2` 9,432、`D3` 5,927,234；C1 4,202；家族内 C2 3,470） | 同一实现与输入 |
+| `task8` 体量 | 预算 ≤ 4 GB | 6,157 MB（新增归属 58 MB、商品统计 40 MB，其余统计表各约 1.5 MB） | 超预算原因见 T8-03 一节 |

@@ -196,9 +196,13 @@ def _verify(conn: psycopg.Connection, ctx: RunContext, ck: str, fk: str, dk: str
     params = {"fk": fk, "ck": ck, "eid": ctx.inputs.extraction_id}
     # 只在这条查询上：规划器把多行分组估成几百行而选嵌套循环（600 万次随机读 review_staging，演练中 10 分钟未完成）；
     # 关掉嵌套循环后为一次顺序扫描加哈希连接，演练实测 91 秒
+    # 并行哈希连接把哈希表放在共享内存（/dev/shm，容器默认 1 GB）里，256MB × hash_mem_multiplier 的段在 T8-04 演练中
+    # 报 DiskFull；关掉并行哈希后各进程在本地内存建表，不占 /dev/shm
     conn.execute("SET LOCAL work_mem = '256MB'")
     conn.execute("SET LOCAL enable_nestloop = off")
+    conn.execute("SET LOCAL enable_parallel_hash = off")
     groups = {(fam, bytes(h)) for fam, h in conn.execute(_COLLISIONS, params)}
+    conn.execute("SET LOCAL enable_parallel_hash TO DEFAULT")
     conn.execute("SET LOCAL enable_nestloop TO DEFAULT")
     conn.execute("SET LOCAL work_mem TO DEFAULT")
     counts: dict[str, Any] = {"rows": 0, "collision_groups": len(groups), "collision_records": 0}

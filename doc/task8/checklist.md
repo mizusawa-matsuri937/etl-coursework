@@ -1,6 +1,6 @@
 # 任务 8 AC 完成情况（评论清洗与重复识别）
 
-状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T8-01 至 T8-03 实现后 AC02、AC03、AC04、AC05、AC14 通过并勾选，AC01、AC06 部分完成（依赖 T8-04，未勾选）；其余尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T8-01 至 T8-03 实现后 AC02、AC03、AC04、AC05、AC14 通过并勾选；T8-04 实现后 AC01、AC06（补齐）与 AC07–AC10 通过并勾选；其余尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`，`psql -Atc` 输出首行会多一个 `SET`）。
 
@@ -10,7 +10,7 @@
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望：`1158 passed`（2026-11-03 T8-03 后实测：任务 1–7 的 1,121 项不减少，任务 8 新增 37 项）。
+期望：`1170 passed`（2026-11-03 T8-04 后实测：任务 1–7 的 1,121 项不减少，任务 8 共 49 项）。
 
 ## AC00 计划文件规范
 
@@ -26,14 +26,14 @@ grep -c "^- R[0-9][0-9] \[" doc/task8/spec.md
 
 ## AC01 输入版本、分层与原始记录全部保留
 
-- [ ] 部分完成（T8-01、T8-03，2026-11-03）：两个抽取（全量与样本）中只读指定抽取；有效、`invalid_utf8`、`unknown_line`、无产品 ID 的隔离与缺 5 个字段的记录在 `review_mapping` 各恰好一行，隔离为 `quarantined`、不完整为 `incomplete` 且 `logical_review_id` 为空；`lr_` 前缀且不等于任何 `source_review_id`；`public` 各表行数与摘要不变。演练库 7,911,696 条记录各一行映射。未完成：只读 `cv0003` 的部分依赖 T8-04 的归属阶段与两个 `cv` 版本的夹具，所以不勾选。
+- [x] 2026-11-03 通过（T8-01、T8-03、T8-04）：两个抽取（全量与样本）中只读指定抽取；有效、`invalid_utf8`、`unknown_line`、无产品 ID 的隔离与缺 5 个字段的记录在 `review_mapping` 各恰好一行，隔离为 `quarantined`、不完整为 `incomplete` 且 `logical_review_id` 为空；`lr_` 前缀且不等于任何 `source_review_id`；`public` 各表行数与摘要不变；同时有 `cv0003` 与 `cv0002` 时只读 `cv0003`（`cv0002` 把单品映射到另一部作品、另一对重复作品，都不出现；其他 `link_stage_key` 与其他 `link_class` 的作品对不被读到）。演练库 7,911,696 条记录各一行映射。
 
 ```bash
-# 已完成部分：抽取限定、每条原始记录一行映射、隔离与不完整记录的状态、lr_ 前缀、public 不变
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_clean.py tests/integration/test_task8_dedup.py -k "ac01"
+# 抽取限定、每条原始记录一行映射、隔离与不完整记录、lr_ 前缀、public 不变、只读指定 cv
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_clean.py tests/integration/test_task8_dedup.py tests/integration/test_task8_attribution.py -k "ac01"
 ```
 
-期望：`2 passed, 7 deselected`，退出码 `0`。
+期望：`3 passed, 10 deselected`，退出码 `0`。
 
 ## AC02 helpfulness 状态与不完整记录
 
@@ -81,58 +81,58 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC06 不合并的候选
 
-- [ ] 部分完成（T8-03，2026-11-03）：X1 记一组 `cross_family_same_content`，X2（Jaccard 0.9286）记一对 `near_duplicate`，X3（0.6）无候选；关掉近似阈值后映射完全相同（候选不改变逻辑评论与映射）。未完成：X4（同一统计组两部作品上的近似评论）依赖 T8-04 的 `review_attribution`，所以不勾选。
+- [x] 2026-11-03 通过（T8-03、T8-04）：X1 记一组 `cross_family_same_content`，X2（Jaccard 0.9286）记一对 `near_duplicate`，X3（0.6）无候选；X4 同一用户在同一统计组两部作品（不同家族）上 Jaccard 0.95 的两条评论记一对 `near_duplicate`（`stage = 'review_attribution'`、`basis.scope = 'stat_group'`），两条仍各为代表记录；关掉近似阈值后映射完全相同。演练库家族内 C2 3,470 对、统计组内跨家族 C2 7 对。
 
 ```bash
-# 已完成部分：X1–X3 与候选不改变映射（X4 待 T8-04 的 test_task8_attribution.py）
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_dedup.py -k "ac06"
+# X1–X4 与候选不改变映射
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_dedup.py tests/integration/test_task8_attribution.py -k "ac06"
 ```
 
-期望：`1 passed, 4 deselected`，退出码 `0`。
+期望：`2 passed, 7 deselected`，退出码 `0`。
 
 ## AC07 商品与作品归属、合集口径
 
-- [ ] 未执行。
+- [x] 2026-11-03 通过（T8-04）：A1、A2、C1 同一家族；商品层 L1 在 A1、A2 各算一条（A1 6、A2 5、C1 6 条逻辑评论）；M1 归属 L1（`via_asins = {A1,A2}`）与 L3（`via_asins = {A1}`、`also_on_collection`）各一次；L2 只在合集、L4 剧集、L5 未采集都不归属作品；M2 只在合集里，归属 0；类别为 `movie`、`collection_with_movies`、`tv_series`、`not_collected`；`check` 无问题。演练库归属逻辑评论 257,733 条，只在合集上的 13,994 条、合集与单品都有的 1,827 条。
 
 ```bash
-# （计划）验证只经 edition 归属作品、合集只在商品层、其他类别不进作品
+# 只经 edition 归属作品、合集只在商品层、其他类别不进作品
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_attribution.py -k "ac07"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`1 passed, 3 deselected`，退出码 `0`。
 
 ## AC08 评分统计组与评分口径
 
-- [ ] 未执行。
+- [x] 2026-11-03 通过（T8-04）：统计组 `{M1,M2}`（`likely_duplicate_movie`）、`{M3,M4}`（共享 1 条）、`{M5}`；作品与组的去重前后记录数、平均分与手算一致（如组 `{M3,M4}` 去重前 3 条 3.6667、去重后 2 条 3.0；M5 去重前 3 条 3.3333、去重后 2 条 3.0）；共享数 M3、M4 各 1；`{M1,M2}` 有一对近似评论，各计一次（5 条 4.0），敏感性去掉较晚一条后 4 条 4.25；任务 2–7 的表摘要不变；另有 2 项单元测试（连通分量、敏感性）。演练库多作品组 259 个（541 部），与试算一致。
 
 ```bash
-# （计划）验证统计组、组内只计一次、共享数、去重前后平均分与敏感性数字
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_attribution.py -k "ac08"
+# 统计组、组内只计一次、共享数、去重前后平均分、敏感性数字
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task8_rules.py tests/integration/test_task8_attribution.py -k "ac08"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`3 passed, 28 deselected`，退出码 `0`。
 
 ## AC09 版本、阶段依赖与复用
 
-- [ ] 未执行。
+- [x] 2026-11-03 通过（T8-04）：同输入第二次运行为 `reused`、指向 `rd0001`，`task8` 除 `run` 外全部表行数与摘要不变；家族阈值改为 0.7（新规则版本）生成 `rd0002`，`review_clean` 复用、家族及下游三个阶段键变化，原先共享评论的两部作品分为两组；改用 `cv0002` 生成 `rd0003`，只有 `review_attribution` 阶段键变化；`diff_versions` 列出阶段键、计数与作品统计的变化；三个版本都是 `verified`，`rd0001` 重新核对无问题。
 
 ```bash
-# （计划）验证 reused、改阈值重算家族及下游、改 cv 只重算归属、report diff
+# reused、改阈值重算家族及下游、改 cv 只重算归属、版本差异
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_runs.py -k "ac09"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`1 passed, 5 deselected`，退出码 `0`。
 
 ## AC10 分批恢复与并发锁
 
-- [ ] 未执行。
+- [x] 2026-11-03 通过（T8-04）：完整运行中分别在 `review_clean`（每批 3 条）、`review_family`、`review_dedup` 第 2 批提交前与 `review_family` 连通分量提交前注入故障：只有已提交单元落库（如清洗只有 1–3 号记录），运行 `failed`、没有版本，家族表在连通分量失败时为空；重跑跳过已提交单元，16 张内容表的摘要与一次跑完一致；另一连接持有抽取咨询锁时完整运行与分阶段运行都确定性失败（`RunBusy`），不留运行记录。演练中去重核验单元报 `DiskFull` 后重跑从该单元继续，结果通过核对。
 
 ```bash
-# （计划）验证三个阶段第 2 批前故障后重跑一致、家族无半写入、并发失败
+# 三个阶段第 2 批前故障后重跑一致、家族无半写入、并发失败
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_runs.py -k "ac10"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`5 passed, 1 deselected`，退出码 `0`。
 
 ## AC11 Airflow DAG 与核对后才成功
 

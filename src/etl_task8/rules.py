@@ -372,3 +372,46 @@ def cross_family_groups(items: Iterable[tuple[str, bytes, str]]) -> list[list[st
 def candidate_id(candidate_type: str, logical_ids: Sequence[str]) -> str:
     raw = candidate_type + "|" + ",".join(sorted(logical_ids))
     return "dc_" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+# ---------------------------------------------------------------- 评分统计组与敏感性（R29、R31）
+
+def stat_group_id(min_movie_id: str) -> str:
+    """sg_ + sha256(组内最小 movie_id) 前 16 位（与 family_id 同一写法）。"""
+    return "sg_" + hashlib.sha256(min_movie_id.encode("utf-8")).hexdigest()[:16]
+
+
+def components(nodes: Iterable[str], edges: Iterable[tuple[str, str]]) -> dict[str, str]:
+    """无向图的连通分量：节点 → 分量内最小节点（按码点）。边的端点不在 nodes 里时一并加入。结果与顺序无关。"""
+    parent: dict[str, str] = {n: n for n in nodes}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for a, b in edges:
+        parent.setdefault(a, a)
+        parent.setdefault(b, b)
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)
+    return {n: find(n) for n in parent}
+
+
+def sensitivity(items: dict[str, tuple[Decimal, date]], pairs: Iterable[tuple[str, str]]
+                ) -> tuple[int, Decimal | None, int]:
+    """R31：把每组近似评论（near_duplicate 对连成的分量）只计一次时的 (分母, 平均分, 去掉的条数)。
+    items 为统计范围内的逻辑评论 ID → (评分, 评论日)；分量内保留评论日最早的一条（并列取较小 ID），其余不计。
+    端点不在 items 里的对忽略（不属于该范围）。"""
+    inside = [(a, b) for a, b in pairs if a in items and b in items]
+    root = components(items, inside)
+    keep: dict[str, str] = {}
+    for lid in sorted(items, key=lambda x: (items[x][1], x)):
+        keep.setdefault(root[lid], lid)
+    kept = list(keep.values())
+    if not kept:
+        return 0, None, 0
+    total = sum((items[k][0] for k in kept), Decimal(0))
+    return len(kept), total / len(kept), len(items) - len(kept)

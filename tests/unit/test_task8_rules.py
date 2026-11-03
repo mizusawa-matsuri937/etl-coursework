@@ -211,3 +211,21 @@ def test_stage_keys_nest_and_change_only_downstream():
     assert i.full_stage_key("review_family", other) != family and i.full_stage_key("review_dedup", other) != dedup
     assert short_key("review_clean", clean).startswith("c") and len(short_key("review_clean", clean)) == 16
     assert i.key() == "e" * 64 + "|t3r2|cv0003|t8r1"
+
+
+# ---------------------------------------------------------------- 统计组与敏感性（R29、R31 的纯函数部分）
+
+def test_ac08_stat_group_components_and_ids():
+    from etl_task8.rules import components, stat_group_id
+    root = components(["m3", "m1", "m2", "m5"], [("m2", "m1"), ("m4", "m3")])
+    assert root == {"m1": "m1", "m2": "m1", "m3": "m3", "m4": "m3", "m5": "m5"}   # 端点不在节点里时一并加入
+    assert stat_group_id("m1") == "sg_" + hashlib.sha256(b"m1").hexdigest()[:16]
+
+
+def test_ac08_sensitivity_keeps_earliest_of_each_near_duplicate_component():
+    from etl_task8.rules import sensitivity
+    items = {"a": (Decimal(5), date(2007, 1, 1)), "b": (Decimal(3), date(2007, 1, 1)),
+             "c": (Decimal(1), date(2007, 1, 3)), "d": (Decimal(4), date(2007, 1, 2))}
+    assert sensitivity(items, [("a", "c"), ("c", "d")]) == (2, Decimal(4), 2)     # {a,c,d} 只留最早的 a：(5+3)/2
+    assert sensitivity(items, [("a", "x")]) == (4, Decimal("3.25"), 0)           # 端点不在范围里的对忽略
+    assert sensitivity({}, []) == (0, None, 0)

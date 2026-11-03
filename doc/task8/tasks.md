@@ -1,6 +1,6 @@
 # 任务 8 开发任务（评论清洗与重复识别）
 
-状态：2026-11-03 编写计划；T8-00 已执行并通过（AC00）；T8-01 至 T8-03 于同日实现并在业务库副本演练（演练库已删除）。T8-04 至 T8-08 尚未实现，其命令与期望均标注 `（计划）`，实现后按实际运行结果改写。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-11-03 编写计划；T8-00 已执行并通过（AC00）；T8-01 至 T8-04 于同日实现并在业务库副本演练。T8-05 至 T8-08 尚未完成，其命令与期望均标注 `（计划）`，实现后按实际运行结果改写。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。每项 AC 的逐条复核命令见 [checklist](checklist.md)。每个实现阶段完成后先在业务库副本 `etl_t8_rehearsal` 演练（design“业务库副本演练”），再进入下一阶段。
 
@@ -53,17 +53,17 @@
 
   期望：`5 passed`，退出码 `0`。
 
-- [ ] T8-04 归属与统计 `review_attribution`、版本物化与差异、分批恢复与并发锁。规则：R26–R36、R38；关联 AC07–AC10。
-  - 文件：`src/etl_task8/{attribution,versions,runner}.py`、`tests/integration/test_task8_{attribution,runs}.py`。
-  - 目标：作品归属只经 `edition`、合集单列、评分统计组、三类统计表；`finalize_version` 只标 `unverified`；阶段键增量重算；`report diff`；故障注入与锁。演练库上统计组数、作品评分去重前后差异与试算对照。
-  - 完成情况：未执行（计划）。
+- [x] T8-04 归属与统计 `review_attribution`、版本物化与差异、完整运行与核对、分批恢复与并发锁。规则：R26–R36、R38；关联 AC07–AC10，补齐 AC01、AC06。
+  - 文件：`src/etl_task8/{attribution,versions,check,runner}.py`（`runner` 补 `execute_dedup`、DAG 步骤 `run_stage`、`run` 子命令；`check` 原计划在 T8-05，因 `verify` 依赖它提前实现）、`src/etl_task8/{rules,sources,dedup}.py`（统计组纯函数、上游取数、核验单元关闭并行哈希）、`tests/integration/{_task8_helpers,test_task8_attribution,test_task8_runs}.py`、`tests/unit/test_task8_rules.py`。
+  - 目标：作品归属只经 `edition`、合集单列、评分统计组、三类统计表；`finalize_version` 只标 `unverified`；阶段键增量重算；`diff_versions`（`report diff` 的命令行在 T8-05）；故障注入与锁。演练库上统计组数、作品评分去重前后差异与试算对照。
+  - 完成情况：2026-11-03 通过。新增 12 项测试（归属 4、运行 6、单元 2），全量 1,170 项通过（原 1,158 项不减少）；演练库完整运行生成 `rd0001` 并通过核对：归属逻辑评论 257,733、多作品统计组 259 个（541 部）、去重后评论数变化的作品 542 部，与试算一致（design“业务库副本演练实测（T8-04）”）。
 
   ```bash
-  # （计划）归属、统计与运行恢复集成测试
+  # 归属、统计与运行恢复集成测试（工作目录：项目根目录）
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_attribution.py tests/integration/test_task8_runs.py
   ```
 
-  期望（计划）：全部通过，退出码 `0`。
+  期望：`10 passed`，退出码 `0`。
 
 - [ ] T8-05 报告、查询、只读核对、Airflow DAG 与 runbook。规则：R37、R42–R44；关联 AC11、AC12。
   - 文件：`src/etl_task8/{report,query,check,pipeline}.py`、`dags/amazon_reviews_task8_dedup.py`、`scripts/seed_task8_e2e.py`、`tests/integration/test_task8_{report,dag}.py`、`doc/task8/runbook.md`。
