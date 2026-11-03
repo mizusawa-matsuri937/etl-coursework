@@ -59,14 +59,14 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC04 评论家族
 
-- [ ] 未执行。
+- [x] 2026-11-03 通过（T8-02）：A、B、C 同一家族（A–C 的 Jaccard 0.6），D、E 各自成家族，F、G 同一家族且 `weak_support`；`family_id` 为 `rf_` + sha256(家族内最小 ASIN) 前 16 位；阈值改为 0.7（新规则版本）时 C 自成家族，清洗阶段原样复用、只新增家族阶段键。
 
 ```bash
-# （计划）验证签名合组、Jaccard 0.5 连通、weak_support、family_id 与阈值变化
+# 验证签名合组、Jaccard 0.5 连通、weak_support、family_id 与阈值变化
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_family.py -k "ac04"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`2 passed, 1 deselected`，退出码 `0`。
 
 ## AC05 去重层次、代表记录与稳定 ID
 

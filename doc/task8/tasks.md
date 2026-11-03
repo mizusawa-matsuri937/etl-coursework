@@ -29,17 +29,17 @@
 
   期望：`29 passed`，退出码 `0`。
 
-- [ ] T8-02 评论家族 `review_family`：签名、分区重叠计数、Jaccard 连通分量、`weak_support`。规则：R12、R13；关联 AC04。
+- [x] T8-02 评论家族 `review_family`：签名、分区重叠计数、Jaccard 连通分量、`weak_support`。规则：R12、R13；关联 AC04。
   - 文件：`src/etl_task8/family.py`、`tests/integration/test_task8_family.py`。
   - 目标：签名与重叠计数分批落库，连通分量单事务写入；演练库上家族数、`weak_support` 数与试算对照并解释差异。
-  - 完成情况：未执行（计划）。
+  - 完成情况：2026-11-03 通过。3 项测试通过（AC04 两项、分区中断恢复与连通分量无半写入一项）。演练库 32 分区 53 秒：家族 140,584 个（试算 140,587）、多 ASIN 家族 45,953（试算 45,956）、签名组对 12,230、相连边 1,419、最大家族 57 个 ASIN；`weak_support` 61,054 个家族，其中多 ASIN 的 12,054 个（30,290 个 ASIN），差异解释见 design“演练实测”。
 
   ```bash
-  # （计划）评论家族集成测试
+  # 评论家族集成测试（工作目录：项目根目录）
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_family.py
   ```
 
-  期望（计划）：全部通过，退出码 `0`。
+  期望：`3 passed`，退出码 `0`。
 
 - [ ] T8-03 去重与目标层 `review_dedup`：分组核验、`D1`–`D3`、逻辑评论、`ReviewMapping`、`Reviewer`、候选 `C1`、`C2`。规则：R03–R05、R10、R11、R14–R25；关联 AC01、AC03、AC05、AC06。
   - 文件：`src/etl_task8/dedup.py`、`tests/integration/test_task8_dedup.py`。
