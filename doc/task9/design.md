@@ -107,14 +107,14 @@ DAG：`dags/amazon_movies_task9_lineage.py`；迁移：`sql/801_task9_schema.sql
 | `run`、`run_batch`、`entity_stage`、`stage_key`、`quality_issue` | 同任务 7、8 的写法；`stage_key` 存完整串与父阶段键 |
 | `lineage_version` | `lv0001`…；输入键；R01 各版本；五个阶段键；`rule_version`；`status`（`unverified`/`verified`）；`counts` |
 | `source_record` | `(lineage_stage_key, source_record_id)`；`source_kind`（`page_snapshot`/`imdb_row`/`review_record`/`manual_revision`）；`locator`（jsonb）、`locator_key`；`content_hash` 与 `hash_scope`（`page_body_sha256`/`imdb_file_sha256`/`review_record_sha256`/`import_file_sha256`）；`acquired_at` 与 `acquired_at_basis`；`upstream_table`、`upstream_key`；`evidence_status`（`ok`/`snapshot_missing`/`snapshot_hash_mismatch`/`not_checked`） |
-| `assertion` | `assertion_id`；`level`（`extract`/`candidate`/`derived`）；`entity_type`（`movie`/`edition`/`collection_member`/`person`/`mention`/`product_movie`/`review`）；`entity_id`；`field_name`；`member_key`；`raw_value`；`normalized_value`；`source_record_id`（抽取级必填）；`field_locator`（区域、序号、列、行号）；`extract_rule_version`；`upstream_status` 与原因；`upstream_table`、`upstream_key`、`upstream_run_id`；`confidence` |
-| `derivation` | `(child_id, parent_id)`；`parent_kind`（`assertion`/`source_record`）；`operation`（R17 闭集）；`ol_type`、`ol_subtype`；`rule_id`、`rule_version`；`upstream_task`、`upstream_run_id`、`occurred_at`；`confidence`；`role`（如 `direct_dependency`）；`relocated` |
+| `assertion` | `assertion_id`；`level`（`extract`/`candidate`/`derived`）；`entity_type`（`movie`/`edition`/`collection_member`/`person`/`mention`/`product_movie`/`review`/`imdb_title`/`imdb_name`；后两者为 T9-01 增补，IMDb 行按 `tconst`、`nconst` 归属）；`entity_id`；`field_name`；`member_key`；`raw_value`；`normalized_value`；`source_record_id`（抽取级必填）；`field_locator`（区域、序号、列、行号）；`extract_rule_version`；`upstream_status` 与原因；`upstream_table`、`upstream_key`、`upstream_run_id`；`confidence` |
+| `derivation` | `(child_kind, child_id, parent_kind, parent_id, operation)`，`child_kind` 为 `assertion` 或 `selection`（T9-01 增补，字段选择也是子节点）；`parent_kind`（`assertion`/`source_record`）；`operation`（R17 闭集）；`ol_type`、`ol_subtype`；`rule_id`、`rule_version`；`upstream_task`、`upstream_run_id`、`occurred_at`；`confidence`；`role`（如 `direct_dependency`）；`relocated` |
 | `field_selection` | `selection_id = 'fs_' || substr(sha256(entity_type|entity_id|field_name|member_key), 1, 16)`；最终值（文本与类型化列）；`status`（R24）；`missing_reason`；`selected_assertion_ids`、`considered_assertion_ids`；`decision_rule`、`reason`、`confidence`；`decision_version`；`trace_status`（R25）；`target_ref`（目标表与主键） |
 | `field_impact` | `(source_record_id, selection_id)` 与最短路径长度；由派生图在 `build_impact` 末尾一次写入（R38） |
 | `relocation` | 重放结果：被补定位的断言、补出的区域/序号/断言 ID 或源评论 ID、与上游是否一致 |
 | `dev_pool` 不需要；`eval_set`、`eval_item`、`eval_label` | 同任务 8 写法，`eval_item` 存系统路径与证据摘录的哈希 |
 
-视图（不复制数据，R10）：
+视图（不复制数据，R10；写在 `sql/801_task9_views.sql`，由 `apply_task9_schema` 在 801 之后每次重建，文件须可重复执行，T9-03 加入）：
 
 - `task9.v_review_lineage`：`public.review_record`（定位、哈希）+ `review_staging`（原值）+ `task8.review_mapping`（`rd0001` 的去重阶段键）+ `logical_review`、`family_member` + `logical_review_work`（归属阶段键）+ `stat_group_member`。
 - `task9.v_product_lineage`：`task2.product_manifest`（状态、证据）+ `task3.product_classification`（`t3r2`）+ `task4.product_edition`、`product_movie`、`product_match_status`（`map0002`）+ `task7.edition_resolved`（`cv0003`）。
@@ -266,6 +266,38 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task9.query per
 2. 建库：`docker compose exec -T postgres psql -U postgres -c "CREATE DATABASE etl_t9_rehearsal TEMPLATE etl_movies OWNER etl_app"`，随后 `docker compose exec -T postgres psql -U postgres -c "CHECKPOINT"`（任务 8 演练时 `TEMPLATE` 按 `WAL_LOG` 复制写了约 27 GB WAL，不 `CHECKPOINT` 会一直占盘）；之后恢复 Airflow。库约 36 GB，磁盘可用 110 GB。
 3. 以 `docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t9_rehearsal crawler python -m etl_task9.runner …` 运行并 `check`，对照本文试算逐项解释差异；抽查四个演示查询。
 4. 删库：`DROP DATABASE etl_t9_rehearsal` 后再执行 `CHECKPOINT`。演练发现的缺陷先补夹具与测试，再改实现。
+
+## T9-01 实现要点与对计划的修正
+
+- **阶段键**：`sources` 含抽取、t3、解析、map、t4 规范化、pmap、t5 规范化、rv、cv 与 cv 的四个阶段键、IMDb 快照与规则签名；`assertions`、`derivations` 只加规则签名；rd 与其归属阶段键只进入 `selections`（原始层与暂存层不读任务 8），所以只换 rd 时前三个阶段原样复用。短键前缀 `s`、`a`、`d`、`l`、`i`。
+- **分批**：`entity_stage` 按“单元:实体”逐实体标记（如 `page:<ASIN>`、`imdb_title:<tconst>`、`review:<movie_id>`），与该批数据同事务提交；重跑只处理未标记的实体，与批大小无关。各单元全部完成后单独一个事务写 `__complete__`。
+- **“被下游引用”的 IMDb 行**（`etl_task9.sources`）：作品行取任务 7 有效 tconst、任务 4 映射作品 tconst、任务 4 已登记的 IMDb 源记录、任务 6 考虑过的 IMDb 候选与任务 7 两个阶段键下 IMDb 候选的 tconst 并集（28,714）；导演与主要演职员行只取有效 tconst 与任务 4 映射作品 tconst（5,284 个）；别名行只取任务 7 作品别名引用的行号（77,229）；人名行取上述演职员的 nconst、任务 5 外部 ID 与任务 7 IMDb 独有人物（35,425）。若把别名与演职员扩到全部 28,714 个 tconst，会多出约 59 万行（别名 377,196、演职员 234,388、人名 146,618），远超预算，且不在任何最终字段的路径上。
+- **评论源记录**：推断上界以评论为证据的作品经 `map` 的 edition 关系、`product_edition.product_kind = 'movie'` 的商品上的全部 `review_staging` 行（任务 6 R20 的口径）；正式库合计正好等于这些作品 `task6.movie_review_time.review_count` 之和 217,435。
+- **断言粒度**：任务 3 字段每行一条（字段名为 `field_key`，没有时为区域）；任务 4 断言每行一条，有父的记 `derived`（派生边在 T9-02）；IMDb 作品行按列拆（`primary_title`、`original_title`、`title_type`、`start_year`、`runtime_minutes`、类型按成员），人名行按列拆（`primary_name`、`birth_year`、`death_year`）；任务 6 候选取 rv 选择记录考虑过的（含选中的），状态记 `selected`/`not_selected`；任务 7 候选取 cv 的 scalar 与 edition 阶段键下全部行。
+- **视图位置**：801 只建表；视图放在 `sql/801_task9_views.sql`，避免 T9-03 改视图时迁移 801 已应用、不能重放的问题。
+- **快照根目录**：清单里的快照路径相对项目根（容器内 `/opt/etl`，与任务 2 `resolve_snapshot` 相同），可用 `--snapshot-root` 或 `ETL_SNAPSHOT_ROOT` 覆盖；每批先在事务外用线程池流式解压重算正文 SHA-256，再与源记录同事务写入。
+- **夹具**：没有从任务 1 起逐任务重跑全部流水线（任务 4–6 的真实运行难以造出 AC 所需形态），而是复用任务 7 已对照正式库的上游写法，再用各任务自己的代码补齐（任务 7 真实运行两次、任务 1 装载器、任务 4 的 `_title_block` 与 `import_decisions`），逐表说明见 `tests/fixtures/task9/README.md`。任务 8 只写了 `dedup_version` 元数据，评论层视图（AC04）需在 T9-03 改用任务 8 的真实运行。
+
+## T9-01 演练实测（业务库副本 `etl_t9_rehearsal`，2026-11-03）
+
+2026-11-03 停 Airflow、确认 `etl_movies` 无连接后 `CREATE DATABASE etl_t9_rehearsal TEMPLATE etl_movies OWNER etl_app`（用时 3 分 33 秒）并 `CHECKPOINT`，随即恢复 Airflow；副本保留到 T9-07。以 `docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t9_rehearsal crawler python -m etl_task9.runner stages --through assertions` 运行，退出码 0，墙钟 194 秒（`sources` 82 秒，其中 9,590 个快照核验约 10 秒；`assertions` 110 秒）。阶段短键 `s11f2e418823b9fe`、`a65adeae3bb06227`。
+
+| 项目 | 预算（规划） | 实测 | 说明 |
+|---|---|---|---|
+| 页面快照源记录 | 9,590 | 9,590（全部 `ok`） | 正文 SHA-256 全部与清单一致，`snapshot_missing`、`snapshot_hash_mismatch` 均为 0 |
+| IMDb 行源记录 | 约 22 万 | 202,298 | 作品 28,714、别名 77,229、title.crew 5,276、主要演职员 55,655、人名 35,424 |
+| 评论源记录 | 217,435 | 217,435 | 与 3,015 部评论上界作品的 `movie_review_time.review_count` 之和一致 |
+| 人工修订 | 0 | 0 | H07 |
+| 源记录合计 | 约 45 万 | 429,323 | 质量问题 0（获取时间全部取到） |
+| 断言合计 | 约 80–100 万 | 1,191,277 | 超出约 19%：预算未计任务 3 页面字段 246,856 条，IMDb 作品按列拆为 185,445 条 |
+| 其中 extract | — | 1,062,036 | 页面字段 246,856、任务 4 无父 147,835、提及 56,809、IMDb 作品 185,445、别名 77,229、导演 5,876、主要演职员 55,655、人名 68,896、评论 217,435 |
+| 其中 derived | — | 9,010 | 任务 4 有父断言（与正式库 8,015 + 995 一致） |
+| 其中 candidate | 约 12.5 万 | 120,231 | 任务 6 候选 5,748（预算估 2.5 万偏高：rv 选择记录实际只考虑这么多）、任务 7 候选 114,483 |
+| `task9` 体量 | 全部阶段 1.5–2.5 GB | 1,692 MB（只到 T9-01） | `assertion` 1,061 MB、`source_record` 584 MB；后续派生边与闭包会使总体量超过预算上限，T9-02 起需关注 |
+
+Legend 抽查（`mv_24a89e3536e837e6`）：`release_year` 登记任务 6 候选 3 条（`tt0089469` 1985 `selected`，B000063UR2 与 B004QSQMKE 的标题年份 1986 `not_selected`）与任务 7 候选 3 条（1985 `adopted`，两条 1986 `rejected`、原因 `minor_tolerance`），IMDb 候选定位到 `title.basics.tsv.gz` 第 87,476 行；该行源记录 `sr_38c893f868656a38`，获取时间 2026-10-29 07:43:16Z（`imdb.snapshot.downloaded_at`）；商品 B000063UR2 的页面源记录 `sr_c90a9a2904d071ce` 为 `ok`，尝试序号 1，任务 4 源记录 2879；最早评论 `8f17b116…` 的源记录 `sr_94c5693fb5c5f4e6` 为第 6,450,929 条记录（行 58,058,313，偏移 7,609,597,242）；Legend 依赖评论断言 546 条，等于其 `movie_review_time.review_count`。
+
+发现的上游事实（留给 T9-02）：人名集合里 `nm17757708` 出现在 `imdb.title_principal` 与 `task7.imdb_person_ext`，但不在 `imdb.name`（名字文件里没有这一行），所以人名源记录比实体少 1 条；从它出发的路径只能到演职员行，不能到人名行。
 
 ## 夹具设计（R42）
 

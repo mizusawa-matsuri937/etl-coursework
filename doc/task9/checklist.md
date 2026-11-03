@@ -1,6 +1,6 @@
 # 任务 9 AC 完成情况（字段级数据血缘）
 
-状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；AC01–AC22 未执行。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T9-01 完成后 AC02、AC05 通过并勾选，AC01、AC03 部分完成（未勾选）；其余未执行。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`，`psql -Atc` 输出首行会多一个 `SET`）。标注“（计划）”的命令在对应任务实现前不可运行，实现后实际核对再改写期望。
 
@@ -10,7 +10,7 @@
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望：2026-11-03 任务 8 完成时为 `1186 passed`；任务 9 实现后应大于 1,186 且原有测试不减少（计划）。
+期望：2026-11-03 任务 8 完成时为 `1186 passed`；T9-01 完成后为 `1218 passed`（新增 32 项，原有测试不减少）。
 
 ## AC00 计划文件规范
 
@@ -26,36 +26,39 @@ grep -c "^- R[0-9][0-9] \[" doc/task9/spec.md
 
 ## AC01 输入版本、分层与上游只读
 
-- [ ] 未执行（计划）。
+- [ ] 部分完成（T9-01，2026-11-03）：原始层与暂存层通过——上游各 schema 全表行数与摘要不变、迁移 801 新对象只在 `task9`、只读指定抽取、IMDb 快照、`t3p1`/`t4n1`、`rv`、`cv` 阶段键，版本不一致或 cv 未核实时确定性失败，并发确定性失败。“范围外实体不生成选择”“评分统计无逐条依赖边”待 T9-02、T9-03，故不勾选。
 
 ```bash
-# 只读指定抽取与版本、上游行数与摘要不变、只写 task9（计划）
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_sources.py tests/integration/test_task9_selections.py -k "ac01"
+# 原始层与暂存层部分：只读指定版本、上游不变、只写 task9
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_sources.py tests/integration/test_task9_assertions.py -k "ac01"
 ```
 
-期望（计划）：相关用例全部通过，退出码 `0`。
+期望：`10 passed, 22 deselected`，退出码 `0`。T9-03 实现后再加入 `test_task9_selections.py` 的 AC01 用例（计划）。
+
 
 ## AC02 源记录定位与获取时间
 
-- [ ] 未执行（计划）。
+- [x] 2026-11-03 通过（T9-01）：四类源记录各有完整定位，获取时间与来源列正确（页面 `fetched_at`、IMDb `downloaded_at`、评论 `download_completed_at`、人工修订 `decided_at`）；`fetched_at` 为空的页面获取时间为 `NULL` 并写 `missing_acquired_at`；同一定位两次构建 `source_record_id` 相同且等于 Python 公式；同阶段键重跑与注入故障后续跑结果一致。业务库副本实测见 design“T9-01 演练实测”。
 
 ```bash
-# 四类源记录、获取时间来源列、缺获取时间的质量问题、ID 稳定（计划）
-docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_sources.py -k "ac02"
+# 四类源记录、获取时间来源列、缺获取时间的质量问题、ID 稳定
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_sources.py tests/integration/test_task9_assertions.py -k "ac02"
 ```
 
-期望（计划）：相关用例全部通过，退出码 `0`。
+期望：`7 passed, 25 deselected`，退出码 `0`。
+
 
 ## AC03 快照哈希核验
 
-- [ ] 未执行（计划）。
+- [ ] 部分完成（T9-01，2026-11-03）：源记录层通过——正常、内容被改、文件缺失三个快照依次为 `ok`、`snapshot_hash_mismatch`、`snapshot_missing`，质量问题带期望与实际哈希或路径，构建不中断；业务库副本 9,590 个快照全部 `ok`。“相关字段 `trace_status = 'evidence_unverified'`”属于字段选择，待 T9-03 验证，故不勾选。
 
 ```bash
-# 正常、内容被改、文件缺失三种快照（计划）
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_sources.py -k "ac03"
+# 正常、内容被改、文件缺失三种快照（源记录层）
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_sources.py tests/integration/test_task9_assertions.py -k "ac03"
 ```
 
-期望（计划）：相关用例全部通过，退出码 `0`。
+期望：`5 passed, 27 deselected`，退出码 `0`。
+
 
 ## AC04 评论层视图
 
@@ -70,14 +73,15 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC05 字段断言与未采用候选
 
-- [ ] 未执行（计划）。
+- [x] 2026-11-03 通过（T9-01）：页面字段、任务 4 无父（extract）与有父（derived）断言、人物提及、IMDb 五类行、推断上界依赖评论都登记为断言，各列与上游逐行一致；`assertion_id` 两次构建相同且等于 Python 公式；Legend 标题候选的 `adopted`、`rejected`、`superseded_by_specific` 与任务 6 的 `selected`、`not_selected` 都登记并保留上游原因。业务库副本上 Legend `release_year` 的 3 条任务 6 候选与 3 条任务 7 候选全部登记（见 design“T9-01 演练实测”）。
 
 ```bash
-# 各上游来源的断言、ID 稳定、三种候选状态保留（计划）
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_assertions.py -k "ac05"
+# 各上游来源的断言、ID 稳定、三种候选状态保留
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_sources.py tests/integration/test_task9_assertions.py -k "ac05"
 ```
 
-期望（计划）：相关用例全部通过，退出码 `0`。
+期望：`9 passed, 23 deselected`，退出码 `0`。
+
 
 ## AC06 多值成员与实体合并边
 

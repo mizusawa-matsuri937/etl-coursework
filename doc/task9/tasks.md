@@ -1,6 +1,6 @@
 # 任务 9 开发任务（字段级数据血缘）
 
-状态：2026-11-03 编写计划；T9-00 已执行并通过（AC00）；T9-01 至 T9-08 未开始。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-11-03 编写计划；T9-00 已执行并通过（AC00）；T9-01 已完成；T9-02 至 T9-08 未开始。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。标注“（计划）”的命令在对应任务实现前不可运行，实现后实际核对再改写期望。每项 AC 的逐条复核命令见 [checklist](checklist.md)。每个实现阶段完成后先在业务库副本 `etl_t9_rehearsal` 演练（design“业务库副本演练”），再进入下一阶段。
 
@@ -17,17 +17,25 @@
 
   期望：第一条只输出 `目标、范围、规则、AC测试、假设` 五行；第二条无输出；第三条输出 `49`；第四条输出 `49 [] []`（49 条规则，没有未被 AC 或 T9-01 至 T9-07 覆盖的规则；T9-08 的正式运行另检验全部规则，不计入这项检查）。
 
-- [ ] T9-01 迁移 801、运行审计与咨询锁、ID 与定位纯函数、原始层与暂存层（`build_sources`、抽取级与候选级断言）。规则：R01–R03、R06–R13、R15、R41、R42；关联 AC01、AC02、AC03、AC05。
-  - 文件：`sql/801_task9_schema.sql`、`src/etl_task9/{__init__,rules,sources,run,source_records,assertions,runner}.py`、`tests/fixtures/task9/`、`tests/unit/test_task9_rules.py`、`tests/integration/{_task9_helpers,test_task9_sources,test_task9_assertions}.py`；`tests/integration/conftest.py` 增加 `DROP SCHEMA IF EXISTS task9`。
+- [x] T9-01 迁移 801、运行审计与咨询锁、ID 与定位纯函数、原始层与暂存层（`build_sources`、抽取级与候选级断言）。规则：R01–R03、R06–R13、R15、R41、R42；关联 AC01、AC02、AC03、AC05。
+  - 文件：`sql/801_task9_schema.sql`、`src/etl_task9/{__init__,rules,sources,run,source_records,assertions,runner}.py`、`tests/fixtures/task9/README.md`、`tests/unit/test_task9_rules.py`、`tests/integration/{_task9_helpers,test_task9_sources,test_task9_assertions}.py`；`tests/integration/conftest.py` 增加 `DROP SCHEMA IF EXISTS task9`。
   - 目标：四类源记录与获取时间来源、快照哈希核验；各上游表翻译为断言并保留上游状态；夹具经各任务自己的写入函数生成；演练库上源记录数、断言数与 design 预算对照，抽查 Legend 的断言。
-  - 完成情况：未执行（计划）。
+  - 完成情况：2026-11-03 完成。32 项新测试通过，全量 `1218 passed`（原 1,186 项不减）；业务库副本 `etl_t9_rehearsal` 上 `stages --through assertions` 用时 194 秒，源记录 429,323（快照 9,590 全部 `ok`）、断言 1,191,277，质量问题 0；Legend 断言抽查一致。详见 design“T9-01 演练实测”。AC01、AC03 只完成本阶段部分（见 checklist）。
 
   ```bash
-  # 规则单元测试与原始层、暂存层集成测试（工作目录：项目根目录）（计划）
+  # 规则单元测试与原始层、暂存层集成测试（工作目录：项目根目录）
   docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_sources.py tests/integration/test_task9_assertions.py
   ```
 
-  期望（计划）：全部通过，退出码 `0`；实现后写入实际数量。
+  期望：`32 passed`，退出码 `0`。
+
+  ```bash
+  # 可选：业务库副本上的源记录与断言计数（只读；副本保留到 T9-07）
+  docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT source_kind, evidence_status, count(*) FROM task9.source_record WHERE stage_key = 's11f2e418823b9fe' GROUP BY 1, 2 ORDER BY 1, 2"
+  docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT level, count(*) FROM task9.assertion WHERE stage_key = 'a65adeae3bb06227' GROUP BY 1 ORDER BY 1"
+  ```
+
+  期望：第一条在 `SET` 之后输出 `imdb_row|not_checked|202298`、`page_snapshot|ok|9590`、`review_record|not_checked|217435`；第二条输出 `candidate|120231`、`derived|9010`、`extract|1062036`。
 
 - [ ] T9-02 集成层：派生边、实体合并边、推断依赖与只读重放补定位。规则：R14、R16–R22；关联 AC06–AC09。
   - 文件：`src/etl_task9/{derivations,relocate}.py`、`tests/integration/{test_task9_derivations,test_task9_relocate}.py`。

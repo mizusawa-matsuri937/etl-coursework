@@ -1,6 +1,6 @@
 # 任务 9 规格（字段级数据血缘）
 
-状态：2026-11-03 在分支 `task9-field-lineage`（从 `main` 的 `7e2663c` 建立）完成正式库只读探查与计划编写；用户确认 H01–H04（血缘范围、存储方式、断链处理、推断依赖与人工抽查）。T9-00（计划）已完成，T9-01 至 T9-08 未开始。设计见 [design](design.md)，执行顺序见 [tasks](tasks.md)，完成情况见 [checklist](checklist.md)。
+状态：2026-11-03 在分支 `task9-field-lineage`（从 `main` 的 `7e2663c` 建立）完成正式库只读探查与计划编写；用户确认 H01–H04（血缘范围、存储方式、断链处理、推断依赖与人工抽查）。T9-00（计划）与 T9-01 已完成，T9-02 至 T9-08 未开始。设计见 [design](design.md)，执行顺序见 [tasks](tasks.md)，完成情况见 [checklist](checklist.md)。
 
 ## 目标
 
