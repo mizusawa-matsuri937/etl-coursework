@@ -14,6 +14,7 @@
 | 任务 8 版本 | `dedup_version` 两行（`rd0001` 基于 `cv0001`、`rd0002` 基于 `cv0002`），连同 `task8.run` 与四个阶段键 | T9-01 只读这些元数据；评论层视图（AC04，T9-03）需改用任务 8 的真实运行 |
 | 补成正式库形状（T9-02，任务 7 运行前） | `_prod_shape_t6_candidates`、`_merge_decisions`、`_missing_mentions`、`_person_links` | 任务 7 夹具省略了几处正式库都有的列，派生边要靠它们找父节点；形状逐项对照 `etl_movies` 的只读查询：任务 6 候选的 `source_ref`（IMDb 为文件、tconst、行号、快照；页面标题年份为 ASIN、区域、序号、任务 4 断言 ID，`source_key = <ASIN>:<断言 ID>`）；`B0Lg`、`B0LgC#1`、`B0C1` 改为 `auto_decision`，写 `task4.candidate` 与 `merge_decision`（`features.evidence` 的 page/imdb 结构同正式库）；没有来源提及的 `movie_person` 补一条署名行提及（正式库每条都有来源提及）；页面人物的 `canonical_source` 改为 `mention:<提及键>`；已关联 IMDb 的人物第一条提及经 `credits`（`link_candidate` + auto `link_decision`，证据为演职员表序号与行号），其余提及经 `co_credit` 第 2 轮 `person_decision` |
 | 评论时间与推断上界（T9-02，评论复制之后） | `_review_times_and_bounds` | `task6.product_review_time`、`movie_review_time` 由任务 6 自己的 `reviews.product_review_times` / `movie_review_times` 写入；每个推断上界补上正式库都有的 `bound_evidence`（`basis`、B1–B5 或 M1–M4）与 `inferred_release_bound.basis`、`conditions` |
+| 商品层补形（T9-04，只在查询测试里调用） | `_task9_helpers.add_products` | 任务 3 类别：已采集参与匹配商品为 `dp_page`、`t3p1`、电影单品 `MV1`、合集 `CL2`（正式库 t3r2 的结构化规则）；未采集商品 `B0NC` 的清单行取默认状态 `not_collected`，类别按任务 3 `_classify_no_page` 的写法为 `pending`/`missing`/`NP1`、`pending_reason = not_collected`（该函数不能直接调用：夹具 `final_url` 不是 amazon.com，任务 3 分组 SQL 会把全部夹具商品归为 `other_site`）。任务 4 匹配状态按 `cluster` 的口径：同一作品多个商品为 `merged`，其余 `singleton`，合集 `collection_split`、原因“已链接/成员数 members linked” |
 
 ## 案例与 AC 场景
 
@@ -37,3 +38,8 @@
 | `test_task9_selections.py` | IMDb 行、提及、评论、合集成员有断言但无选择；无任务 8 断言与边 | AC01 选择部分 |
 | `test_task9_selections.py` | B0LgB 快照内容被改、B0LgD 删除后的版本字段；同 AC08 不一致夹具下 G1 类型成员、B0R1B PAL、Legend 上界 | AC03、AC08 字段部分 |
 | `test_task9_selections.py` | 任务 8 小世界（`_task8_helpers.seed_small_world` 经任务 1、8 自己的运行）的 EU1、EU13、EU12、EL1、EL2；t9 夹具的 B0Lg 商品视图（夹具无 task3 分类与 task4 匹配状态行，列为空） | AC04 |
+| `test_task9_query.py` | Legend `release_year`（IMDb 1985 采用、两条 1986 rejected）；Y2 `director`（页面与 IMDb title.crew 对齐） | AC11 |
+| `test_task9_query.py` | B0Lg（电影单品，merged）、B0LgC（合集，collection_split）、B0NC（未采集）、不在清单的 ASIN；任务 8 小世界 EU1、EU13、EU12、EL1、EL2；Legend 最早评论 LU1 | AC12 |
+| `test_task9_query.py` | B0Lg 快照、Legend 的 tconst、Y2 导演 nm6000001、评论 LU1：查询结果与测试里沿派生边手工追踪的闭包与最短路径相同 | AC13 |
+| `test_task9_query.py` | Es One（credits 1 条、co_credit 第 2 轮 2 条提及，外部 ID nm7000010，C1 的 starring 与 cast） | AC14 |
+| `test_task9_impact.py` | 改写 B0Lg 快照；IMDb 文件不在容器（unavailable）；`year.table:*` 规则与规则版本 `t6r1`；测试登记的任务 7 规则版本 `t7x9`（只改片长容差 5 → 2）生成第二个 cv，两个血缘版本 `lv0001`、`lv0002` 的 diff | AC15 |

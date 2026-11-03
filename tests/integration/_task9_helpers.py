@@ -538,3 +538,43 @@ def upstream_digest(conn: psycopg.Connection) -> dict[str, tuple[int, str]]:
         "AND table_schema = ANY(%s) AND table_name <> 'schema_migration' ORDER BY 1, 2", (list(UPSTREAM_SCHEMAS),))]
     return {t: conn.execute(f"SELECT count(*), md5(coalesce(string_agg(x::text, '|' ORDER BY x::text), '')) "
                             f"FROM {t} x").fetchone() for t in tables}
+
+
+NOT_COLLECTED = "B0NC"     # 清单里有、从未采集的商品（AC12）
+
+
+def add_products(conn: psycopg.Connection, t9: T9) -> None:
+    """补齐商品层（AC12）：任务 3 类别、任务 4 匹配状态与一个未采集商品，形状同正式库。
+    - 未采集商品：清单行取默认状态 not_collected（列与约束同迁移 101），类别按任务 3 `_classify_no_page` 的写法记为
+      pending / missing / NP1、pending_reason = 输入组（夹具的 final_url 不是 amazon.com，任务 3 的分组 SQL 会把全部
+      夹具商品归为 other_site，所以不能直接调用该函数）。
+    - 已采集的参与匹配商品：dp_page 组、解析版本 t3p1，电影单品 MV1、合集 CL2（正式库 t3r2 的结构化规则）。
+    - 匹配状态：同任务 4 cluster 的口径，合并簇里的商品 merged，其余 singleton，合集 collection_split
+      “已链接/成员数 members linked”。"""
+    run3 = conn.execute("SELECT run_id FROM task3.classify_run WHERE extraction_id = %s ORDER BY started_at LIMIT 1",
+                        (t9.eid,)).fetchone()[0]
+    build = conn.execute("SELECT first_build_id FROM task2.product_manifest WHERE extraction_id = %s LIMIT 1",
+                         (t9.eid,)).fetchone()[0]
+    conn.execute("INSERT INTO task2.product_manifest (extraction_id, asin, original_url, url_template_version, "
+                 "first_build_id, in_valid_records, records_total, records_valid, records_quarantined, first_record_no, "
+                 "last_record_no) VALUES (%s, %s, 'u', 'v1', %s, true, 1, 1, 0, 1, 1)", (t9.eid, NOT_COLLECTED, build))
+    conn.execute("INSERT INTO task3.product_classification (extraction_id, asin, rule_version, input_group, category, "
+                 "basis_level, rule_id, pending_reason, run_id) VALUES (%s, %s, 't3r2', 'not_collected', 'pending', "
+                 "'missing', 'NP1', 'not_collected', %s)", (t9.eid, NOT_COLLECTED, run3))
+    conn.execute("INSERT INTO task3.product_classification (extraction_id, asin, rule_version, input_group, category, "
+                 "basis_level, rule_id, parser_version, run_id) "
+                 "SELECT e.extraction_id, e.asin, e.t3_rule_version, 'dp_page', e.product_kind, 'structured', "
+                 "CASE e.product_kind WHEN 'collection' THEN 'CL2' ELSE 'MV1' END, e.parser_version, %s "
+                 "FROM task4.product_edition e WHERE e.extraction_id = %s AND e.t3_rule_version = 't3r2' "
+                 "AND e.match_scope = 'matched' AND e.parser_version = 't3p1' ON CONFLICT DO NOTHING", (run3, t9.eid))
+    conn.execute("INSERT INTO task4.product_match_status (mapping_version_id, asin, status, reason) "
+                 "SELECT pm.mapping_version_id, pm.asin, CASE WHEN e.product_kind = 'collection' THEN 'collection_split' "
+                 "WHEN count(*) OVER (PARTITION BY pm.mapping_version_id, pm.movie_id) > 1 THEN 'merged' "
+                 "ELSE 'singleton' END, CASE WHEN e.product_kind = 'collection' THEN "
+                 "(SELECT count(*) FROM task4.product_movie c WHERE c.mapping_version_id = pm.mapping_version_id "
+                 " AND c.asin = pm.asin) || '/' || (SELECT count(*) FROM task4.product_movie c "
+                 " WHERE c.mapping_version_id = pm.mapping_version_id AND c.asin = pm.asin) || ' members linked' END "
+                 "FROM (SELECT DISTINCT ON (mapping_version_id, asin) * FROM task4.product_movie "
+                 "      WHERE mapping_version_id = %s ORDER BY mapping_version_id, asin, member_ordinal) pm "
+                 "JOIN task4.product_edition e ON e.extraction_id = %s AND e.asin = pm.asin AND e.t3_rule_version = 't3r2' "
+                 "ON CONFLICT DO NOTHING", (h7.T4, t9.eid))

@@ -88,8 +88,8 @@
 | `derivations.py` | `build_derivations`：父子边、实体合并边、推断依赖（R17–R20、R22） |
 | `relocate.py` | 只读重放补定位：类型词面、版本特征、第二早评论（R21），调用 `etl_task7`、`etl_task6` 的同一函数 |
 | `selections.py` | `build_selections`：字段选择、状态、`trace_status`、与目标层一致性（R23–R27） |
-| `impact.py` | `build_impact`：源记录 → 字段闭包；`verify-sources`、`impact`、上游重跑映射（R32–R35） |
-| `versions.py` | 血缘版本、`report diff`（R34、R36） |
+| `impact.py` | `build_impact`：源记录 → 字段闭包；`verify-sources`、规则影响、上游重跑映射（R32–R35） |
+| `versions.py` | 血缘版本、阶段键解析、版本差异（R34、R36） |
 | `runner.py` / `pipeline.py` | 完整运行与 DAG 步骤（R37–R40） |
 | `check.py` | 只读核对（`verify` 与正式库 `check` 共用） |
 | `query.py` | `field`、`product`、`review`、`source`、`person`、`impact` 六个只读子命令（R28–R31、R33） |
@@ -199,43 +199,44 @@ DAG：`dags/amazon_movies_task9_lineage.py`；迁移：`sql/801_task9_schema.sql
 
 从源记录沿派生边正向传递到字段选择，写 `field_impact(source_record_id, selection_id, depth)`。按实体批次计算后，在本阶段最后一个事务中替换为完整闭包（R38），保证没有半写入。规则影响不另建闭包：`derivation` 上有 `rule_id` 与规则版本的索引，`impact --rule` 先找边，再沿子边走到选择。
 
-## 演示查询（计划命令）
+## 演示查询
 
-以下命令在实现 T9-04 后可用（**计划**，尚未实现），工作目录为项目根目录，ID 来自上文试算：
+`src/etl_task9/query.py`（T9-04 实现）。命令在项目根目录运行，输出 JSON；默认取与默认输入相同的 verified 血缘版本，还没有版本时（演练副本）由输入版本推出阶段键，也可用 `--lineage-version lv0001` 指定。正式库没有 `task9` 之前不能运行；下面的输出要点是 2026-11-03 在业务库副本 `etl_t9_rehearsal` 上的实测（命令加 `-e ETL_DB_NAME=etl_t9_rehearsal`），T9-08 正式运行后在正式库复核。
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task9.query field --movie-id mv_24a89e3536e837e6 --field release_year
 ```
 
-期望：最终值 `1985`，`resolved`，规则 `minor_tolerance`；采用候选为 IMDb `tt0089469`（`imdb_2026-10-29`，`title.basics.tsv.gz` 第 87,476 行，文件 SHA-256 与下载时间）；两条未采用的页面标题年份 `1986`（`rejected`，`minor_tolerance`，各自 ASIN、区域、序号、快照正文哈希与 `fetched_at`）；路径列出任务 4 抽取、任务 6 候选、任务 7 选择各步的 `rule_id` 与运行；另列推断上界 1999-08-23 为独立参考。
+实测要点：最终值 `1985`、`resolved`、`trace_status = traced`、决策版本 `cv0003`，规则 `year.table:YR2`，理由“IMDb 与页面标题年份相差 1 年，采用 IMDb”；采用候选的证据为 IMDb `title.basics.tsv.gz` 第 87,476 行（文件 SHA-256 `ecc495f7…`，获取时间 2026-10-29 07:43:16Z，来源列 `imdb.snapshot.downloaded_at`），路径 `select:year.table:YR2 → normalize → normalize → extract`，路径长度 4；两条未采用候选 `1986`（`rejected`，原因 `minor_tolerance`）分别落到 B000063UR2 与 B004QSQMKE 的页面快照（正文哈希、`fetched_at` 2026-10-28），路径 `normalize:amazon_title_year → split:title.year → extract`；另列推断上界 `1999-08-23`（`inferred`、`relocated`）。
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task9.query product --asin B000063UR2
-```
-
-```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task9.query review --source-review-id 8f17b11666f52dc1fcca4fb62c233df9d5dc755992823c0470d135bb6341b55b
 ```
 
-期望：商品返回 `success`、类别 `movie`、版本属性摘要、作品 `mv_24a89e3536e837e6`（`edition`、`auto_decision`）与匹配状态；评论返回文件定位（记录序号、行号、偏移、记录哈希）、`rd0001` 下的逻辑评论、去重层次、家族、归属作品，以及它是 Legend 推断上界的直接依赖。
+实测要点：商品 `collected`/`success`，类别 `movie`（`MV1`、`structured`），版本属性（标题 `Legend (1986)`、片长 204、`NR/Unrated`、2 碟、`DVD`、`NTSC` 等），所属作品 `mv_24a89e3536e837e6`（`edition`、`auto_decision`、决策 46262），匹配状态 `merged`，页面快照源记录与 20 个版本与归属字段选择；评论为第 6,450,929 条记录（行 58,058,313–58,058,320，偏移 7,609,597,242，记录哈希），`rd0001` 下 `mapped`、`D3_family_copy`，逻辑评论 `lr_a206995a2a4ec3f45864`（10 条复制）、家族 `rf_f4c0c1854b2f4130`，归属 Legend 与统计组，并标出它是 Legend 推断上界的 `aggregate` 直接依赖。
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task9.query source --asin B000063UR2
-```
-
-```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task9.query source --tconst tt0089469
 ```
 
-期望：列出该快照或 IMDb 行影响的全部最终实体与字段（例如 Legend 的 `title`、`release_year`、`runtime_minutes`、演职员成员、别名，以及 B000063UR2 的版本字段）及路径长度。
+实测要点：快照 B000063UR2（1 条源记录）影响 9 个实体的 41 个选择（版本 14 个字段成员、作品的 mpaa、类型、导演与演职员成员、人物别名与外部 ID、商品所属作品），重跑步骤为任务 3 → 4 → 5 → 6 → 7 → 8 → 9；`tt0089469` 的 35 条 IMDb 行（title、crew、principals、akas）影响 12 个实体的 56 个选择（作品 title、original_title、release_year、runtime、有效 tconst、23 个别名、演职员与类型成员、9 个人物外部 ID、2 个商品所属作品），重跑步骤从 IMDb 装载开始。每行带最短路径长度。
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task9.query person --person-id ps_fb262c7cedc84d5e
 ```
 
-期望：规范名 Olivia de Havilland 及其来源（IMDb `nconst` 与 `name.basics` 行），每条页面署名的 ASIN、区域、序号与原值，外部 ID 的判定依据，6 条提及的归并依据与轮次，参与的 4 部作品与角色。
+实测要点：规范名 Olivia de Havilland，来源 IMDb `name.basics.tsv.gz` 第 15 行（`nm0000014`）；6 条页面署名（B00004CK47、B000PC72QS、B002KE4ZI2、B004KZP7Z4 的 byline 与 detail_bullets，原值含大小写变体 `Olivia De Havilland`），每条的归并依据 `credits` 与任务 5 外部 ID 判定编号；外部 ID `imdb:nm0000014` 及其人名行；两个页面别名（`identical,imdb_primary` 5 条提及、`case_variant` 1 条）；参与 4 部作品 6 个角色成员（cast 4、starring 2），全部 `traced`。任务 5 `mapping_event` 中没有该人物的事件（0 行，如实返回空）。
 
-另有影响分析（计划）：`python -m etl_task9.query impact --rule rating:MR1`、`python -m etl_task9.impact verify-sources`。
+影响分析与来源核验：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task9.query impact --rule rating:MR2
+docker compose --profile crawl run --rm -T crawler python -m etl_task9.impact verify-sources
+```
+
+实测：`rating:MR2` 有 26 条 select 边，只影响 26 个作品的 `mpaa_rating`；`verify-sources` 9,590 个快照与 5 个 IMDb 文件全部一致，退出码 0。`crawler` 容器没有挂载评论文件 `/data/source/movies.txt.gz`，该项记为 `unavailable`（不算不一致）；在挂载了它的 Airflow 容器里核验（`docker compose exec -T airflow-scheduler python -m etl_task9.impact verify-sources --kinds review_record`）一致。
 
 ## 规则或来源改变后定位受影响字段（R32–R35）
 
@@ -244,10 +245,10 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task9.query per
 | 变化的源 | 受影响的上游 | 重跑顺序（DAG） |
 |---|---|---|
 | 页面快照 | 任务 3 解析与分类 → 任务 4 断言与匹配 → 任务 5 提及 → 任务 6 候选 → 任务 7 消解 → 任务 8 归属 | `amazon_products_task3_classify` → `amazon_movies_task4_match` → `amazon_movies_task5_person` → `amazon_movies_task6_release` → `amazon_movies_task7_conflict` → `amazon_reviews_task8_dedup` → `amazon_movies_task9_lineage` |
-| IMDb 文件 | IMDb 装载 → 任务 4–7 | `imdb_reference_task4_load` → 任务 4 至 7 → 任务 9 |
-| 评论文件 | 任务 1 → 任务 2 清单 → 任务 6 评论时间 → 任务 8 | `amazon_reviews_task1` → … → 任务 9 |
+| IMDb 文件 | IMDb 装载 → 任务 4–7 → 任务 8（rd 基于 cv） | `imdb_reference_task4_load` → 任务 4 至 8 → 任务 9 |
+| 评论文件 | 任务 1 → 任务 2 清单 → 任务 6 评论时间 → 任务 7（读 rv）→ 任务 8 | `amazon_reviews_task1` → `amazon_products_task2_manifest` → `amazon_movies_task6_release` → `amazon_movies_task7_conflict` → `amazon_reviews_task8_dedup` → `amazon_movies_task9_lineage` |
 
-2. **规则改变**：`impact --rule <rule_id>` 或 `--rule-version t7r3` 列出依赖这些边的字段；上游以新规则版本生成新版本（如 `cv0004`）后，任务 9 以新输入键生成 `lv0002`：阶段键包含上游版本与阶段键，`entity_stage` 只对上游阶段键变化的实体重建批次（与任务 7 的阶段键增量一致）；`report diff lv0001 lv0002` 按实体、字段、成员列出最终值、采用断言与来源集合的变化。
+2. **规则改变**：`query impact --rule <rule_id>` 或 `--rule-version t7r3` 列出依赖这些边的字段；上游以新规则版本生成新版本（如 `cv0004`）后，任务 9 以新输入键生成 `lv0002`；`report diff lv0001 lv0002` 按实体、字段、成员列出最终值、状态、决策、采用断言与来源集合的变化。**按实体增量重建尚未实现**（见“T9-04 实现要点”中的 AC15 说明与待决方案）：当前新的上游版本会改变全部五个阶段键，任务 9 全量重建（副本上约 7–8 分钟）。
 3. 夹具演示（AC15）：改一个快照文件、生成只改一条规则的第二个 `cv` 版本，分别验证上面两条路径。
 
 ## 版本、幂等、分批与编排（R36–R40）
@@ -355,6 +356,35 @@ Legend 抽查（`mv_24a89e3536e837e6`）：`release_year` 登记任务 6 候选 
 | select 边 | — | 493,144 | 悬空 0、非空选择无父节点 0、环 0 |
 | 视图 | — | B000063UR2：success、movie、Legend、edition、merged；Legend 最早评论 `rd0001` 下 mapped、D3_family_copy、归属 Legend；没有作品的行 mapped 5,612,062、quarantined 62,131、incomplete 12 | 评论不复制 |
 | `task9` 体量 | 1.5–2.5 GB（预算，全部阶段） | 副本合计约 7.3 GB（含 T9-01、T9-02、T9-03 的旧键）；当前一组键估约 3.7 GB（T9-02 估的 3.2 GB 加字段选择约 500 MB、select 边） | 超预算，原因同 T9-02；影响闭包尚未计入 |
+
+## T9-04 实现要点与对计划的修正
+
+- **影响闭包**（`etl_task9.impact.build_impact`，算法 `i1`）：从每条字段选择沿 derivations 与 selections 两个键的边向上递归到源记录（`UNION` 去重、深度上限 40 只防异常），按源记录与选择分组取最短边数写 `field_impact`。整个闭包与完成标记在**一个事务**里写入（单元 `closure` 只有一个实体 `all`，R38“影响闭包在该阶段最后一个事务中一次写入”）；4,096 个桶按每 256 个一条语句执行，控制递归中间结果；该事务里 `SET LOCAL work_mem = '256MB'`、关闭并行（任务 8 的经验）。中断后没有完成标记，重跑整体重算。
+- **规则影响**（`rule_impact`）：按 `rule_id` 或 `rule_version`（两者同时给出取交）找边，再沿子边（`derivation_parent_idx`）向下递归到选择；不另建闭包（同计划）。
+- **来源核验**（`verify_sources`）：页面快照逐个流式解压重算正文哈希（线程池）；IMDb 与评论按文件重算 SHA-256（IMDb 目录沿用任务 4 的 `snapshot_dir`，即 `IMDB_DATA_DIR` 或 `/data/imdb`）。文件不可读记 `unavailable`，**不算不一致**：`crawler` 容器没有挂载评论文件，只有 Airflow 容器有。不一致的源记录经 `field_impact` 得到受影响字段，按源种类映射到重跑步骤（`impact.RERUN`，即上表），命令在有不一致时退出码 1。
+- **查询**（`etl_task9.query`）：`Tracer` 从选择或断言沿父边逐层展开（带缓存），每个节点给出断言或源记录摘要，每条边给出操作、规则、上游任务、运行、时间、角色与是否重放；父节点超过 `max_parents`（默认 5）时先列直接依赖再列其他，并给出总数与按操作计数（推断上界的全部依赖评论）。`evidence` 是展开到的源记录清单与路径长度。人物的署名经 `task5.mention_person` 按公式算出断言 ID（不扫 `assertion` 表），参与作品取 `task7.movie_person_resolved`（cv 的 multivalue 阶段键）。`source --tconst/--nconst` 按源记录定位的 `tconst`/`nconst`（crew 行为 `nconsts` 数组）取 IMDb 行。
+- **阶段键解析**（`etl_task9.versions.resolve`）：给出 `--lineage-version` 时取该版本；否则取与输入键相同的 verified 版本；都没有时由输入版本推出阶段键（演练副本在 T9-05 之前就是这种情况）；所需阶段未完成即确定性失败。
+- **版本差异**（`versions.diff_keys`/`report diff`）：按 `selection_id`（由实体、字段、成员导出，跨版本稳定）全外连接两个版本的选择；比较最终值、状态、`trace_status`、决策（规则、理由、置信度，计划外增补：规则变化常常只改判定依据不改值）、采用断言与来源集合。采用断言按“上游表:值:上游状态”的签名比较，因为任务 7 候选的 `candidate_id` 在每个阶段键下重新编号、断言 ID 随之变化，直接比 ID 会把所有选择都报成变化。
+- **血缘版本**（`versions.finalize_version`/`mark_verified`）：T9-04 先实现写版本（AC15 的 diff 需要两个版本），由 T9-05 的完整运行调用；`lv` 号按已有版本数递增，同一输入键已有未核实版本时在原版本上重写。
+- **夹具补形**：`_task9_helpers.add_products` 补任务 3 类别、任务 4 匹配状态与一个未采集商品 `B0NC`（逐项说明见 `tests/fixtures/task9/README.md`）。任务 3 的 `_classify_no_page` 不能直接调用：夹具的 `final_url` 不是 amazon.com，任务 3 的分组 SQL 会把全部夹具商品归为 `other_site`；所以按它的写法与正式库的规则编号（`NP1`、`MV1`、`CL2`）写同形行。任务 4 的匹配状态写在 `cluster` 的大函数里，同样按其口径（`merged`、`singleton`、`collection_split`）写同形行。
+- **AC15“第二个血缘版本只重建受影响实体”未实现，待用户决定**。现状：各阶段按 ID 哈希桶分批，阶段键包含上游版本；新的 cv 改变 sources 键（“被引用的 IMDb 行”依赖 cv），因而五个阶段键全部改变、全量重建（副本约 7–8 分钟、约 3.9 GB）。按实体复用需要满足两个前提，而现有实现都不满足：一是断言与选择的上游键不含版本号（任务 7 的成员、类型、特征断言的上游键含 `cv`，任务 7 候选的 `candidate_id` 每个阶段键重新编号），二是每个单元按实体而不是按 ID 桶分批（现有约 30 个单元都按桶）。可选方案与代价：
+  - **方案 A 按实体输入指纹复制**：每个单元按实体（作品、商品、人物、tconst）计算上游输入指纹（上游行去掉版本列后的摘要），记 `entity_fingerprint`；新阶段键下指纹未变的实体从父版本阶段键复制行，只重译指纹变化的实体。须把断言 ID 改为不含版本的上游键（算法 `a3`，连带 derivations 与 selections 的 ID 公式），约 30 个单元改为按实体分批，重新演练前四个阶段。工作量约 1–2 天；体量不减（复制的行照样占盘，每个版本约 3.9 GB）。
+  - **方案 B 按上游阶段键拆子阶段并引用旧行**：把单元按所读的上游阶段键分组（任务 7 edition/link/scalar/multi、t4、t5、t6、IMDb），每组一个子阶段键，版本表记录每组的键，查询与核对按组取键；上游子阶段键未变的组直接引用旧行。粒度与任务 7 的阶段键增量相同（是“受影响的组”而不是逐个实体），cv 只改 scalar 规则时只重建作品标量相关的组。须改表的键语义、全部查询与核对的键解析；约 1 天；不重复占盘。
+  - **方案 C 保持全量重建**：修改 AC15 该子项为“第二个血缘版本可经 `diff` 只列出受影响字段的变化”（已实现并测试）。需要用户同意修改 AC。
+
+## T9-04 演练实测（业务库副本 `etl_t9_rehearsal`，2026-11-03）
+
+`docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t9_rehearsal crawler python -m etl_task9.runner stages --through impact`，退出码 0，前四阶段跳过，impact 31 秒。短键 `if9ab0bf333bd203`。
+
+| 项目 | 预算 | 实测 | 说明 |
+|---|---|---|---|
+| 影响闭包行 | 约 200 万至 300 万（预算） | 887,035 | 预算按“每个字段数个源记录”加上界 21.7 万估计；实际作品标量的采用路径多只到 1 条 IMDb 行，评论上界只经采用的推断断言连到依赖评论（每部作品 1 个选择） |
+| 涉及源记录 | — | 399,451 / 429,323 | 未出现的 29,872 条不在任何选择的采用路径上（如只作为未采用候选证据的 IMDb 行、别名之外的作品行） |
+| 涉及选择 | — | 469,672 | 等于非空选择 469,671 加 1 个有父边的空值选择 |
+| 路径长度分布 | — | 1：9,590（商品类别直连快照）；2：135,770；3：512,451；4：192,736；5：36,488 | 最长 5 |
+| `field_impact` 体量 | — | 213 MB | 副本 `task9` 合计 7.5 GB（含旧键）；当前一组键估约 3.9 GB |
+| 查询耗时 | — | 每条约 1 秒（含容器启动） | field 输出约 80 KB，person 约 160 KB（含全部路径树） |
+| verify-sources | — | 快照 9,590 全部 ok，5 个 IMDb 文件 ok，约 13 秒；评论文件在 Airflow 容器核验 ok | `crawler` 容器无评论文件挂载，记 `unavailable` |
 
 ## 夹具设计（R42）
 

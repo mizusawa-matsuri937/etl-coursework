@@ -1,6 +1,6 @@
 # 任务 9 AC 完成情况（字段级数据血缘）
 
-状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T9-01 完成后 AC02、AC05 通过并勾选；T9-02 完成后 AC06–AC09 通过并勾选；T9-03 完成后 AC01、AC03、AC04、AC10 通过并勾选；其余未执行。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T9-01 完成后 AC02、AC05 通过并勾选；T9-02 完成后 AC06–AC09 通过并勾选；T9-03 完成后 AC01、AC03、AC04、AC10 通过并勾选；T9-04 完成后 AC11–AC14 通过并勾选，AC15 部分通过（按实体增量重建待定）未勾选；其余未执行。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`，`psql -Atc` 输出首行会多一个 `SET`）。标注“（计划）”的命令在对应任务实现前不可运行，实现后实际核对再改写期望。
 
@@ -10,7 +10,7 @@
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望：2026-11-03 任务 8 完成时为 `1186 passed`；T9-01 完成后为 `1218 passed`（新增 32 项，原有测试不减少）。
+期望：2026-11-03 任务 8 完成时为 `1186 passed`；T9-01 完成后为 `1218 passed`（新增 32 项，原有测试不减少）；T9-04 完成后为 `1262 passed`。
 
 ## AC00 计划文件规范
 
@@ -176,58 +176,65 @@ docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET d
 
 ## AC11 查询 field
 
-- [ ] 未执行（计划）。
+- [x] 2026-11-03 通过（T9-04）：Legend `release_year` 返回最终值、规则与理由（与任务 7 一致），采用的 IMDb 候选落到 `title.basics.tsv.gz` 的行号、文件哈希与下载时间，两条 rejected 的页面年份落到各自快照的正文哈希与 `fetched_at`，路径带操作、规则与上游运行，另列推断上界；Y2 `director` 按成员列出，对齐成员同时有页面快照与 title.crew 行证据。副本实测见 design“演示查询”。
 
 ```bash
-# movie_id + 字段名 → 最终值、采用与未采用候选、原始证据、理由（计划）
+# movie_id + 字段名 → 最终值、采用与未采用候选、原始证据、理由
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_query.py -k "ac11"
 ```
 
-期望（计划）：相关用例全部通过，退出码 `0`。正式库演示命令见 design“演示查询”。
+期望：`2 passed, 8 deselected`，退出码 `0`。
+
+```bash
+# 可选：副本上 Legend release_year 的未采用候选（只读查询命令，副本保留到 T9-07）
+docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t9_rehearsal crawler python -m etl_task9.query field --movie-id mv_24a89e3536e837e6 --field release_year | grep -c '"upstream_reason": "minor_tolerance"'
+```
+
+期望：输出 `4`（两条 rejected 候选，各在候选摘要与其路径根节点里出现一次）。
 
 ## AC12 查询 product 与 review
 
-- [ ] 未执行（计划）。
+- [x] 2026-11-03 通过（T9-04）：电影单品、合集与未采集商品返回采集状态、类别、版本属性、作品与关系类型、匹配状态，未采集商品返回 `not_collected` 不报错，不在清单的 ASIN 返回 `not_in_manifest`；任务 8 小世界的有效、隔离、不完整、D3 与合集评论的 `query review` 与 AC04 视图一致；Legend 最早评论标为推断上界的直接依赖。
 
 ```bash
-# ASIN 与源评论 ID → 版本、作品、匹配状态（计划）
+# ASIN 与源评论 ID → 版本、作品、匹配状态、逻辑评论与归属
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_query.py -k "ac12"
 ```
 
-期望（计划）：相关用例全部通过，退出码 `0`。
+期望：`3 passed, 7 deselected`，退出码 `0`。
 
 ## AC13 查询 source
 
-- [ ] 未执行（计划）。
+- [x] 2026-11-03 通过（T9-04）：页面快照、IMDb `tconst`、人物 `nconst` 与评论四种输入，`query source` 列出的受影响选择与最短路径长度与测试里沿派生边手工追踪的结果完全相同；快照给出任务 3 起的重跑步骤。副本：B000063UR2 影响 41 个选择、`tt0089469` 影响 56 个（design“演示查询”）。
 
 ```bash
-# 快照、tconst、nconst、评论 → 受影响实体与字段（计划）
+# 快照、tconst、nconst、评论 → 受影响实体与字段及路径长度
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_query.py -k "ac13"
 ```
 
-期望（计划）：相关用例全部通过，退出码 `0`。
+期望：`4 passed, 6 deselected`，退出码 `0`。
 
 ## AC14 查询 person
 
-- [ ] 未执行（计划）。
+- [x] 2026-11-03 通过（T9-04）：Es One 的规范名与来源、3 条署名的页面定位与原值、归并依据（credits、co_credit）与轮次、外部 ID 与 IMDb 人名行证据、别名、参与作品与角色，均与任务 5、7 的表一致。副本上 Olivia de Havilland 返回 6 条署名、2 个页面别名、4 部作品 6 个角色成员。
 
 ```bash
-# person_id → 原始署名、别名归并过程、参与作品（计划）
+# person_id → 原始署名、别名归并过程、参与作品
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_query.py -k "ac14"
 ```
 
-期望（计划）：相关用例全部通过，退出码 `0`。
+期望：`1 passed, 9 deselected`，退出码 `0`。
 
 ## AC15 来源与规则变化定位、版本差异
 
-- [ ] 未执行（计划）。
+- [ ] 部分通过，未勾选（T9-04，2026-11-03）：`verify-sources` 列出被改快照、受影响字段与任务 3 至 9 的重跑步骤，文件不可读记 `unavailable` 不算不一致；`impact --rule` 与规则版本只列出手工追踪可达的字段；第二个上游 cv（只改片长容差）生成的 `lv0002` 与 `lv0001` 的 `diff` 只在 `runtime_minutes` 上列出变化，与任务 7 两个版本逐行一致。**“第二个血缘版本只重建受影响实体”未实现**：当前新的上游版本改变全部阶段键、全量重建；三种方案与代价见 design“T9-04 实现要点”，待用户决定。
 
 ```bash
-# verify-sources、impact --rule、增量重建与 report diff（计划）
+# verify-sources、impact --rule、report diff（已实现部分）
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_impact.py -k "ac15"
 ```
 
-期望（计划）：相关用例全部通过，退出码 `0`。
+期望：`4 passed`，退出码 `0`。
 
 ## AC16 版本、幂等、恢复、并发与 DAG
 

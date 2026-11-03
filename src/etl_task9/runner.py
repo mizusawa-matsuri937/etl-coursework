@@ -26,7 +26,7 @@ from .run import (DEFAULT_BATCH, BeforeCommit, RunContext, RunInputs, add_counts
                   close_abandoned, extraction_lock, fail_run, finish_run, stage_complete, start_run)
 from .rules import STAGES
 
-IMPLEMENTED = ("sources", "assertions", "derivations", "selections")   # T9-01–T9-03；impact 由 T9-04 实现
+IMPLEMENTED = ("sources", "assertions", "derivations", "selections", "impact")   # T9-01–T9-04
 
 
 def exec_stage(conn: psycopg.Connection, ctx: RunContext, stage: str, *, batch_size: int = DEFAULT_BATCH,
@@ -48,6 +48,9 @@ def exec_stage(conn: psycopg.Connection, ctx: RunContext, stage: str, *, batch_s
     if stage == "selections":
         from . import selections
         return selections.build_selections(conn, ctx, batch_size=batch_size, before_commit=before_commit)
+    if stage == "impact":
+        from . import impact
+        return impact.build_impact(conn, ctx, batch_size=batch_size, before_commit=before_commit)
     raise NotImplementedError(f"阶段 {stage} 尚未实现（当前只实现 {IMPLEMENTED}）")
 
 
