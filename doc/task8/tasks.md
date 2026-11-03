@@ -1,6 +1,6 @@
 # 任务 8 开发任务（评论清洗与重复识别）
 
-状态：2026-11-03 编写计划；T8-00 已执行并通过（AC00）；T8-01 至 T8-04 于同日实现并在业务库副本演练。T8-05 至 T8-08 尚未完成，其命令与期望均标注 `（计划）`，实现后按实际运行结果改写。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-11-03 编写计划；T8-00 已执行并通过（AC00）；T8-01 至 T8-04 于同日实现并在业务库副本演练，T8-05 同日实现并经真实 scheduler（`etl_test`）验证。T8-06 至 T8-08 尚未完成，其命令与期望均标注 `（计划）`，实现后按实际运行结果改写。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。每项 AC 的逐条复核命令见 [checklist](checklist.md)。每个实现阶段完成后先在业务库副本 `etl_t8_rehearsal` 演练（design“业务库副本演练”），再进入下一阶段。
 
@@ -65,17 +65,59 @@
 
   期望：`10 passed`，退出码 `0`。
 
-- [ ] T8-05 报告、查询、只读核对、Airflow DAG 与 runbook。规则：R37、R42–R44；关联 AC11、AC12。
-  - 文件：`src/etl_task8/{report,query,check,pipeline}.py`、`dags/amazon_reviews_task8_dedup.py`、`scripts/seed_task8_e2e.py`、`tests/integration/test_task8_{report,dag}.py`、`doc/task8/runbook.md`。
-  - 目标：9 节点 DAG，`verify` 通过才 `succeeded`；`compose.e2e.yaml` 下经真实 scheduler 跑通成功、重跑 `reused`、上游缺失、`verify` 失败四种情况后切回正常配置；`report export`、四个查询与 `check`。
-  - 完成情况：未执行（计划）。
+- [x] T8-05 报告、查询、只读核对、Airflow DAG 与 runbook。规则：R37、R42–R44；关联 AC11、AC12。
+  - 文件：`src/etl_task8/{report,query,pipeline}.py`（`check` 已在 T8-04 实现）、`dags/amazon_reviews_task8_dedup.py`、`scripts/seed_task8_e2e.py`、`tests/integration/test_task8_{report,dag}.py`、`doc/task8/runbook.md`。
+  - 目标：9 节点 DAG，`verify` 通过才 `succeeded`；`compose.e2e.yaml` 下经真实 scheduler 跑通成功、重跑 `reused`、上游缺失、`verify` 失败四种情况后切回正常配置；`report export`、`report diff`、四个查询与 `check`。
+  - 完成情况：2026-11-03 通过。新增 11 项测试（DAG 8、报告 3）；真实 scheduler 四种情况均符合预期（成功 9 个任务 success；重跑 `reused`；`cv9999` 时 `check_inputs` 失败、其后 6 个 `upstream_failed`、`finalize_report` 仍写失败报告、`gate` 失败；`verify_fail` 时 `rd0001` 留 `unverified`，无注入重跑后 `verified`）；之后切回正常配置，`etl_movies` 无 `task8` schema。演练库 `report export` 7 个文件、12 类实例各 3 条，用时约 26 秒。
 
   ```bash
-  # （计划）报告、查询与 DAG 集成测试
+  # 报告、查询与 DAG 集成测试（工作目录：项目根目录）
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_report.py tests/integration/test_task8_dag.py
   ```
 
-  期望（计划）：全部通过，退出码 `0`。
+  期望：`11 passed`，退出码 `0`。
+
+  真实 scheduler 端到端（可选，会清空 `etl_test`，运行前后切换配置见 [runbook](runbook.md) 第 2 节；以下命令在切到 `compose.e2e.yaml` 后执行）：
+
+  ```bash
+  docker compose --profile test run --rm -T etl-test python - < scripts/seed_task8_e2e.py
+  ```
+
+  期望：`{"extraction_id": "6214025170700962bf5d7e8cf164f9c66c38b3090f8eb20f327edb5740155e61", "records": 47, "products": 14}`。
+
+  ```bash
+  COMPOSE_FILE=compose.yaml:compose.e2e.yaml python3 scripts/run_dag_e2e.py --dag-id amazon_reviews_task8_dedup --run-id t8_e2e_ok1 --conf '{"extraction_id":"6214025170700962bf5d7e8cf164f9c66c38b3090f8eb20f327edb5740155e61","batch_size":10,"partitions":2}'
+  ```
+
+  期望：9 个任务 `success`，末行 `DAG run t8_e2e_ok1: success`，退出码 `0`。
+
+  ```bash
+  COMPOSE_FILE=compose.yaml:compose.e2e.yaml python3 scripts/run_dag_e2e.py --dag-id amazon_reviews_task8_dedup --run-id t8_e2e_rerun1 --conf '{"extraction_id":"6214025170700962bf5d7e8cf164f9c66c38b3090f8eb20f327edb5740155e61","batch_size":10,"partitions":2}'
+  ```
+
+  期望：`DAG run t8_e2e_rerun1: success`；随后 `docker compose exec -T postgres psql -U postgres -d etl_test -Atc "SELECT status, review_dedup_version_id FROM task8.run ORDER BY started_at"` 输出 `succeeded|rd0001` 与 `reused|rd0001` 两行。
+
+  ```bash
+  COMPOSE_FILE=compose.yaml:compose.e2e.yaml python3 scripts/run_dag_e2e.py --dag-id amazon_reviews_task8_dedup --run-id t8_e2e_missing1 --conf '{"extraction_id":"6214025170700962bf5d7e8cf164f9c66c38b3090f8eb20f327edb5740155e61","conflict_version_id":"cv9999","batch_size":10,"partitions":2}'
+  ```
+
+  期望：`check_inputs` `failed`，`review_clean` 至 `verify` 6 个 `upstream_failed`，`finalize_report` `success`，`gate` `failed`，`DAG run t8_e2e_missing1: failed`，退出码 `1`；`ls outputs/e2e/task8/_failures/t8_e2e_missing1` 列出 `check_inputs-try1.json`、`report.md`、`run_summary.json`。
+
+  ```bash
+  docker compose --profile test run --rm -T etl-test python - < scripts/seed_task8_e2e.py
+  ```
+
+  ```bash
+  COMPOSE_FILE=compose.yaml:compose.e2e.yaml python3 scripts/run_dag_e2e.py --dag-id amazon_reviews_task8_dedup --run-id t8_e2e_vf1 --conf '{"extraction_id":"6214025170700962bf5d7e8cf164f9c66c38b3090f8eb20f327edb5740155e61","batch_size":10,"partitions":2,"fault_injection":"verify_fail"}'
+  ```
+
+  期望：`verify` 与 `gate` `failed`，其余 7 个 `success`，退出码 `1`；`ls outputs/e2e/task8/_failures/t8_e2e_vf1` 列出 `report.md`、`run_summary.json`、`verify-try1.json`；`task8.run` 为 `failed|rd0001`，`task8.dedup_version` 为 `rd0001|unverified`。
+
+  ```bash
+  COMPOSE_FILE=compose.yaml:compose.e2e.yaml python3 scripts/run_dag_e2e.py --dag-id amazon_reviews_task8_dedup --run-id t8_e2e_vf2 --conf '{"extraction_id":"6214025170700962bf5d7e8cf164f9c66c38b3090f8eb20f327edb5740155e61","batch_size":10,"partitions":2}'
+  ```
+
+  期望：`DAG run t8_e2e_vf2: success`，退出码 `0`；`docker compose exec -T postgres psql -U postgres -d etl_test -Atc "SELECT status, review_dedup_version_id, airflow_run_id FROM task8.run ORDER BY started_at; SELECT review_dedup_version_id, status FROM task8.dedup_version"` 输出 `failed|rd0001|t8_e2e_vf1`、`succeeded|rd0001|t8_e2e_vf2`、`rd0001|verified`。
 
 - [ ] T8-06 评价工具：开发池、六层盲测表、AI 草稿、导入校验、指标。规则：R45–R49；关联 AC13。
   - 文件：`src/etl_task8/evaluate.py`、`tests/integration/test_task8_evaluate.py`、`doc/task8/runbook.md`（评价章节）。

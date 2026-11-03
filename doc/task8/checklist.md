@@ -1,6 +1,6 @@
 # 任务 8 AC 完成情况（评论清洗与重复识别）
 
-状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T8-01 至 T8-03 实现后 AC02、AC03、AC04、AC05、AC14 通过并勾选；T8-04 实现后 AC01、AC06（补齐）与 AC07–AC10 通过并勾选；其余尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T8-01 至 T8-03 实现后 AC02、AC03、AC04、AC05、AC14 通过并勾选；T8-04 实现后 AC01、AC06（补齐）与 AC07–AC10 通过并勾选；T8-05 实现后 AC11、AC12 通过并勾选；其余尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`，`psql -Atc` 输出首行会多一个 `SET`）。
 
@@ -136,25 +136,25 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC11 Airflow DAG 与核对后才成功
 
-- [ ] 未执行。
+- [x] 2026-11-03 通过（T8-05）：9 节点拓扑、重试参数、`verify` 通过才 `succeeded`、上游缺失与 `verify` 失败分支的 8 项测试通过；真实 scheduler（`compose.e2e.yaml`，写 `etl_test`）四种情况符合预期：`t8_e2e_ok1` 成功、`t8_e2e_rerun1` 记 `reused`、`t8_e2e_missing1`（`cv9999`）在 `check_inputs` 失败并写失败报告、`t8_e2e_vf1` 留 `unverified` 后 `t8_e2e_vf2` 重跑 `verified`；随后切回正常配置。逐条命令见 tasks.md T8-05。
 
 ```bash
-# （计划）验证 9 节点拓扑、重试参数、上游缺失与 verify 失败分支；真实 scheduler 见 runbook
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_dag.py
+# 验证 9 节点拓扑、重试参数、上游缺失与 verify 失败分支；真实 scheduler 见 runbook 第 2 节
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_report.py tests/integration/test_task8_dag.py -k "ac11"
 ```
 
-期望（计划）：测试通过，退出码 `0`；真实 scheduler 四种情况的运行记录写入完成情况。
+期望：`8 passed, 3 deselected`，退出码 `0`。
 
 ## AC12 报告、实例与查询
 
-- [ ] 未执行。
+- [x] 2026-11-03 通过（T8-05）：`summary.json` 与数据库计数一致、`examples.md` 覆盖全部类别、四个查询带口径说明、导出无评论正文全文（只留 80 字前缀）、`checksums.json` 校验；演练库导出 7 个文件，12 类实例各 3 条。
 
 ```bash
-# （计划）验证 summary 与数据库一致、examples 覆盖全部类别、四个查询与口径说明、导出无正文全文
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_report.py
+# 验证 summary 与数据库一致、examples 覆盖全部类别、四个查询与口径说明、导出无正文全文
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_report.py tests/integration/test_task8_dag.py -k "ac12"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`3 passed, 8 deselected`，退出码 `0`。
 
 ## AC13 评价工具
 
