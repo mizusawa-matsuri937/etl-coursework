@@ -33,6 +33,7 @@ def base_settings() -> Settings:
 @pytest.fixture(scope="session", autouse=True)
 def schema(base_settings):
     with connect(base_settings) as conn:
+        conn.execute("DROP SCHEMA IF EXISTS task8 CASCADE")  # 任务 8 表引用 task7 与 public，最先删
         conn.execute("DROP SCHEMA IF EXISTS task7 CASCADE")  # 任务 7 表引用 task6、task5、task4、imdb 与 public，最先删
         conn.execute("DROP SCHEMA IF EXISTS task6 CASCADE")  # 任务 6 表引用 task5、task4、imdb 与 public，最先删
         conn.execute("DROP SCHEMA IF EXISTS task5 CASCADE")  # 任务 5 表引用 task4、imdb 与 public，最先删

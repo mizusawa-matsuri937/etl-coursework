@@ -254,3 +254,34 @@ check_inputs → review_clean → review_family → review_dedup → review_attr
 | `verify` 失败 | 运行 `failed`、版本 `unverified`；同输入重跑在原版本上重写，不 `reused` |
 | 并发运行 | 咨询锁拿不到即失败 |
 | 规则或阈值改动 | 升规则版本，进入对应阶段签名，只重算受影响阶段及下游 |
+
+## 实现补充约定（T8-01 起）
+
+以下是实现时对上文的工程层面补充，不改变 spec 的规则与用户确认的 H01–H04；与上文表述不同处以本节为准。
+
+- **阶段键短键**：大表（`review_clean`、`review_issue`、`asin_signature`、`signature_overlap`、`review_family`、`family_member`、`logical_review`、`review_mapping`、`reviewer`、`dup_candidate`、`logical_review_work` 等）的 `*_stage_key` 列存短键：阶段首字母（`c`、`f`、`d`、`a`）+ 完整阶段串 SHA-256 前 15 位。完整串、所属抽取、上游短键与规则版本登记在 `task8.stage_key`。大表不再重复存 `extraction_id`（短键已由抽取派生），也不对短键建外键，避免 785 万行逐行外键检查；上文数据模型表里“`(extraction_id, clean_stage_key, …)`”的主键因此为“`(clean_stage_key, …)`”。读任务 1 的表时仍全部带 `extraction_id` 条件（R01）。
+- **`review_clean` 的列**：按 R02 保留 `source_review_id` 与本阶段批号 `batch_no`；显示名与 helpfulness 存原值 `profile_name_raw`、`helpfulness_raw`（上文写 `profile_md5`），使 D1/D2 的核验按原值比较，`Reviewer` 的显示名统计不必再读 `review_staging`；另存分区桶 `asin_bucket`、`reviewer_bucket`（0–1023，`rules.bucket`）并各建索引，N 个分区时第 p 区取 `bucket % N = p` 的桶。
+- **键完整**：`key_complete` 另要求 `reviewer_id` 非空（内容键第一项）；正式库有效记录没有空用户（design 探查），所以不改变计数。`review_day` 取 `review_time_utc` 的 UTC 日期，`review_time_utc` 为空即键不完整。
+- **SQL 与 Python 两份判定**：helpfulness 状态、内容键哈希与分区桶在库内批量计算（`rules.helpfulness_status_sql`、`content_hash_sql`、`bucket_sql`），Python 版本供单元测试与哈希碰撞拆组；集成测试逐条核对两者一致（AC02、AC14）。内容键串为五项各自“字符数:值”（NULL 记 `-`）的拼接，评分用 `trim_scale(score)::text`（`3.0` → `3`）。
+- **helpfulness 状态判定顺序**与任务 1 解析一致：格式 → 负数（`-0` 不算负数）→ 超出 int64（任务 1 的 `out_of_range`，归 `unparseable`）→ 分子大于分母 → `0/0`。表上 CHECK 保证 `ok`、`zero_zero` 恰好对应任务 1 规范票数非空。
+- **批次单元与恢复**：`entity_stage` 每行是一个批次单元而不是一条记录：清洗为记录号区间 `r<首>-<末>`（中断后从最后一个已提交区间之后继续，批大小改变也能接上），家族为 `sig<p>/<N>`、`ovl<p>/<N>` 与 `components`，去重为 `unmapped` 与 `p<p>/<N>`；`__complete__` 与最后一个单元同事务写入。已按 N 个分区提交过部分单元时换分区数确定性失败（否则同一用户会落在两个分区重复写入）。
+- **分阶段运行**：`python -m etl_task8.runner stages --through <阶段>` 记一条 `kind = 'stage'` 的运行，只读任务 1（`check_extraction`），用于测试与演练；任务 3 与任务 7 的检查在 `check_attribution_inputs`（T8-04 的归属阶段与 `check_inputs` 步骤使用）。`task8.run.conflict_version_id` 因此不建外键，`dedup_version.conflict_version_id` 有外键。
+- **迁移 701 一次建好全部表**：归属、统计、版本与评价表（T8-04 至 T8-06 使用）已按上文定义建好；701 尚未在正式库应用，后续阶段如需调整列可直接改 701。
+
+## 业务库副本演练实测（`etl_t8_rehearsal`）
+
+演练库 2026-11-03 由 `CREATE DATABASE etl_t8_rehearsal TEMPLATE etl_movies OWNER etl_app` 建立（停 Airflow 三个服务后建库约 1 分 48 秒，建好后立即恢复；磁盘剩余 58 GB → 28 GB），用 `python -m etl_task8.runner stages` 逐阶段运行。耗时是同机记录，不是性能实测（清洗阶段运行时全量测试也在并行）。
+
+### T8-01 `review_clean`
+
+| 项目 | 试算 | 演练实测 | 说明 |
+|---|---|---|---|
+| 写入行（有效记录） | 7,849,565 | 7,849,565（16 批，581 秒） | 一致 |
+| `ok` / `zero_zero` | 5,869,509 / 1,980,001 | 5,869,509 / 1,980,001 | 一致 |
+| 分子大于分母 / 负数 / 无法解析 / 缺失 | 43 / 0 / — / 12 | 43 / 0 / 0 / 12 | 一致 |
+| 不完整记录 | 12 | 12（键完整 7,849,553） | 一致；这 12 条同时缺 helpfulness，各有两条问题 |
+| `review_issue` | — | 67（43 + 12 + 12） | |
+| 用户数 | 886,308 | 886,308 | 一致 |
+| 表大小 | 约 1.2 GB（含索引） | 2,778 MB（表 2,213 MB、主键 451 MB、两个桶索引各约 56 MB） | 超出估算：估算时没算 `source_review_id`（64 位十六进制）、两项 MD5、显示名原值与每行开销 |
+
+查询计划：每批 `review_record` 连 `review_staging` 选择了哈希连接（顺序扫描 `review_staging` 约 8 秒）；强制嵌套循环索引查找实测更慢（单批 34.8 秒对 26.4 秒），所以保留默认计划。

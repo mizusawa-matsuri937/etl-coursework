@@ -37,14 +37,14 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC02 helpfulness 状态与不完整记录
 
-- [ ] 未执行。
+- [x] 2026-11-03 通过（T8-01）：六种原值依次为 `ok`、`zero_zero`、`numerator_exceeds_denominator`、`negative`、`unparseable`、`missing`，SQL 判定与 Python 判定逐条一致；后四类各一条 `review_issue`，`0/0` 不写；缺评分与时间的记录 `key_complete = false` 并写 `incomplete_review`。演练库实测与试算一致（`ok` 5,869,509、`zero_zero` 1,980,001、分子大于分母 43、`missing` 12、不完整 12）。
 
 ```bash
-# （计划）验证六种 helpfulness 状态、0/0 不算异常、不完整记录
+# 验证六种 helpfulness 状态、0/0 不算异常、不完整记录
 docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task8_rules.py tests/integration/test_task8_clean.py -k "ac02"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`12 passed, 17 deselected`，退出码 `0`。
 
 ## AC03 内容键只用原值、核验与 Reviewer
 
@@ -169,14 +169,14 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC14 纯函数单元测试
 
-- [ ] 未执行。
+- [x] 2026-11-03 通过（T8-01）：内容键构造（大小写、末尾空格、摘要、空与缺失、长度前缀、Unicode 按字符计）、分区桶、签名与 Jaccard 连通分量（单条评论家族、阈值 0.7）、层次与 helpfulness 并列、碰撞拆组与 ID、词集 Jaccard（空正文、ASCII 分词）、候选；另有 1 项集成测试核对 SQL 内容键哈希与分区桶与 Python 版本一致。
 
 ```bash
-# （计划）内容键、签名与连通分量、词集 Jaccard、ID 生成
-docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task8_rules.py
+# 内容键、签名与连通分量、词集 Jaccard、ID 生成；SQL 与 Python 一致
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task8_rules.py tests/integration/test_task8_clean.py -k "ac14"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`14 passed, 15 deselected`，退出码 `0`。
 
 ## AC15 业务库副本演练
 

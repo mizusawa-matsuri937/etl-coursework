@@ -17,17 +17,17 @@
 
   期望：第一条只输出 `目标、范围、规则、AC测试、假设` 五行；第二条无输出；第三条输出 `49`；第四条输出 `49 [] []`（49 条规则，没有未被 AC 或 T8-01 至 T8-07 覆盖的规则；T8-08 的正式运行另检验全部规则，不计入这项检查）。
 
-- [ ] T8-01 迁移 701、运行审计与咨询锁、规则纯函数、清洗阶段 `review_clean`。规则：R01、R02、R06–R09、R39、R40；关联 AC02、AC14，部分 AC03。
-  - 文件：`sql/701_task8_schema.sql`、`src/etl_task8/{__init__,rules,sources,run,clean}.py`、`tests/fixtures/task8/`、`tests/unit/test_task8_rules.py`、`tests/integration/{_task8_helpers,test_task8_clean}.py`；`tests/integration/conftest.py` 增加 `DROP SCHEMA IF EXISTS task8`。
+- [x] T8-01 迁移 701、运行审计与咨询锁、规则纯函数、清洗阶段 `review_clean`。规则：R01、R02、R06–R09、R39、R40；关联 AC02、AC14，部分 AC03。
+  - 文件：`sql/701_task8_schema.sql`、`src/etl_task8/{__init__,rules,sources,run,clean,runner}.py`（`runner` 目前只有分阶段运行 `stages`，完整运行由 T8-04 补充）、`tests/fixtures/task8/`、`tests/unit/test_task8_rules.py`、`tests/integration/{_task8_helpers,test_task8_clean}.py`；`tests/integration/conftest.py` 增加 `DROP SCHEMA IF EXISTS task8`。
   - 目标：建立 schema `task8` 全部表与闭集 CHECK；输入键、阶段键、审计与锁；helpfulness 状态、内容键与核验、ID 生成等纯函数；夹具与任务 1、3、7 真实表同形；在 `etl_t8_rehearsal` 演练清洗阶段并对照试算（helpfulness 各状态、不完整 12 条）。
-  - 完成情况：未执行（计划）。
+  - 完成情况：2026-11-03 通过。29 项测试通过（单元 25、清洗集成 4），全量 1,158 项通过（同日运行，含 T8-02、T8-03 的 8 项；原 1,121 项不减少）；夹具由任务 1 装载器生成。演练库清洗 7,849,565 行 16 批 581 秒：`ok` 5,869,509、`zero_zero` 1,980,001、分子大于分母 43、`missing` 12、负数与无法解析 0，不完整 12，问题 67 条，与试算完全一致（design“演练实测”）。
 
   ```bash
-  # （计划）规则单元测试与清洗阶段集成测试
+  # 规则单元测试与清洗阶段集成测试（工作目录：项目根目录）
   docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task8_rules.py tests/integration/test_task8_clean.py
   ```
 
-  期望（计划）：全部通过，退出码 `0`。
+  期望：`29 passed`，退出码 `0`。
 
 - [ ] T8-02 评论家族 `review_family`：签名、分区重叠计数、Jaccard 连通分量、`weak_support`。规则：R12、R13；关联 AC04。
   - 文件：`src/etl_task8/family.py`、`tests/integration/test_task8_family.py`。
