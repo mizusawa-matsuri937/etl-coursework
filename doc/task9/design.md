@@ -1,0 +1,295 @@
+# 任务 9 设计思路（字段级数据血缘）
+
+本文说明任务 9 如何在任务 1–8 已有的表与版本之上建立字段级血缘。规则与验收以 [spec](spec.md) 为准，本文引用其规则编号（R）与验收编号（AC），不另立验收口径。数字分三类标注：**试算**（2026-11-03 正式库只读查询）、**预算**（估计值，不是实测）、**实测**（实现后填写）。
+
+## 整体思路与分层
+
+各任务已经各自保存了很多血缘片段：任务 4 的 `source_record` 与带 `parent_assertion_id` 的 `field_assertion`，任务 5 的提及键与归并依据，任务 6 的年份候选与上界证据，任务 7 的 `field_candidate`、`movie_field_selection` 与成员表，任务 8 的 `review_mapping`。问题在于：定位格式各不相同（jsonb 键名、文本键、数组），没有统一的父子边，不能从一个源记录反查受影响的字段，也有几处只到“ASIN + 区域”而没有序号。任务 9 不重算这些结果（R03），而是把它们**翻译**成统一的四层结构，并补齐断链：
+
+```
+原始层  task9.source_record      页面快照 / IMDb 文件行 / 评论文件记录 / 人工修订
+          │  extract（R13）
+暂存层  task9.assertion(level=extract)   page_field、任务 4 无父断言、人物提及、IMDb 行、上界引用的评论
+          │  normalize / split / vocab_map / align / link / merge / infer（R14、R17）
+集成层  task9.assertion(level=candidate|derived) + task9.derivation（父子边）
+          │  select / union / infer / aggregate
+目标层  task9.field_selection（每个最终字段或成员一行） + task9.field_impact（源记录 → 字段闭包）
+        视图 task9.v_review_lineage、v_product_lineage（评论层不复制，R10）
+```
+
+与 W3C PROV-DM 的对应：源记录与断言是 `Entity`；上游运行（任务 N 的 `run_id`）加规则是 `Activity`；派生边是带 activity 的限定 `wasDerivedFrom`（qualified derivation），源记录到抽取断言是 `hadPrimarySource`；多值字段的成员是 `hadMember`；人工修订记录是 `wasAttributedTo` 某个标注人（`Agent`）。派生边同时按 OpenLineage 列级血缘标 `DIRECT`/`INDIRECT` 与子类型（R18），方便和通用工具对照。
+
+## 正式库只读探查基线（规划试算）
+
+2026-11-03 对 `etl_movies` 的只读查询（每条带 `SET default_transaction_read_only = on;`），输入为 R01 的版本。“可追溯”指采用的候选或成员能经已有表连接落到带定位、哈希与获取时间的源记录。脚本是规划用的简化查询，未重算快照哈希，也未执行重放（H08）。
+
+### 上游版本与原始证据
+
+| 项目 | 试算 |
+|---|---|
+| 迁移 | `001,101,102,103,201,301,302,401,501,601,701` |
+| 上游版本 | `map0002`（t4r2）、`pmap0001`（t5r1）、`rv0001`（t6r1）、`cv0003`（t7r3，`cv0001`、`cv0002` 仍在）、`rd0001`（`verified`） |
+| 评论文件 | `public.source_file` 1 行，SHA-256 `4b6ee09e…cc715`，`download_completed_at` 2026-10-21 02:25:40Z |
+| 页面快照 | 清单中有快照路径的 28,913 个 ASIN（success 22,321、access_restricted 4,152、not_found 2,378、parse_failed 62），磁盘 `outputs/task2/snapshots/` 正好 28,913 个文件、4.7 GB；`content_hash` 是**解压后正文**的 SHA-256（抽样 `0001489305` 核对一致，gzip 文件本身的哈希不同） |
+| 任务 4 源记录 | 页面 9,590 行（`acquired_at` 齐全）；IMDb 28,323 行（`acquired_at` 全为空，需取 `imdb.snapshot.downloaded_at` 2026-10-29 07:43:16Z） |
+| IMDb 文件 | 5 个文件均有 SHA-256 与行数 |
+| 人工修订 | `task4.human_decision`、`task5.human_decision` 均 0 行 |
+| 库体量 | `etl_movies` 36 GB；`task7` 1,408 MB、`task8` 6,200 MB；磁盘可用 110 GB |
+
+### 各类最终字段的现状可追溯性
+
+| 类别 | 非空最终值 | 能落到原始证据 | 断链说明 |
+|---|---|---|---|
+| 作品标量 5 字段（`resolved`） | 34,630（title 8,659、original_title 5,400、release_year 5,450、runtime 8,124、mpaa 6,997） | 34,630（100%）；未采用候选 11,307 个也全部可落地 | 派生候选（`edition_rating`、`page_edition_runtime`）经 `edition_candidate_ids` 再落到页面 |
+| 版本标量 6 字段（`resolved`） | 49,980 | 49,980（100%）；未采用候选 18,529 个全部可落地 | — |
+| 作品演职员成员（`adopted`） | 80,612（另 `conflict_pending` 452） | 100%：页面侧经 `task5.movie_person_source` → 提及 → 快照，IMDb 侧经有效 `tconst` 与 `nconst` 落到 `title_director`/`title_principal` 行 | 能连上，但要跨任务 5、7 与 `imdb` 三处拼接，没有现成的边 |
+| 作品类型成员 | 18,558（both 4,127、imdb_only 8,238、page_only 6,193） | IMDb 侧 12,365 可精确到行；页面侧 10,320 只有 `asins` 与 `sections`，没有序号或断言 ID | **断链**：按任务 4 `genre` 断言的原值前缀粗配只配上 6,485/13,505 个（ASIN, 词面） |
+| 版本多值特征 7 项 | 46,027 个值（media_format 13,050、language 11,096、aspect_ratio 8,129、video_system 7,556、subtitles 5,925、region 166、cut_type 105） | `attributes_detail` 只有“值 → 区域列表” | **断链**：值经任务 7 再规范化（如 `dvd` → `DVD`），按规范值只配上 aspect_ratio 4,012 个，其余 0 |
+| 作品别名 | 90,433（aka 79,716、primary 5,400、page 4,466、original 851） | 100%（断言 ID 或 IMDb 行号） | — |
+| 有效 `tconst` | 5,407 | 100%（任务 6 选中候选带行号） | — |
+| 推断上界 | 6,978（media_release 3,963、review 3,015） | 证据 ID 100% | **断链**：评论证据只记最早评论 ID；B3 依赖的第二早评论只有时间；“全部依赖评论”（作品 `edition` 商品的全部有效评论）未列出，试算 217,435 条，单部最多 2,385 条 |
+| 人物规范名 | 29,635（IMDb 13,233、提及 16,402） | 100% | — |
+| 人物别名 | 30,863（page 30,140、imdb 723） | 只有来源与次数，没有逐条提及键 | 可经 `mention_person` 与提及显示名连接重建，不需重放 |
+| 任务 7 登记的 IMDb 独有人物 | 22,157 | 经 `nconst` 落到 `imdb.name` | — |
+| 商品到作品 | 8,960（edition auto 4,544、contains auto 230、singleton 4,186） | auto 有决策 ID 与特征；singleton 没有决策 | singleton 的依据是规则本身，需显式写成边 |
+| 商品类别 | 9,590（参与匹配商品） | 任务 3 `rule_id` 与解析版本 | — |
+| 逻辑评论 | 1,908,386 | 代表记录 100%、helpfulness 来源记录 1,908,378（另 8 条为 `NULL`） | 评论层用视图，不计入下面合计 |
+
+**试算基线（不含评论层）**：范围内非空最终值 411,673 个；严格口径（每个成员的全部来源都能精确定位）下可追溯 352,311 个，**覆盖率 85.6%**；缺口 59,362 个 = 类型页面成员 10,320 + 版本多值特征 46,027 + 评论上界 3,015。若只要求“至少一个来源精确定位”，类型的 `both` 成员（4,127）可算作可追溯，覆盖率约 86.6%。
+
+除了上述缺口，还有三处**结构性**断链：一是没有统一反查（“这个快照影响哪些字段”要逐任务写 SQL）；二是 IMDb 源记录的获取时间要绕到快照表；三是快照文件在 `outputs/` 下，不在库里，清理时若删掉会使证据失效（H05）。
+
+### 演示用真实 ID（试算时存在）
+
+| 用途 | ID | 说明 |
+|---|---|---|
+| 作品字段 | `mv_24a89e3536e837e6`（Legend）`release_year` | 采用 IMDb `tt0089469` 的 1985（`imdb.title` 第 87,476 行）；两条页面标题年份 1986 为 `rejected`（`minor_tolerance`）；另有评论上界 1999-08-23 |
+| 商品 | `B000063UR2` | Legend 的 `edition` 商品，快照 `outputs/task2/snapshots/R2/B000063UR2.html.gz`，任务 4 源记录 2879 |
+| 原始评论 | `8f17b11666f52dc1fcca4fb62c233df9d5dc755992823c0470d135bb6341b55b` | Legend 最早评论（B000063UR2，1999-08-23） |
+| 人物 | `ps_fb262c7cedc84d5e`（Olivia de Havilland） | `external_verified`，6 次提及、4 部作品、2 个页面别名 |
+| 缺失年份 | `mv_cbefb17430301a33` | `release_year` 为空，只有评论上界 2005-04-13 |
+
+## 开源参考
+
+- **W3C PROV-DM**（https://www.w3.org/TR/prov-dm/）：Entity / Activity / Agent，`wasGeneratedBy`、`used`、`wasDerivedFrom` 及其子类型 `Revision`、`Quotation`、`PrimarySource`，限定派生（带 activity、generation、usage），`Collection`/`hadMember`。采纳：派生边带上游活动（运行与规则）；源记录到抽取断言用 `PrimarySource` 语义；多值字段按成员表达。未采纳：完整的 PROV-O RDF 序列化（课程只要求关系库可查询），但 `report export` 可另出 PROV-JSON 片段作为演示。
+- **OpenLineage 列级血缘 facet**（https://openlineage.io/docs/spec/facets/dataset-facets/column_lineage_facet）：输出列 → `inputFields`（namespace、dataset、field）→ `transformations`（`DIRECT`：`IDENTITY`、`TRANSFORMATION`、`AGGREGATION`；`INDIRECT`：`JOIN`、`GROUP_BY`、`FILTER`、`SORT`、`WINDOW`、`CONDITIONAL`），另有数据集级依赖避免笛卡尔积。采纳：边上的类型/子类型标注（R18）；评分统计这类“整组依赖”只在查询里说明筛选条件，不逐行展开（R05，对应其 dataset 级依赖的思路）。差异：OpenLineage 是列到列（模式级），本作业要求**值级**（某部电影某字段的某个值），所以我们的节点是断言行而不是列。
+
+## 组件与职责
+
+`src/etl_task9/`（计划）：
+
+| 模块 | 职责 |
+|---|---|
+| `rules.py` | 规则版本 `t9r1`、操作类型闭集、OpenLineage 映射、ID 生成（`sr_`、`as_`、`fs_`）、定位串规范化等纯函数 |
+| `sources.py` | 读取上游版本与阶段键（R01），统一的上游只读取数 |
+| `run.py` | 运行审计、输入键、阶段键、咨询锁、`entity_stage` 与 `run_batch` |
+| `source_records.py` | `build_sources`：登记四类源记录、获取时间来源、快照哈希核验（R06–R09） |
+| `assertions.py` | `build_assertions`：抽取级、候选级、派生级断言（R11–R16） |
+| `derivations.py` | `build_derivations`：父子边、实体合并边、推断依赖（R17–R20、R22） |
+| `relocate.py` | 只读重放补定位：类型词面、版本特征、第二早评论（R21），调用 `etl_task7`、`etl_task6` 的同一函数 |
+| `selections.py` | `build_selections`：字段选择、状态、`trace_status`、与目标层一致性（R23–R27） |
+| `impact.py` | `build_impact`：源记录 → 字段闭包；`verify-sources`、`impact`、上游重跑映射（R32–R35） |
+| `versions.py` | 血缘版本、`report diff`（R34、R36） |
+| `runner.py` / `pipeline.py` | 完整运行与 DAG 步骤（R37–R40） |
+| `check.py` | 只读核对（`verify` 与正式库 `check` 共用） |
+| `query.py` | `field`、`product`、`review`、`source`、`person`、`impact` 六个只读子命令（R28–R31、R33） |
+| `report.py` | 导出、覆盖率、实例（R44、R45） |
+| `evaluate.py` | 抽查表、AI 草稿、导入、指标（R46–R49） |
+
+DAG：`dags/amazon_movies_task9_lineage.py`；迁移：`sql/801_task9_schema.sql`。
+
+## 数据模型（schema `task9`，迁移 `801`）
+
+所有业务表都带 `lineage_version_id`（或阶段键），同一库可保存多个血缘版本。源记录与断言的 ID 由上游定位确定（R08、R12），跨版本稳定，便于 `diff`。
+
+| 表 | 粒度与关键列 |
+|---|---|
+| `run`、`run_batch`、`entity_stage`、`stage_key`、`quality_issue` | 同任务 7、8 的写法；`stage_key` 存完整串与父阶段键 |
+| `lineage_version` | `lv0001`…；输入键；R01 各版本；五个阶段键；`rule_version`；`status`（`unverified`/`verified`）；`counts` |
+| `source_record` | `(lineage_stage_key, source_record_id)`；`source_kind`（`page_snapshot`/`imdb_row`/`review_record`/`manual_revision`）；`locator`（jsonb）、`locator_key`；`content_hash` 与 `hash_scope`（`page_body_sha256`/`imdb_file_sha256`/`review_record_sha256`/`import_file_sha256`）；`acquired_at` 与 `acquired_at_basis`；`upstream_table`、`upstream_key`；`evidence_status`（`ok`/`snapshot_missing`/`snapshot_hash_mismatch`/`not_checked`） |
+| `assertion` | `assertion_id`；`level`（`extract`/`candidate`/`derived`）；`entity_type`（`movie`/`edition`/`collection_member`/`person`/`mention`/`product_movie`/`review`）；`entity_id`；`field_name`；`member_key`；`raw_value`；`normalized_value`；`source_record_id`（抽取级必填）；`field_locator`（区域、序号、列、行号）；`extract_rule_version`；`upstream_status` 与原因；`upstream_table`、`upstream_key`、`upstream_run_id`；`confidence` |
+| `derivation` | `(child_id, parent_id)`；`parent_kind`（`assertion`/`source_record`）；`operation`（R17 闭集）；`ol_type`、`ol_subtype`；`rule_id`、`rule_version`；`upstream_task`、`upstream_run_id`、`occurred_at`；`confidence`；`role`（如 `direct_dependency`）；`relocated` |
+| `field_selection` | `selection_id = 'fs_' || substr(sha256(entity_type|entity_id|field_name|member_key), 1, 16)`；最终值（文本与类型化列）；`status`（R24）；`missing_reason`；`selected_assertion_ids`、`considered_assertion_ids`；`decision_rule`、`reason`、`confidence`；`decision_version`；`trace_status`（R25）；`target_ref`（目标表与主键） |
+| `field_impact` | `(source_record_id, selection_id)` 与最短路径长度；由派生图在 `build_impact` 末尾一次写入（R38） |
+| `relocation` | 重放结果：被补定位的断言、补出的区域/序号/断言 ID 或源评论 ID、与上游是否一致 |
+| `dev_pool` 不需要；`eval_set`、`eval_item`、`eval_label` | 同任务 8 写法，`eval_item` 存系统路径与证据摘录的哈希 |
+
+视图（不复制数据，R10）：
+
+- `task9.v_review_lineage`：`public.review_record`（定位、哈希）+ `review_staging`（原值）+ `task8.review_mapping`（`rd0001` 的去重阶段键）+ `logical_review`、`family_member` + `logical_review_work`（归属阶段键）+ `stat_group_member`。
+- `task9.v_product_lineage`：`task2.product_manifest`（状态、证据）+ `task3.product_classification`（`t3r2`）+ `task4.product_edition`、`product_movie`、`product_match_status`（`map0002`）+ `task7.edition_resolved`（`cv0003`）。
+
+### 预算
+
+| 对象 | 预算行数 | 依据 |
+|---|---|---|
+| 源记录 | 约 45 万 | 页面 9,590；IMDb 被引用的行约 22 万（title、aka 79,716、director、principal、name）；上界引用的评论 217,435 |
+| 断言 | 约 80 万至 100 万 | 任务 4 断言约 17 万、提及 56,809、任务 7 候选（`cv0003`）约 10 万、任务 6 候选约 2.5 万、IMDb 行约 22 万、评论 21.7 万 |
+| 派生边 | 约 150 万 | 每个候选平均 1–3 条父边，上界 21.7 万条 `aggregate` |
+| 字段选择 | 约 45 万 | 非空 411,673 加 `NULL` 字段的状态行 |
+| 影响闭包 | 约 200 万至 300 万 | 每个字段平均数个源记录；上界 21.7 万 |
+| 体量 | 约 1.5–2.5 GB（含索引） | 低于任务 7（1.4 GB）与任务 8 之间；实现后实测替换 |
+
+## 各阶段算法
+
+### 1. `build_sources`（R06–R09）
+
+1. 页面：从任务 4 `source_record`（`source_type = 'page'`）与 `task2.product_manifest` 取 ASIN、最终地址、快照路径、正文哈希、`fetched_at`，再从 `task2.fetch_attempt` 取保留快照的那次尝试序号。`locator_key = 'page|' || 抽取 || '|' || asin || '|' || content_hash`。
+2. IMDb：被下游引用的 `(快照, 文件, 行号)` 才登记；文件 SHA-256 来自 `imdb.source_file`，获取时间来自 `imdb.snapshot.downloaded_at`（H06）。
+3. 评论：只登记推断上界引用的评论（R10）；定位取 `public.review_record` 的记录序号、行号、偏移与 `raw_sha256`，文件哈希与 `download_completed_at` 取 `public.source_file`。
+4. 人工修订：任务 4、5 的 `human_decision`（当前 0 行，H07）。
+5. 快照核验：对被引用的页面快照逐个解压重算正文 SHA-256（约 9,590 个文件；按批并行读文件，不进事务）；不一致或缺失写质量问题并把 `evidence_status` 标出（R09）。
+
+### 2. `build_assertions`（R11–R16）
+
+按实体批次（作品、版本、人物各 1,000 个）把上游行翻译为断言，`upstream_table` 与 `upstream_key` 原样保存：
+
+| 上游 | 级别 | 断言字段 | 定位 |
+|---|---|---|---|
+| `task3.page_field` | extract | 字段键或区域 | 区域 + 序号 + 快照哈希 |
+| `task4.field_assertion`（无父） | extract | `field_name` 与 `ordinal` | `source_locator` + `source_record_id` |
+| `task4.field_assertion`（有父） | derived | 同上 | 父断言 |
+| `task5.person_mention` | extract | `role_class`、显示名 | `mention_key` = ASIN:区域:序号:位置 |
+| IMDb `title`/`title_aka`/`title_director`/`title_principal`/`name` | extract | 列名 | 快照、文件、行号 |
+| `task6.release_candidate` | candidate | `release_year` | `source_ref`（行号或断言 ID） |
+| `task7.field_candidate`（`cv0003` 的阶段键） | candidate | 字段名 | `source_ref`；`edition_*` 派生候选指向版本候选 |
+| `task7.credit_alignment` | derived | 署名段 | 页面人物与 IMDb 人物 |
+| `task7.movie_genre_term` | derived | 词面处置 | ASIN + 区域（重放后补序号） |
+| `task4.merge_decision`、`task5.link_decision`、`task5.person_decision` | candidate | 匹配候选 | 特征中的断言与 IMDb 行 |
+| `public.review_staging`（上界引用） | extract | `review_time` | 源评论 ID |
+
+未采用候选的上游状态与原因原样保存（R15）。多值字段成员键（R16）：演职员 `person_id|role`，类型为受控词，版本特征为 `特征名|值`。
+
+### 3. `build_derivations`（R17–R20、R22）与重放（R21）
+
+- 抽取级断言 → 源记录：`extract`（`DIRECT/IDENTITY`）。
+- 任务 4 的规范化与拆分：`normalize`、`split`（`DIRECT/TRANSFORMATION`），`rule_id` 取 `field_assertion.rule_id`（如 `title.key`、`name.strict`）。
+- 任务 7 候选 → 任务 4 断言或 IMDb 行：`select` 前的 `normalize`；类型词面 → 受控词：`vocab_map`；署名对齐：`align`（`INDIRECT/JOIN`），`rule_id` 为对齐等级（`L1`…`LS`）。
+- 商品 → 作品：`link`（auto 决策，`rule_id` 取决策的 `tier`/`reason`，置信度）或 `singleton`（规则 `t4r2:singleton`）。
+- 提及 → 人物：`merge`，`rule_id` 取 `mention_person.basis`，`decision_ref` 与轮次写在边上。
+- 字段选择 ← 采用断言：`select`（`INDIRECT/CONDITIONAL`）；多值并集 `union`；推断上界 `infer`，其评论依赖 `aggregate`（`DIRECT/AGGREGATION`），最早与第二早评论 `role = 'direct_dependency'`。
+- 上游运行 ID 与时间：任务 4–7 候选有 `run_id`，取对应 `run.started_at`；没有逐行 `run_id` 的表（如任务 3 `page_field`）用版本的生成运行。
+
+**重放补定位**（`relocate.py`）只读执行：
+
+1. 类型页面词面：对 `movie_genre` 中 `page_only`/`both` 成员涉及的 ASIN，读 `task3.page_field`（`t3p1`）的 `genre`、`breadcrumb` 区域，调用任务 7 处理词面的同一函数（去 ` see more`、还原下划线、映射表），得到每个受控词对应的（区域, 序号）；与 `movie_genre` 的词集合一致才写定位。
+2. 版本多值特征：对每个 ASIN 调用任务 7 汇总特征的同一函数（输入任务 4 断言与任务 3 字段），记录每个值来自哪些（区域, 序号, 断言 ID）；与 `edition_resolved` 的数组一致才写定位。
+3. 第二早评论：按 `etl_task6.reviews` 的同一排序（商品内按 `review_time_utc`、`source_review_id`，取每个商品前两条；作品内再按时间、ASIN 合并）取前两条，核对最早评论 ID 与两条时间都等于 `task6.movie_review_time`。任务 6 只保存了第二早的时间，ID 由这一步补出。
+4. 不一致写 `replay_mismatch`（附上游值与重放值），该字段 `trace_status = 'partial'`，不回写上游（R03）。
+
+### 4. `build_selections`（R23–R27）
+
+| 目标字段 | 目标表（版本） | 选择来源 | 状态来源 |
+|---|---|---|---|
+| 作品 5 个标量 | `task7.movie_resolved`（`cv0003`） | `movie_field_selection` 的 `selected/considered_candidate_ids` | 同表 `status` |
+| 作品 `genres` | `task7.movie_genre` | 每个受控词一行，父为 IMDb 行与页面词面 | `movie_field_selection` |
+| `director`、`starring`、`cast` | `task7.movie_person_resolved` | 每个 `person_id|role` 一行，父为页面提及（经 `movie_person_source`）与 IMDb 行（`title_director`/`title_principal`） | 成员 `adopted`/`conflict_pending` |
+| 有效 `tconst` | `task7.movie_resolved` | 任务 6 选中候选 | `release_selection.status` |
+| 推断上界 | `task6.inferred_release_bound`（`rv0001`） | 采用证据 | `inferred` |
+| 作品别名 | `task7.movie_title_alias` | 断言 ID 或 IMDb 行 | `resolved` |
+| 版本 6 个标量 | `task7.edition_resolved` | `edition_field_selection` | 同表 |
+| 版本 7 项特征 | `task7.edition_resolved` 数组 | 重放补出的断言 | `resolved` |
+| 商品类别 | `task3.product_classification`（`t3r2`） | 分类规则 `rule_id` 与解析结果 | `resolved` 或 `pending` |
+| 商品所属作品 | `task4.product_movie`（`map0002`） | 决策或 `singleton` | `product_match_status` |
+| 人物规范名、外部 ID、别名 | `task5.person`、`person_external_id`、`person_alias`（`pmap0001`），`task7.imdb_person_ext` | `canonical_source`、`basis_decision_ids`、提及 | `resolved` |
+
+`trace_status` 判定：沿派生边走到底，每个采用成员的每个来源都终止于 `evidence_status = 'ok'` 的源记录为 `traced`；路径中含重放边为 `relocated`；终止于人工修订为 `manual`；有来源只到 ASIN + 区域为 `partial`；源记录证据有问题为 `evidence_unverified`；没有任何路径为 `untraced`。最终值与目标表逐行比对（R26），不一致即核对失败。
+
+### 5. `build_impact`（R32–R35）
+
+从源记录沿派生边正向传递到字段选择，写 `field_impact(source_record_id, selection_id, depth)`。按实体批次计算后，在本阶段最后一个事务中替换为完整闭包（R38），保证没有半写入。规则影响不另建闭包：`derivation` 上有 `rule_id` 与规则版本的索引，`impact --rule` 先找边，再沿子边走到选择。
+
+## 演示查询（计划命令）
+
+以下命令在实现 T9-04 后可用（**计划**，尚未实现），工作目录为项目根目录，ID 来自上文试算：
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task9.query field --movie-id mv_24a89e3536e837e6 --field release_year
+```
+
+期望：最终值 `1985`，`resolved`，规则 `minor_tolerance`；采用候选为 IMDb `tt0089469`（`imdb_2026-10-29`，`title.basics.tsv.gz` 第 87,476 行，文件 SHA-256 与下载时间）；两条未采用的页面标题年份 `1986`（`rejected`，`minor_tolerance`，各自 ASIN、区域、序号、快照正文哈希与 `fetched_at`）；路径列出任务 4 抽取、任务 6 候选、任务 7 选择各步的 `rule_id` 与运行；另列推断上界 1999-08-23 为独立参考。
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task9.query product --asin B000063UR2
+```
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task9.query review --source-review-id 8f17b11666f52dc1fcca4fb62c233df9d5dc755992823c0470d135bb6341b55b
+```
+
+期望：商品返回 `success`、类别 `movie`、版本属性摘要、作品 `mv_24a89e3536e837e6`（`edition`、`auto_decision`）与匹配状态；评论返回文件定位（记录序号、行号、偏移、记录哈希）、`rd0001` 下的逻辑评论、去重层次、家族、归属作品，以及它是 Legend 推断上界的直接依赖。
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task9.query source --asin B000063UR2
+```
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task9.query source --tconst tt0089469
+```
+
+期望：列出该快照或 IMDb 行影响的全部最终实体与字段（例如 Legend 的 `title`、`release_year`、`runtime_minutes`、演职员成员、别名，以及 B000063UR2 的版本字段）及路径长度。
+
+```bash
+docker compose --profile crawl run --rm -T crawler python -m etl_task9.query person --person-id ps_fb262c7cedc84d5e
+```
+
+期望：规范名 Olivia de Havilland 及其来源（IMDb `nconst` 与 `name.basics` 行），每条页面署名的 ASIN、区域、序号与原值，外部 ID 的判定依据，6 条提及的归并依据与轮次，参与的 4 部作品与角色。
+
+另有影响分析（计划）：`python -m etl_task9.query impact --rule rating:MR1`、`python -m etl_task9.impact verify-sources`。
+
+## 规则或来源改变后定位受影响字段（R32–R35）
+
+1. **来源改变**：`verify-sources` 对 `lineage_version` 引用的源记录重算哈希（页面快照正文、IMDb 文件、评论文件），不一致的源记录经 `field_impact` 得到受影响字段，再按下表给出要重跑的上游步骤与 DAG：
+
+| 变化的源 | 受影响的上游 | 重跑顺序（DAG） |
+|---|---|---|
+| 页面快照 | 任务 3 解析与分类 → 任务 4 断言与匹配 → 任务 5 提及 → 任务 6 候选 → 任务 7 消解 → 任务 8 归属 | `amazon_products_task3_classify` → `amazon_movies_task4_match` → `amazon_movies_task5_person` → `amazon_movies_task6_release` → `amazon_movies_task7_conflict` → `amazon_reviews_task8_dedup` → `amazon_movies_task9_lineage` |
+| IMDb 文件 | IMDb 装载 → 任务 4–7 | `imdb_reference_task4_load` → 任务 4 至 7 → 任务 9 |
+| 评论文件 | 任务 1 → 任务 2 清单 → 任务 6 评论时间 → 任务 8 | `amazon_reviews_task1` → … → 任务 9 |
+
+2. **规则改变**：`impact --rule <rule_id>` 或 `--rule-version t7r3` 列出依赖这些边的字段；上游以新规则版本生成新版本（如 `cv0004`）后，任务 9 以新输入键生成 `lv0002`：阶段键包含上游版本与阶段键，`entity_stage` 只对上游阶段键变化的实体重建批次（与任务 7 的阶段键增量一致）；`report diff lv0001 lv0002` 按实体、字段、成员列出最终值、采用断言与来源集合的变化。
+3. 夹具演示（AC15）：改一个快照文件、生成只改一条规则的第二个 `cv` 版本，分别验证上面两条路径。
+
+## 版本、幂等、分批与编排（R36–R40）
+
+- 输入键：R01 各版本、`cv0003` 与 `rd0001` 的阶段键、IMDb 快照、规则版本 `t9r1`、批大小以外的参数；同输入键已有 `verified` 版本时记 `reused`。
+- 阶段键：`sources ⊂ assertions ⊂ derivations ⊂ selections ⊂ impact`，下游键包含上游键；只换 `rd` 版本时只重建评论相关断言与选择。
+- 分批：作品、版本、人物按 ID 排序每 1,000 个一批；结果与 `entity_stage`、`run_batch` 同事务；影响闭包最后一个事务整体替换；每步持抽取级咨询锁（与任务 7、8 同法）。
+- DAG `amazon_movies_task9_lineage`：`check_inputs → build_sources → build_assertions → build_derivations → build_selections → build_impact → finalize_version → verify → finalize_report → gate`；确定性错误（输入缺失、版本未核实、核对失败）不重试，数据库连接等暂时错误最多重试 2 次；`finalize_report`、`gate` 为 `all_done`，`gate` 在任何上游失败时失败。
+- `verify`：R19 无环与终止、R25 覆盖率、R26 值一致、计数自洽、上游行数未变。
+
+## 业务库副本演练（R43）
+
+每个实现阶段完成后、T9-08 正式运行前，在副本上全链路运行并核对：
+
+1. 停止 Airflow 三个服务：`docker compose stop airflow-scheduler airflow-dag-processor airflow-apiserver`。
+2. 建库：`docker compose exec -T postgres psql -U postgres -c "CREATE DATABASE etl_t9_rehearsal TEMPLATE etl_movies OWNER etl_app"`，随后 `docker compose exec -T postgres psql -U postgres -c "CHECKPOINT"`（任务 8 演练时 `TEMPLATE` 按 `WAL_LOG` 复制写了约 27 GB WAL，不 `CHECKPOINT` 会一直占盘）；之后恢复 Airflow。库约 36 GB，磁盘可用 110 GB。
+3. 以 `docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t9_rehearsal crawler python -m etl_task9.runner …` 运行并 `check`，对照本文试算逐项解释差异；抽查四个演示查询。
+4. 删库：`DROP DATABASE etl_t9_rehearsal` 后再执行 `CHECKPOINT`。演练发现的缺陷先补夹具与测试，再改实现。
+
+## 夹具设计（R42）
+
+任务 7 的教训是夹具与真实输出不同形会掩盖缺陷。任务 9 的夹具在 `etl_test` 中按顺序建立任务 1–8 的真实表结构（应用迁移 `001`–`701`），用各任务自己的装载或写入函数生成上游行（任务 1 装载器读合成 gzip；任务 3–8 用各自 `tests/fixtures` 的写法），保证 jsonb 键名、数组与阶段键与正式库一致；只有 IMDb 与快照文件是小型合成文件。`tests/integration/conftest.py` 增加 `DROP SCHEMA IF EXISTS task9`。每个 AC 独立初始化。
+
+## 抽查评价设计（R46–R49）
+
+- 抽样：在 `lv0001` 的 `field_selection` 中按 `md5(selection_id)` 排序分层取前 N：`L1` 作品标量 15、`L2` 作品多值成员 15、`L3` 版本字段 10、`L4` 人物 10、`L5` 评论与商品归属 10（后者从 `v_review_lineage`、`v_product_lineage` 取）。
+- 审核表（CSV，不入 Git）：实体、字段、最终值、处理路径（每步操作、`rule_id`、上游表与键），原始证据摘录（页面按定位取区域附近文字 ≤ 300 字符、IMDb 原行、评论定位与正文前 80 个字符），标注列 `label`、`error_type`、`human_evidence`。
+- AI 草稿：AI 只读审核表与原始证据文件，逐项写“读到的原始值”与判断，不读 `task9` 的状态列；人工（付林轩）逐项审核后导入，改判或存疑项须填依据（R49）。
+- 指标：血缘链正确率 = `correct` /（`correct` + `incorrect`），总体与分层；`unsure` 单列。只代表抽查样本。
+
+## 资源预算与估算
+
+| 项目 | 预算 | 说明 |
+|---|---|---|
+| 运行时间 | 约 20–40 分钟（预算） | 快照哈希核验读 9,590 个 gzip（约 1.6 GB 压缩）；其余是库内连接 |
+| `task9` 体量 | 约 1.5–2.5 GB（预算） | 见上文预算表 |
+| 演练副本 | 约 36 GB + WAL | 磁盘可用 110 GB；建删后 `CHECKPOINT` |
+
+## 异常与恢复处理
+
+- 上游版本缺失或未 `verified`：`check_inputs` 确定性失败，不重试。
+- 快照缺失或哈希不一致：不中断构建，写质量问题并降级 `trace_status`（R09）；正式库若出现，报告逐条列出。
+- 重放不一致：不中断，写 `replay_mismatch`，字段保持 `partial`（R21）。
+- 中断：已提交批次由 `entity_stage` 跳过；影响闭包整体替换；`verify` 失败时版本保持 `unverified`，同输入重跑在原版本上重写（R40）。
+- 大连接的查询计划：沿用任务 8 经验，必要时只在该事务里 `SET LOCAL enable_nestloop = off`、调大 `work_mem`，并关闭并行哈希以免占满 `/dev/shm`。
