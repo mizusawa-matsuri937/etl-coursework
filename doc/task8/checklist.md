@@ -1,6 +1,6 @@
 # 任务 8 AC 完成情况（评论清洗与重复识别）
 
-状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T8-01 至 T8-03 实现后 AC02、AC03、AC04、AC05、AC14 通过并勾选；T8-04 实现后 AC01、AC06（补齐）与 AC07–AC10 通过并勾选；T8-05 实现后 AC11、AC12 通过并勾选；T8-06 实现后 AC13 通过并勾选；T8-07 演练后 AC15 通过并勾选；T8-08 正式库运行后 AC16、AC18 通过并勾选；AC17 等待付林轩审核标注，保持未勾选（导入后的命令标注 `（计划）`）。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T8-01 至 T8-03 实现后 AC02、AC03、AC04、AC05、AC14 通过并勾选；T8-04 实现后 AC01、AC06（补齐）与 AC07–AC10 通过并勾选；T8-05 实现后 AC11、AC12 通过并勾选；T8-06 实现后 AC13 通过并勾选；T8-07 演练后 AC15 通过并勾选；T8-08 正式库运行后 AC16、AC18 通过并勾选；AC17 于付林轩审核 AI 草稿、全部采纳导入后通过并勾选。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`，`psql -Atc` 输出首行会多一个 `SET`）。
 
@@ -230,21 +230,20 @@ docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default
 
 ## AC17 正式库评价
 
-- [ ] 等待付林轩审核标注。2026-11-03 已导出 `ev_rd0001` 120 项（六层配额 15/25/20/20/20/20 无补位，`V2` 中 `weak_support` 10，`item_key` 不重复），AI 只读盲测表填写草稿 `eval_items_ai_draft.csv`（41 项拿不准）；**尚未导入任何标注，指标未计算**。审核与导入步骤见 runbook 第 5 节与 [report](report.md) 第 6.2 节。
+- [x] 2026-11-03 通过：`ev_rd0001` 120 项（六层 15/25/20/20/20/20 无补位，`V2` 中 `weak_support` 10）；AI 预填草稿，付林轩审核后全部采纳，导入 120 条（标注人付林轩，不是独立手工标注）。合并精确率 0.975（39/40）、不合并正确率 0.5（20/40）、近似评论同一性比例 0.95（19/20）、统计组同片率 0.9474（18/19，`unsure` 1）；见 [report](report.md) 第 6 节。
 
 ```bash
-# 当前：评价项 120、标注 0
-docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT count(*), count(DISTINCT item_key) FROM task8.eval_item WHERE eval_set_id = 'ev_rd0001'; SELECT count(*) FROM task8.eval_label WHERE eval_set_id = 'ev_rd0001';"
+# 评价项与标注数（只读）
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT count(*), count(DISTINCT item_key) FROM task8.eval_item WHERE eval_set_id = 'ev_rd0001'; SELECT count(*), string_agg(DISTINCT annotator, ',') FROM task8.eval_label WHERE eval_set_id = 'ev_rd0001';"
 ```
 
-期望（现在）：`SET` 之后为 `120|120` 与 `0`。
+期望：`SET` 之后为 `120|120` 与 `120|付林轩`。
 
 ```bash
-# （计划，导入标注后）指标
 docker compose --profile crawl run --rm -T crawler python -m etl_task8.evaluate metrics
 ```
 
-期望（计划）：`labeled_total` 为 120，标注人为付林轩，输出总体与六层指标。
+期望：`labeled_total` 120、`annotators` 为 `["付林轩"]`；`merge_precision` 0.975（39/40）、`no_merge_correct` 0.5（20/40）、`near_duplicate_same_ratio` 0.95（19/20）、`stat_group_same_movie_rate` 0.9474（18/19，`unsure` 1）；六层 `by_stratum` 与 report 第 6.2 节相同。
 
 ## AC18 迁移、测试与仓库卫生
 

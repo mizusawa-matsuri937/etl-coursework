@@ -1,6 +1,6 @@
 # 任务 8（评论清洗与重复识别）运行与交付报告
 
-状态：2026-11-03 编写。**正式库运行完成，评价待付林轩审核标注**。对象为去重版本 `rd0001`（规则 `t8r1`，`verified`），评价集 `ev_rd0001`。规则、AC 与设计以 [spec](spec.md)、[design](design.md) 为准，逐项复核命令见 [checklist](checklist.md)，运行与审核方法见 [runbook](runbook.md)。数字来自 2026-11-03 对正式库 `etl_movies` 的只读查询与 `outputs/task8/<抽取>/rd0001/t8_full_1/summary.json`；没有验证的内容在文中明确说明。
+状态：2026-11-03 编写。**任务 8 完成**：正式库运行完成，评价标注由 AI 预填、付林轩审核后全部采纳导入。对象为去重版本 `rd0001`（规则 `t8r1`，`verified`），评价集 `ev_rd0001`。规则、AC 与设计以 [spec](spec.md)、[design](design.md) 为准，逐项复核命令见 [checklist](checklist.md)，运行与审核方法见 [runbook](runbook.md)。数字来自 2026-11-03 对正式库 `etl_movies` 的只读查询与 `outputs/task8/<抽取>/rd0001/t8_full_1/summary.json`；没有验证的内容在文中明确说明。
 
 ## 1. 概要
 
@@ -8,7 +8,7 @@
 - 重复的主体是 **Amazon 把同一条评论展示在同一商品家族的各个版本上**：识别出 140,584 个评论家族（多 ASIN 家族 45,953 个），键完整记录归并为 **1,908,386 条逻辑评论**，重复评论数 5,941,167（`D1` 4,501、`D2` 9,432、`D3` 5,927,234）。跨家族同内容 4,202 组、近似评论 3,477 对只标候选，不合并（H01、H02）。
 - 作品评分：电影单品上的原始记录 298,769 条（平均 4.0542）→ 归属作品的逻辑评论 257,733 条（平均 4.0303）；542 部作品的评论数因去重变化，29 部平均分变化 ≥ 0.1（最大 0.6667）。作品评分不含合集（H03），`likely_duplicate_movie` 与共享评论的作品组成评分统计组 8,377 个（多作品组 259 个、541 部作品），组内每条评论只计一次（H04）。
 - 运行：先冻结开发池，再经 Airflow `t8_full_1` 生成 `rd0001`（9 个任务 success，15 分 13 秒），`t8_full_2` 为 `reused`；`etl_task8.check` 退出码 0、`"problems": []`；上游表行数不变，`cv0001`–`cv0003` 都在。
-- 评价：120 项六层盲测表已导出，AI（Claude）只读盲测表填写了草稿 `eval_items_ai_draft.csv`（41 项标为拿不准），**等待付林轩逐项审核后导入；指标尚未计算**（第 6 节）。
+- 评价：120 项六层盲测样本，**AI 预填草稿、付林轩审核后全部采纳导入**（`same` 96、`different` 23、`unsure` 1）。合并精确率 0.975（39/40）、不合并正确率 0.5（20/40）、近似评论同一性比例 0.95（19/20，只描述）、统计组同片率 0.9474（18/19，`unsure` 1）。指标只代表分层样本（第 6 节）。
 
 ## 2. 目标与方法概述
 
@@ -116,29 +116,50 @@
 1. **建副本的 WAL 峰值**：PostgreSQL 18 的 `CREATE DATABASE … TEMPLATE` 默认 `WAL_LOG`，复制 30 GB 先写约 27 GB WAL，建库后 VM 磁盘只剩 814 MB；手动 `CHECKPOINT` 后回收。runbook 第 3 节加了这一步。
 2. **评价 `V5` 重复项**：统计组 `basis` 里同一对作品可能有两条依据，原抽样按依据取项，第一次导出的 `V5` 有 5 对作品各出现两次。改为按作品对去重，补测试（修正前失败、修正后通过，全量 1,186 项通过），尚未导入标注时重新导出；其余 115 项不变。详见 design“正式库实测（T8-08）”。
 
-## 6. 评价（待付林轩审核标注后计算）
+## 6. 评价（AI 预填、付林轩审核）
 
-### 6.1 当前状态
+### 6.1 样本与标注来历
 
-- 评价集 `ev_rd0001`：120 项，`V1` 同 ASIN 变体 15、`V2` 家族复制 25（其中 `weak_support` 10）、`V3` 跨家族同内容 20、`V4` 近似评论 20、`V5` 统计组内作品对 20、`V6` 未成候选的同用户同 ASIN 不同评论 20，均无补位；样本排除开发池用户（R45、R46）。
-- 盲测表 `eval_items.csv` 只有两侧原始字段，编号按 `md5(item_key)` 全局打乱，不含层次与系统结论（R47）。
-- **AI 草稿**：`eval_items_ai_draft.csv` 由 AI（Claude）只读盲测表逐项阅读后填写，不读 `task8` 结论表：`same` 96、`different` 23、`unsure` 1；`ai_doubt` 为 `true` 41 项，主要是正文很泛而商品标题为空、无法确认两个 ASIN 是否同一作品的项，同一用户同一商品上改摘要或隔期重贴的项，以及同名作品与合装商品。这只是审核线索，不是事实。
-- **指标尚未计算**：须付林轩逐项审核、另存为 `eval_items_labeled.csv` 并导入后，才运行 `evaluate metrics`。本节届时补写：标注来历（如实写“AI 预填、付林轩审核”）、合并精确率（`V1`、`V2`）、不合并正确率（`V3`、`V6`）、近似评论同一性比例（`V4`，只描述）、统计组同片率（`V5`），以及逐项错误分析。
+- 评价集 `ev_rd0001`：120 项，`V1` 同 ASIN 变体 15、`V2` 家族复制 25（其中 `weak_support` 10）、`V3` 跨家族同内容 20、`V4` 近似评论 20、`V5` 统计组内作品对 20、`V6` 未成候选的同用户同 ASIN 不同评论 20，均无补位；样本排除开发池用户（R45、R46）。盲测表 `eval_items.csv` 只有两侧原始字段，编号按 `md5(item_key)` 全局打乱（R47）。
+- **AI 预填**：AI（Claude）只读盲测表逐项填写草稿 `eval_items_ai_draft.csv`（`same` 96、`different` 23、`unsure` 1，`ai_doubt` 41 项），不读 `task8` 结论表。
+- **付林轩审核**：2026-11-03 付林轩审核草稿后确认“都没有问题”，全部采纳、没有改判。导入文件 `eval_items_labeled.csv`（sha256 `99059254a260c6c686732314caa1b83796084ee3f7f7fbe62e0a440639721705`）由 AI 按此确认生成：`human_label` 取 `ai_label`；40 项存疑且非 `unsure` 的项的 `human_evidence` 写“付林轩审核采纳 AI 对盲测表字段的核对：”加 AI 依据；`note` 为“付林轩 2026-11-03 审核 AI 草稿后采纳，未改判”。导入 `task8.eval_label` 120 条，标注人 `付林轩`（R49）。
+- **如实说明**：这些标注不是付林轩独立手工标注；存疑项的依据是盲测表字段的比对，没有记录逐项打开 Amazon 商品页或 IMDb 的外部核查。
 
-### 6.2 待办：审核与导入
+### 6.2 指标（`evaluate metrics`，R48）
 
-1. 打开 `outputs/task8/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rd0001/eval/eval_items_ai_draft.csv`，按 `LABELING.md` 口径逐行填 `human_label`；`ai_doubt` 为 `true` 或与 `ai_label` 不同的项在 `human_evidence` 写可核实依据（`unsure` 除外）；`note` 不能原样复制 `ai_reason`。各列含义与审核要点见 runbook 第 5 节。
-2. 另存为同目录的 `eval_items_labeled.csv`，然后导入并计算指标：
+| 指标 | 层 | 分子/分母 | 值 | `unsure` |
+|---|---|---|---|---|
+| 合并精确率（标 `same` 的比例） | `V1`、`V2` | 39/40 | 0.975 | 0 |
+| 不合并正确率（标 `different` 的比例） | `V3`、`V6` | 20/40 | 0.5 | 0 |
+| 近似评论同一性比例（只描述，不是错误率） | `V4` | 19/20 | 0.95 | 0 |
+| 统计组同片率 | `V5` | 18/19 | 0.9474 | 1 |
 
-```bash
-docker compose --profile crawl run --rm -T crawler python -m etl_task8.evaluate import /opt/etl/outputs/task8/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rd0001/eval/eval_items_labeled.csv --annotator 付林轩
-```
+| 层 | `same` | `different` | `unsure` |
+|---|---|---|---|
+| `V1` 同 ASIN 变体（`D2`） | 15 | 0 | 0 |
+| `V2` 家族复制（`D3`） | 24 | 1 | 0 |
+| `V3` 跨家族同内容（`C1`） | 10 | 10 | 0 |
+| `V4` 近似评论（`C2`） | 19 | 1 | 0 |
+| `V5` 统计组内作品对 | 18 | 1 | 1 |
+| `V6` 同用户同 ASIN 不同评论 | 10 | 10 | 0 |
+
+指标只代表分层抽样的评价样本，不代表全量准确率；`V3`、`V4`、`V6` 是刻意多取的边界情况。
+
+### 6.3 错误分析
+
+- **合并（`V1`、`V2`）**：唯一的 `different` 是 `t8_eval_0031`（`V2`），正文是通用的礼物评价，两个 ASIN 编号不相关，更像同一用户在两件商品上各贴了同一句话。`V1` 15 项全对；`V2` 中 10 项 `weak_support` 只有这 1 项被判为不同。
+- **跨家族同内容（`V3`，10/20 判为 `same`）**：一半其实是同一作品不同版本的平台复制，只是两个 ASIN 被分进了不同家族，例如《Robin Hood: Men in Tights》（`t8_eval_0038`、`0089` 同一对 ASIN）、《Bullitt》(1968)、1970 年代版《三个火枪手》；另有续集、《哈利·波特》Ultimate Edition、Noddy 套装与单碟等无法凭字段确认同片的项。说明家族的评论集合重叠阈值（R12）会漏掉一部分同作品版本，H01 的保守选择让这些评论被多计。
+- **未成候选的同用户同 ASIN 不同评论（`V6`，10/20 判为 `same`）**：都是同一用户在同一商品上改摘要、编辑几个词或隔天到隔年重贴同一正文（`t8_eval_0026`、`0030`、`0058`、`0068`、`0069`、`0070`、`0076`、`0077`、`0085`、`0086`）。内容键只用原值（R10、R17），这类重贴在本版本里是不同逻辑评论；第 8 节建议 1、2 可以处理。
+- **近似评论（`V4`）**：19/20 是同一意见的重贴或改写，只作描述；`t8_eval_0098` 句子重排、摘要不同、日期差 3 天，判为另写的一条。
+- **统计组（`V5`）**：`t8_eval_0118` 是同一纪录片系列的两集（“Super Out Break Tornadoes”与“Shipwrecks of the Great Lakes”），因共享评论进了同一统计组，是统计组的误连；`t8_eval_0073` 两侧标题都是“Peter Pan”，同名作品多，标 `unsure`。
+
+### 6.4 复核命令
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task8.evaluate metrics
 ```
 
-3. 指标出来后补写本节与 checklist AC17，勾选 T8-08，编写交接文档 `doc/handoffs/<日期>-task8-to-task9.md`。
+期望：`labeled_total` 120、`annotators` 为 `["付林轩"]`，四项指标与上表相同。
 
 ## 7. 已知局限
 
@@ -149,7 +170,7 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task8.evaluate 
 - **隔离记录**：62,131 条隔离记录不重新解码、不进评分（H06）。
 - **阈值来源**：家族阈值 0.5、近似阈值 0.9 来自规划时对全量的只读探查，开发池在首次运行前冻结，但阈值并非只由开发池得出（R45）。
 - **存储**：`task8` 6.2 GB，超出 4 GB 预算（第 5 节）。
-- **评价未完成**：指标待人工审核导入后才有；单一标注人，标注底稿由 AI 预填，审核后的标注不是独立手工标注。
+- **评价**：单一标注人；标注由 AI 预填、付林轩审核后全部采纳，不是独立手工标注；存疑项依据为字段比对，没有逐项外部核查；样本只有 120 项。
 
 ## 8. 改进建议（只写建议，本次未实施）
 
@@ -165,7 +186,7 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task8.evaluate 
 | 迁移 | `sql/701_task8_schema.sql` |
 | 源码与 DAG | `src/etl_task8/`、`dags/amazon_reviews_task8_dedup.py` |
 | 运行报告 | `outputs/task8/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rd0001/t8_full_1/`（`summary.json`、`report.md`、`examples.md`、三类统计 CSV、`dup_candidate.csv`、`checksums.json`、`run_summary.json`，不入 Git） |
-| 评价表与 AI 草稿 | 同上 `rd0001/eval/`（`eval_items.csv`、`eval_items_ai_draft.csv`、`eval_items_draft.csv`、`LABELING.md`、`ai_draft_work/`，不入 Git） |
+| 评价表、AI 草稿与标注 | 同上 `rd0001/eval/`（`eval_items.csv`、`eval_items_ai_draft.csv`、`eval_items_labeled.csv`、`eval_items_draft.csv`、`LABELING.md`、`ai_draft_work/`、`metrics.json`、`metrics.md`，不入 Git） |
 | 演练导出 | `outputs/rehearsal_t8/task8/<抽取>/rd0001/`（不入 Git） |
 
 只读复现关键数字：

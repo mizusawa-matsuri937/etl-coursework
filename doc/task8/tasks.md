@@ -1,6 +1,6 @@
 # 任务 8 开发任务（评论清洗与重复识别）
 
-状态：2026-11-03 编写计划；T8-00 已执行并通过（AC00）；T8-01 至 T8-04 于同日实现并在业务库副本演练，T8-05、T8-06 同日实现（DAG 经真实 scheduler 在 `etl_test` 验证，演练库已删除）。T8-07 同日在业务库副本按“先冻结、再运行”重做全链路并通过（演练库已删除）；T8-08 同日在正式库运行完成（`rd0001` `verified`，报告与盲测表、AI 草稿已导出），评价待付林轩审核标注，故未勾选。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-11-03 编写计划；T8-00 已执行并通过（AC00）；T8-01 至 T8-04 于同日实现并在业务库副本演练，T8-05、T8-06 同日实现（DAG 经真实 scheduler 在 `etl_test` 验证，演练库已删除）。T8-07 同日在业务库副本按“先冻结、再运行”重做全链路并通过（演练库已删除）；T8-08 同日在正式库运行完成（`rd0001` `verified`），评价标注由 AI 预填、付林轩审核后全部采纳导入，任务 8 完成。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。每项 AC 的逐条复核命令见 [checklist](checklist.md)。每个实现阶段完成后先在业务库副本 `etl_t8_rehearsal` 演练（design“业务库副本演练”），再进入下一阶段。
 
@@ -148,9 +148,9 @@
 
   期望：只有 `airflow_meta`、`etl_movies`、`etl_test`、`postgres`、`template0`、`template1`，没有 `etl_t8_rehearsal`。
 
-- [ ] T8-08 正式库运行与报告：冻结开发池、经 Airflow 生成 `rd0001`、重跑 `reused`、核对、导出报告与盲测表；审核标注导入后计算指标，编写 `report.md` 与交接文档。规则：正式库运行检验全部规则（见 AC16–AC18 的 Rule 列）；关联 AC16–AC18。
-  - 文件：`doc/task8/{report,design,runbook,tasks,checklist}.md`、`src/etl_task8/evaluate.py`（`V5` 按作品对去重）、`tests/integration/test_task8_evaluate.py`、`README.md`、`CLAUDE.md`；交接文档 `doc/handoffs/<日期>-task8-to-task9.md` 待评价完成后编写；`outputs/task8/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rd0001/`（不入 Git）。
-  - 完成情况：2026-11-03 **正式库运行完成，评价待付林轩审核标注**（因此不勾选）。先 `freeze`（`frozen_before_first_run: true`），`t8_full_1` 9 个任务 success（15 分 13 秒）生成 `rd0001` `verified`，`t8_full_2` `reused`；`check` 退出码 0；数字与 T8-07 演练逐项相同（逻辑评论 1,908,386、重复 5,941,167），见 [report](report.md)。发现并修正评价 `V5` 重复抽同一对作品（全量 1,186 项通过），重导 120 项；AI 草稿 `eval_items_ai_draft.csv` 已生成（41 项拿不准），未导入任何标注，指标未计算。
+- [x] T8-08 正式库运行与报告：冻结开发池、经 Airflow 生成 `rd0001`、重跑 `reused`、核对、导出报告与盲测表；审核标注导入后计算指标，编写 `report.md` 与交接文档。规则：正式库运行检验全部规则（见 AC16–AC18 的 Rule 列）；关联 AC16–AC18。
+  - 文件：`doc/task8/{report,design,runbook,tasks,checklist}.md`、`src/etl_task8/evaluate.py`（`V5` 按作品对去重）、`tests/integration/test_task8_evaluate.py`、`README.md`、`CLAUDE.md`；交接文档 `doc/handoffs/2026-11-03-task8-to-task9.md`；`outputs/task8/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rd0001/`（不入 Git）。
+  - 完成情况：2026-11-03 通过。先 `freeze`（`frozen_before_first_run: true`），`t8_full_1` 9 个任务 success（15 分 13 秒）生成 `rd0001` `verified`，`t8_full_2` `reused`；`check` 退出码 0；数字与 T8-07 演练逐项相同（逻辑评论 1,908,386、重复 5,941,167），见 [report](report.md)。发现并修正评价 `V5` 重复抽同一对作品（全量 1,186 项通过），重导 120 项；AI 草稿 `eval_items_ai_draft.csv`（41 项拿不准）经付林轩审核后全部采纳，导入 120 条标注（标注人付林轩）：合并精确率 0.975（39/40）、不合并正确率 0.5（20/40）、近似评论同一性比例 0.95（19/20）、统计组同片率 0.9474（18/19，`unsure` 1）。
 
   ```bash
   # 正式库只读核对
@@ -167,17 +167,24 @@
   期望：`SET` 之后为 `succeeded|rd0001|t8_full_1`、`reused|rd0001|t8_full_2`、`rd0001|verified`。
 
   ```bash
-  # 评价集与 AI 草稿（本地 outputs，不入 Git）：120 项、item_key 不重复、尚未导入标注
+  # 评价集与已导入标注（只读）：120 项、item_key 不重复、标注 120 条
   docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT count(*), count(DISTINCT item_key) FROM task8.eval_item WHERE eval_set_id = 'ev_rd0001'; SELECT count(*) FROM task8.eval_label WHERE eval_set_id = 'ev_rd0001';"
   ```
 
-  期望：`SET` 之后为 `120|120` 与 `0`。
+  期望：`SET` 之后为 `120|120` 与 `120`。
 
   ```bash
   python3 -c "import csv, collections; r=list(csv.DictReader(open('outputs/task8/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rd0001/eval/eval_items_ai_draft.csv', encoding='utf-8'))); print(len(r), len({x['item_id'] for x in r}), dict(collections.Counter(x['ai_label'] for x in r)), sum(x['ai_doubt'] == 'true' for x in r), sum(bool(x['human_label']) for x in r))"
   ```
 
-  期望：`120 120 {'same': 96, 'different': 23, 'unsure': 1} 41 0`（`human_label` 全空，待审核）。
+  期望：`120 120 {'same': 96, 'different': 23, 'unsure': 1} 41 0`（AI 草稿本身的 `human_label` 为空；审核后的标注在 `eval_items_labeled.csv`）。
+
+  ```bash
+  # 评价指标（只读）
+  docker compose --profile crawl run --rm -T crawler python -m etl_task8.evaluate metrics
+  ```
+
+  期望：`labeled_total` 120、`annotators` 为 `["付林轩"]`；`merge_precision` 39/40 = 0.975、`no_merge_correct` 20/40 = 0.5、`near_duplicate_same_ratio` 19/20 = 0.95、`stat_group_same_movie_rate` 18/19 = 0.9474（`unsure` 1）。
 
   ```bash
   # V5 按作品对去重的回归测试（工作目录：项目根目录）

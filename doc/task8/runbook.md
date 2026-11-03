@@ -174,7 +174,7 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task8.evaluate 
 
 期望：`ev_rd0001`，120 项，六层 15/25/20/20/20/20 均无补位，`V2` 中 `weak_support` 10。已导入标注时拒绝重导（`--force` 会清除标注）。
 
-2. **审核底稿（2026-11-03 已生成，等待付林轩审核）**。目录 `outputs/task8/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rd0001/eval/`：
+2. **审核底稿（2026-11-03 生成；同日付林轩审核后全部采纳，导入文件 `eval_items_labeled.csv`）**。目录 `outputs/task8/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rd0001/eval/`：
 
 | 文件 | 内容 |
 |---|---|
