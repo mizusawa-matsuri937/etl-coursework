@@ -475,7 +475,7 @@ def check_graph(conn: psycopg.Connection, ctx: RunContext | None, *, edge_keys: 
                 issue_key: str | None = None) -> dict[str, Any]:
     """R19：派生图无环、每条路径终止于源记录。检查三类问题（issue_key 给出时写质量问题）：
     - dangling：边的子或父不存在（断言不在 ak、源记录不在 sk）；
-    - no_parent：断言或字段选择没有任何父边（路径到此中断，到不了源记录）；
+    - no_parent：断言或非空字段选择没有任何父边（路径到此中断，到不了源记录；空值选择没有采用断言，不算）；
     - cycle：断言之间的边成环（Kahn 剥离后剩下的节点）。
     返回各类计数与样例。"""
     keys = list(edge_keys)
@@ -496,7 +496,7 @@ def check_graph(conn: psycopg.Connection, ctx: RunContext | None, *, edge_keys: 
         "AND NOT EXISTS (SELECT 1 FROM task9.derivation d WHERE d.stage_key = ANY(%(keys)s) "
         "AND d.child_kind = 'assertion' AND d.child_id = a.assertion_id) "
         "UNION ALL SELECT 'selection', f.selection_id, f.entity_type || '.' || f.field_name FROM task9.field_selection f "
-        "WHERE f.stage_key = ANY(%(keys)s) AND NOT EXISTS (SELECT 1 FROM task9.derivation d "
+        "WHERE f.stage_key = ANY(%(keys)s) AND f.value_text IS NOT NULL AND NOT EXISTS (SELECT 1 FROM task9.derivation d "
         "WHERE d.stage_key = ANY(%(keys)s) AND d.child_kind = 'selection' AND d.child_id = f.selection_id)",
         {"keys": keys, "ak": ak}).fetchall()
     cycle = _cycle_nodes(conn, keys)

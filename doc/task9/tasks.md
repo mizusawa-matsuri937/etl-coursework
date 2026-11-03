@@ -1,6 +1,6 @@
 # 任务 9 开发任务（字段级数据血缘）
 
-状态：2026-11-03 编写计划；T9-00 已执行并通过（AC00）；T9-01、T9-02 已完成；T9-03 至 T9-08 未开始。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-11-03 编写计划；T9-00 已执行并通过（AC00）；T9-01 至 T9-03 已完成；T9-04 至 T9-08 未开始。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。标注“（计划）”的命令在对应任务实现前不可运行，实现后实际核对再改写期望。每项 AC 的逐条复核命令见 [checklist](checklist.md)。每个实现阶段完成后先在业务库副本 `etl_t9_rehearsal` 演练（design“业务库副本演练”），再进入下一阶段。
 
@@ -57,17 +57,24 @@
 
   期望：第一条在 `SET` 之后输出 `candidate|156568`、`derived|330150`、`extract|1062036`；第二条输出 `edition_feature|t|46027`、`genre_term|t|34531`、`second_review|t|3015`。
 
-- [ ] T9-03 目标层：字段选择、`trace_status`、与目标层一致性、人工修订路径、评论与商品视图。规则：R04、R05、R10、R23–R27；关联 AC04、AC10。
-  - 文件：`src/etl_task9/selections.py`、`sql/801_task9_schema.sql`（视图）、`tests/integration/test_task9_selections.py`。
+- [x] T9-03 目标层：字段选择、`trace_status`、与目标层一致性、人工修订路径、评论与商品视图。规则：R04、R05、R10、R23–R27；关联 AC04、AC10。
+  - 文件：`src/etl_task9/selections.py`、`sql/801_task9_views.sql`（视图，由 `apply_task9_schema` 每次重建）、`src/etl_task9/{derivations,rules,runner}.py`（非空选择的无父检查、算法 `l3`、`--through selections`）、`tests/integration/test_task9_selections.py`。
   - 目标：范围内每个最终字段与成员一行选择；`NULL` 字段记状态与原因；最终值与目标表逐行一致；评论层视图不复制；演练库上覆盖率与 design 试算（85.6% → 期望 100%）对照。
-  - 完成情况：未执行（计划）。
+  - 完成情况：2026-11-03 完成。10 项新测试通过，全量 `1248 passed`。副本 `stages --through selections`：选择 531,371 个，非空 469,671 个全部可追溯（覆盖率 100%），relocated 59,362 正好是试算缺口，与目标层不一致 0。
 
   ```bash
-  # 字段选择与视图集成测试（工作目录：项目根目录）（计划）
+  # 字段选择与视图集成测试（工作目录：项目根目录）
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_selections.py
   ```
 
-  期望（计划）：全部通过，退出码 `0`。
+  期望：`10 passed`，退出码 `0`。
+
+  ```bash
+  # 可选：副本上的非空值覆盖率（只读；副本保留到 T9-07）
+  docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT count(*), count(*) FILTER (WHERE trace_status IN ('traced', 'relocated', 'manual')) FROM task9.field_selection WHERE stage_key = 'l7292c0631b27f9a' AND value_text IS NOT NULL"
+  ```
+
+  期望：在 `SET` 之后输出 `469671|469671`。
 
 - [ ] T9-04 影响闭包、四个演示查询、影响分析、来源核验与版本差异。规则：R28–R35；关联 AC11–AC15。
   - 文件：`src/etl_task9/{impact,query,versions}.py`、`tests/integration/{test_task9_query,test_task9_impact}.py`。

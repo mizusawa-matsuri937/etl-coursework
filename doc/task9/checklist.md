@@ -1,6 +1,6 @@
 # 任务 9 AC 完成情况（字段级数据血缘）
 
-状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T9-01 完成后 AC02、AC05 通过并勾选，AC01、AC03 部分完成（未勾选）；T9-02 完成后 AC06–AC09 通过并勾选；其余未执行。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T9-01 完成后 AC02、AC05 通过并勾选；T9-02 完成后 AC06–AC09 通过并勾选；T9-03 完成后 AC01、AC03、AC04、AC10 通过并勾选；其余未执行。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`，`psql -Atc` 输出首行会多一个 `SET`）。标注“（计划）”的命令在对应任务实现前不可运行，实现后实际核对再改写期望。
 
@@ -26,15 +26,14 @@ grep -c "^- R[0-9][0-9] \[" doc/task9/spec.md
 
 ## AC01 输入版本、分层与上游只读
 
-- [ ] 部分完成（T9-01，2026-11-03）：原始层与暂存层通过——上游各 schema 全表行数与摘要不变、迁移 801 新对象只在 `task9`、只读指定抽取、IMDb 快照、`t3p1`/`t4n1`、`rv`、`cv` 阶段键，版本不一致或 cv 未核实时确定性失败，并发确定性失败。T9-02（2026-11-03）补上派生边部分：运行前后上游不变、只写 task9、没有任务 8 统计表的断言或边（R05）。“范围外实体不生成选择”待 T9-03，故不勾选。
+- [x] 2026-11-03 通过（T9-01 至 T9-03）：只读指定抽取与版本，上游各表行数与摘要不变，新对象只在 `task9`；版本不一致或 cv 未核实时确定性失败。T9-03 补上：IMDb 行、提及、评论、合集成员等范围外实体有断言但没有选择，选择只来自 cv、`rv0001`、`map0002`、`pmap0001`、`t3r2`；评分统计没有选择、断言或逐条评论边（R05）。副本上不在 cv 的商品没有版本选择。
 
 ```bash
-# 原始层与暂存层部分：只读指定版本、上游不变、只写 task9
-docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_sources.py tests/integration/test_task9_assertions.py tests/integration/test_task9_derivations.py -k "ac01"
+# 只读指定版本、上游不变、只写 task9、范围外实体不生成选择、评分统计无逐条边
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_sources.py tests/integration/test_task9_assertions.py tests/integration/test_task9_derivations.py tests/integration/test_task9_relocate.py tests/integration/test_task9_selections.py -k "ac01"
 ```
 
-期望：`12 passed, 33 deselected`，退出码 `0`。T9-03 实现后再加入 `test_task9_selections.py` 的 AC01 用例（计划）。
-
+期望：`13 passed, 49 deselected`，退出码 `0`。
 
 ## AC02 源记录定位与获取时间
 
@@ -50,26 +49,33 @@ docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_
 
 ## AC03 快照哈希核验
 
-- [ ] 部分完成（T9-01，2026-11-03）：源记录层通过——正常、内容被改、文件缺失三个快照依次为 `ok`、`snapshot_hash_mismatch`、`snapshot_missing`，质量问题带期望与实际哈希或路径，构建不中断；业务库副本 9,590 个快照全部 `ok`。“相关字段 `trace_status = 'evidence_unverified'`”属于字段选择，待 T9-03 验证，故不勾选。
+- [x] 2026-11-03 通过（T9-01、T9-03）：正常、内容被改、文件缺失三个快照依次为 `ok`、`snapshot_hash_mismatch`、`snapshot_missing`，构建不中断；T9-03 补上：经后两个快照得到的非空版本字段 `trace_status = 'evidence_unverified'` 并写 `untraced_value`，正常快照的字段仍为 `traced`。副本 9,590 个快照全部 `ok`，没有 `evidence_unverified`。
 
 ```bash
-# 正常、内容被改、文件缺失三种快照（源记录层）
-docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_sources.py tests/integration/test_task9_assertions.py -k "ac03"
+# 三种快照（源记录层）与相关字段的 evidence_unverified
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_sources.py tests/integration/test_task9_assertions.py tests/integration/test_task9_derivations.py tests/integration/test_task9_relocate.py tests/integration/test_task9_selections.py -k "ac03"
 ```
 
-期望：`5 passed, 27 deselected`，退出码 `0`。
-
+期望：`6 passed, 56 deselected`，退出码 `0`。
 
 ## AC04 评论层视图
 
-- [ ] 未执行（计划）。
+- [x] 2026-11-03 通过（T9-03）：任务 8 小世界（经任务 1 装载与任务 8 运行生成）里有效、隔离、不完整评论分别返回 `mapped`、`quarantined`、`incomplete`；D3 复制返回逻辑评论、层次、家族与作品；只在合集上的评论只有商品没有作品；`task9` 里评论与商品只有两个视图。副本上 Legend 最早评论返回 `D3_family_copy` 与 Legend。
 
 ```bash
-# 有效、隔离、不完整评论与 D3 家族复制、合集评论（计划）
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_selections.py -k "ac04"
+# 评论视图三种状态、D3、合集评论；商品视图
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_sources.py tests/integration/test_task9_assertions.py tests/integration/test_task9_derivations.py tests/integration/test_task9_relocate.py tests/integration/test_task9_selections.py -k "ac04"
 ```
 
-期望（计划）：相关用例全部通过，退出码 `0`。
+期望：`2 passed, 60 deselected`，退出码 `0`。
+
+```bash
+# 可选：副本上的商品与评论视图（只读；副本保留到 T9-07）
+docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT collection_status, category, movie_id, relation_type, match_status, edition_title FROM task9.v_product_lineage WHERE asin = 'B000063UR2' AND conflict_version_id = 'cv0003'"
+docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT record_no, mapping_status, match_level, logical_review_id, family_id, movie_id FROM task9.v_review_lineage WHERE source_review_id = '8f17b11666f52dc1fcca4fb62c233df9d5dc755992823c0470d135bb6341b55b' AND review_dedup_version_id = 'rd0001'"
+```
+
+期望：第一条在 `SET` 之后输出 `success|movie|mv_24a89e3536e837e6|edition|merged|Legend (1986)`；第二条输出 `6450929|mapped|D3_family_copy|lr_a206995a2a4ec3f45864|rf_f4c0c1854b2f4130|mv_24a89e3536e837e6`。
 
 ## AC05 字段断言与未采用候选
 
@@ -114,14 +120,14 @@ docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET d
 
 ## AC08 只读重放补定位
 
-- [x] 2026-11-03 通过（T9-02）：类型词面补出 genre 区的任务 4 断言 ID 与面包屑的区域、序号；版本特征补出来源断言；第二早评论补出源评论 ID；都标 `relocated`。上游值被改得不一致时写 `replay_mismatch`、不写重放边，上游各表不变。业务库副本：类型词面 34,531、版本特征 46,027、第二早评论 3,015 全部一致（对照试算缺口 10,320、46,027、3,015）。字段 `trace_status = partial` 的落地在 T9-03 的字段选择中再验证。
+- [x] 2026-11-03 通过（T9-02）：类型词面补出 genre 区的任务 4 断言 ID 与面包屑的区域、序号；版本特征补出来源断言；第二早评论补出源评论 ID；都标 `relocated`。上游值被改得不一致时写 `replay_mismatch`、不写重放边，上游各表不变。业务库副本：类型词面 34,531、版本特征 46,027、第二早评论 3,015 全部一致（对照试算缺口 10,320、46,027、3,015）。T9-03 补上：不一致的类型成员、版本特征与推断上界的字段选择 `trace_status = 'partial'` 并计入缺口。
 
 ```bash
 # 类型词面、版本特征、第二早评论补定位与 replay_mismatch
-docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_derivations.py tests/integration/test_task9_relocate.py -k "ac08"
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_sources.py tests/integration/test_task9_assertions.py tests/integration/test_task9_derivations.py tests/integration/test_task9_relocate.py tests/integration/test_task9_selections.py -k "ac08"
 ```
 
-期望：`5 passed, 28 deselected`，退出码 `0`。
+期望：`6 passed, 56 deselected`，退出码 `0`。
 
 ```bash
 # 可选：业务库副本上的重放一致性与质量问题（只读）
@@ -151,14 +157,22 @@ docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET d
 
 ## AC10 字段选择、状态与一致性
 
-- [ ] 未执行（计划）。
+- [x] 2026-11-03 通过（T9-03）：作品与版本标量的状态与任务 7 一致（resolved、conflict_unresolved、missing），空值都有缺失原因；多值字段按成员一行；推断上界为 `inferred`；注入的改值与删成员都被 `check_values` 检出；人工修订只来自 human_decision，补一条到人工修订的边后选择判为 `manual`，评价标注不算修订。副本 531,371 个选择，非空 469,671 个全部可追溯（覆盖率 100%，试算 85.6%），与目标层不一致 0。
 
 ```bash
-# 四种状态、trace_status、NULL 缺失原因、值不一致检出、人工修订路径（计划）
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_selections.py -k "ac10"
+# 四种状态、NULL 缺失原因、成员、推断上界、不一致检出、人工修订路径、覆盖率
+docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_rules.py tests/integration/test_task9_sources.py tests/integration/test_task9_assertions.py tests/integration/test_task9_derivations.py tests/integration/test_task9_relocate.py tests/integration/test_task9_selections.py -k "ac10"
 ```
 
-期望（计划）：相关用例全部通过，退出码 `0`。
+期望：`5 passed, 57 deselected`，退出码 `0`。
+
+```bash
+# 可选：副本上的状态与 trace_status 分布、非空值覆盖率（只读）
+docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT status, trace_status, count(*) FROM task9.field_selection WHERE stage_key = 'l7292c0631b27f9a' GROUP BY 1, 2 ORDER BY 1, 2"
+docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT count(*), count(*) FILTER (WHERE trace_status IN ('traced', 'relocated', 'manual')) FROM task9.field_selection WHERE stage_key = 'l7292c0631b27f9a' AND value_text IS NOT NULL"
+```
+
+期望：第一条在 `SET` 之后输出 7 行：`conflict_unresolved|traced|478`、`inferred|relocated|3015`、`inferred|traced|3963`、`missing|traced|51`、`missing|untraced|61623`、`resolved|relocated|56347`、`resolved|traced|405894`；第二条输出 `469671|469671`。
 
 ## AC11 查询 field
 

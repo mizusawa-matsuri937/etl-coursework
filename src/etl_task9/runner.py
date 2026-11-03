@@ -7,7 +7,7 @@ T9-01、T9-02 只提供 run_stages：输入检查 → 抽取锁 → 按依赖链
 命令（项目根目录；演练库见 design“业务库副本演练”）：
 
     docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t9_rehearsal crawler \
-        python -m etl_task9.runner stages --through derivations
+        python -m etl_task9.runner stages --through selections
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from .run import (DEFAULT_BATCH, BeforeCommit, RunContext, RunInputs, add_counts
                   close_abandoned, extraction_lock, fail_run, finish_run, stage_complete, start_run)
 from .rules import STAGES
 
-IMPLEMENTED = ("sources", "assertions", "derivations")   # T9-01、T9-02；selections、impact 由后续阶段实现
+IMPLEMENTED = ("sources", "assertions", "derivations", "selections")   # T9-01–T9-03；impact 由 T9-04 实现
 
 
 def exec_stage(conn: psycopg.Connection, ctx: RunContext, stage: str, *, batch_size: int = DEFAULT_BATCH,
@@ -45,6 +45,9 @@ def exec_stage(conn: psycopg.Connection, ctx: RunContext, stage: str, *, batch_s
     if stage == "derivations":
         from . import derivations
         return derivations.build_derivations(conn, ctx, batch_size=batch_size, before_commit=before_commit)
+    if stage == "selections":
+        from . import selections
+        return selections.build_selections(conn, ctx, batch_size=batch_size, before_commit=before_commit)
     raise NotImplementedError(f"阶段 {stage} 尚未实现（当前只实现 {IMPLEMENTED}）")
 
 

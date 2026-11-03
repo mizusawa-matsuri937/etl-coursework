@@ -330,6 +330,32 @@ Legend 抽查（`mv_24a89e3536e837e6`）：`release_year` 登记任务 6 候选 
 | 质量问题（d 键） | — | 1（`nm17757708` 缺 `imdb.name` 行，改连演职员行） | T9-01 已记录的上游事实 |
 | `task9` 体量 | 全部阶段 1.5–2.5 GB（预算） | 副本合计 5,354 MB（含 T9-01 的 `a1` 与第一次的 `d1` 两组旧键）；按行数比例估算当前一组键（s、a2、d2）约 3.2 GB：`source_record` 584 MB、`assertion` 约 1.4 GB、`derivation` 约 1.0 GB、`relocation` 约 56 MB、`entity_stage` 约 90 MB | 已超预算上限且尚未计字段选择与影响闭包。原因：抽取边物化约 0.5 GB（见上）、集成层断言 36 万条、各表主键与索引都是长文本键；未为凑预算删减范围（H02、H04）。T9-08 正式库只有一组键；磁盘可用约 100 GB |
 
+## T9-03 实现要点与对计划的修正
+
+- `selections.py` 按 10 个家族写选择（f_movie_scalar、f_movie_multi、f_tconst、f_bound、f_movie_alias、f_edition_scalar、f_edition_feature、f_category、f_product_movie、f_person），每个家族一条语句：从目标层表取最终值与状态，按 `selection_id` 前 3 位十六进制分 4,096 桶（同派生边），同一语句里写字段选择与 `select` 边（`child_kind = 'selection'`，selections 阶段键）。只给已存在的采用断言写边；商品类别没有对应断言，直接连页面快照源记录。
+- 多值字段按成员一行；没有成员的字段（任务 7 `missing`）和空特征数组各一行 `missing`，带缺失原因；没有上界的作品一行 `missing`。任务 7 的 `conflict_unresolved` 成员（`conflict_pending`）记 `conflict_unresolved`。
+- `trace_status`（R25）在阶段最后一个单元一次判定：内存中沿 derivations 与 selections 两个键的边做后序 DFS，每个断言的标记是全部父边标记之并；优先级 untraced（断链）> partial（断链处是 `replay_mismatch` 的断言）> evidence_unverified（到达快照缺失或哈希不符的源记录）> manual（到达人工修订）> relocated（路径含重放边）> traced。没有采用断言的空值选择按考虑过的断言判定，都没有时为 untraced；只有非空值计入缺口并写 `untraced_value`。
+- R26 由 `check_values` 实现：重新从目标层表取全部家族的（实体、字段、成员、值、状态），和 `field_selection` 全外连接比对，值或状态不同、缺选择、多选择都写 `value_mismatch`。`check_graph` 对选择只查非空值的无父节点。
+- 视图写在 `sql/801_task9_views.sql`（tasks 原写 801_task9_schema.sql，按 design 改为独立文件，由 `apply_task9_schema` 每次重建）：`v_review_lineage` 每条原始评论在每个去重版本、每个归属作品一行；`v_product_lineage` 每个商品在每个映射版本、冲突版本、作品成员一行，都带版本列，查询须限定版本。
+- 修正：任务 7 作品别名表的阶段键是 scalar 阶段键（不是 multi）；人物页面别名是署名原文（如 `Yen, Donnie`），按提及的原文或规范名匹配（第一次演练 1,569 个别名没有父节点，算法 l1 → l2）；任务 7 IMDb 独有人物 `nm17757708` 没有人名，记 `missing` 而不是空值 `resolved`（l2 → l3）。三次都在 t9r1 发布前，只改阶段键。
+- 人工修订：夹具的任务 4 人工决策导入晚于映射，`map0002` 没有采用它，没有选择是 manual；manual 路径用在任务 9 自己的派生图里补一条“商品 → 人工修订源记录”边验证（AC10）。正式库人工修订 0 条，manual 计数 0。
+- 夹具没有 `task3.product_classification` 与 `task4.product_match_status` 的行（任务 7 夹具只建任务 7 需要的表），所以夹具里类别都是 `missing`（`not_classified`）、商品视图的类别与匹配状态为空；这两项在副本上核对（见下）。
+
+## T9-03 演练实测（业务库副本 `etl_t9_rehearsal`，2026-11-03）
+
+`docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t9_rehearsal crawler python -m etl_task9.runner stages --through selections`，退出码 0，前三阶段跳过，selections 82 秒（墙钟 1 分 23 秒）。短键 `l7292c0631b27f9a`（l3）；第一、二次的 `l795de69afe13c83`（l1）、`ledf2a5e574a5a8e`（l2）保留未删。
+
+| 项目 | 预算或试算 | 实测（`l7292c0631b27f9a`） | 说明 |
+|---|---|---|---|
+| 字段选择 | 约 45 万（预算） | 531,371（resolved 462,241、missing 61,674、inferred 6,978、conflict_unresolved 478） | 非空 469,671；空值 61,700 |
+| 非空值与试算 | 411,673（试算口径） | 469,671 | 多出的是试算未计入的人物外部 ID（35,390）、IMDb 独有人物规范名（22,157）、商品类别（9,590）、商品所属作品成员与演职员成员拆分口径等；试算各类数字逐一对上：作品标量 34,630、版本标量 49,980、类型成员 18,558、版本特征 46,027、别名 90,433、有效 tconst 5,407、上界 6,978 |
+| 覆盖率（R25） | 85.6%（严格口径试算），期望 100% | 100%（469,671 / 469,671） | traced 410,386 中非空 410,309；relocated 59,362 = 类型页面成员 10,320 + 版本特征 46,027 + 评论上界 3,015，正好是试算缺口 |
+| trace_status | — | traced 410,386、relocated 59,362、untraced 61,623（全部是空值） | 无 partial、evidence_unverified、manual |
+| 与目标层一致（R26） | — | 不一致 0 | — |
+| select 边 | — | 493,144 | 悬空 0、非空选择无父节点 0、环 0 |
+| 视图 | — | B000063UR2：success、movie、Legend、edition、merged；Legend 最早评论 `rd0001` 下 mapped、D3_family_copy、归属 Legend；没有作品的行 mapped 5,612,062、quarantined 62,131、incomplete 12 | 评论不复制 |
+| `task9` 体量 | 1.5–2.5 GB（预算，全部阶段） | 副本合计约 7.3 GB（含 T9-01、T9-02、T9-03 的旧键）；当前一组键估约 3.7 GB（T9-02 估的 3.2 GB 加字段选择约 500 MB、select 边） | 超预算，原因同 T9-02；影响闭包尚未计入 |
+
 ## 夹具设计（R42）
 
 任务 7 的教训是夹具与真实输出不同形会掩盖缺陷。任务 9 的夹具在 `etl_test` 中按顺序建立任务 1–8 的真实表结构（应用迁移 `001`–`701`），用各任务自己的装载或写入函数生成上游行（任务 1 装载器读合成 gzip；任务 3–8 用各自 `tests/fixtures` 的写法），保证 jsonb 键名、数组与阶段键与正式库一致；只有 IMDb 与快照文件是小型合成文件。`tests/integration/conftest.py` 增加 `DROP SCHEMA IF EXISTS task9`。每个 AC 独立初始化。

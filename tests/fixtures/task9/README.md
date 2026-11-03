@@ -23,7 +23,7 @@
 | `test_task9_sources.py` | 迁移 801 前后的关系清单；cv、rd、map 不一致或 cv 未核实；另一连接持锁 | AC01、R38 |
 | `test_task9_sources.py` | 页面 B0Y1（尝试序号 2）、Legend 的 `title.basics` 行、评论 LU1、人工决策；B0R6 的 `fetched_at` 置空 | AC02 |
 | `test_task9_sources.py` | 用 `cv0002`/`rd0002` 再建一次源记录；第 2 批注入故障后续跑 | AC02（ID 稳定、续跑） |
-| `test_task9_sources.py` | 快照 B0Lg 正常、B0LgB 内容被改、B0LgD 文件删除 | AC03（源记录层；字段 `trace_status` 在 T9-03 验证） |
+| `test_task9_sources.py` | 快照 B0Lg 正常、B0LgB 内容被改、B0LgD 文件删除 | AC03（源记录层） |
 | `test_task9_assertions.py` | 页面字段、任务 4 无父与有父断言、提及、IMDb 五类行、Legend 6 条评论 | AC05 |
 | `test_task9_assertions.py` | Legend 标题候选：IMDb 与 B0Lg adopted、B0LgB（IMDb 别名）`superseded_by_specific`、B0LgD（无关标题）`rejected`；年份 1985 selected、1986 not_selected | AC05（R15） |
 | `test_task9_assertions.py` | `t4n0`、`t3p0` 断言，`rv0002` 候选，`cv0002` 阶段键下的候选 | AC01 断言部分 |
@@ -32,3 +32,8 @@
 | `test_task9_derivations.py` | 全部边的闭集与标注；无环与终止；注入环、悬空父断言与父源记录、删掉一条抽取边；第 3 批提交前注入故障后续跑；同输入重跑 | AC07、AC01 派生部分 |
 | `test_task9_relocate.py` | G1 的类型词面（genre 区与面包屑）；B0R1B 的 video_system PAL；Legend 第二早评论 LU2；改动上游 `movie_genre_term`、`attributes_detail`、`second_review_time` 制造不一致 | AC08 |
 | `test_task9_relocate.py` | Legend 三个 edition 商品共 7 条评论（加 B0LgD 的 LU8）与合集 B0LgC 的 LU6；Mv1 只有 B0E1 的发售日期证据（`inferred = media_release`） | AC09 |
+| `test_task9_selections.py` | 作品与版本标量的 task7 状态（含 conflict_unresolved、missing）；演职员与类型成员、director 为空的作品；Legend 推断上界与没有上界的作品 | AC10（R23、R24） |
+| `test_task9_selections.py` | 改 Legend `title` 的选择值、删一个类型成员选择；夹具人工决策（未被 `map0002` 采用）与补给 B0R1B 商品断言的人工修订边 | AC10（R26、R27） |
+| `test_task9_selections.py` | IMDb 行、提及、评论、合集成员有断言但无选择；无任务 8 断言与边 | AC01 选择部分 |
+| `test_task9_selections.py` | B0LgB 快照内容被改、B0LgD 删除后的版本字段；同 AC08 不一致夹具下 G1 类型成员、B0R1B PAL、Legend 上界 | AC03、AC08 字段部分 |
+| `test_task9_selections.py` | 任务 8 小世界（`_task8_helpers.seed_small_world` 经任务 1、8 自己的运行）的 EU1、EU13、EU12、EL1、EL2；t9 夹具的 B0Lg 商品视图（夹具无 task3 分类与 task4 匹配状态行，列为空） | AC04 |

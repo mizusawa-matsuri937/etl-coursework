@@ -23,9 +23,9 @@ from . import CURRENT_RULE_VERSION, RULE_VERSION
 
 # 各阶段翻译算法的标记：进入阶段签名；改算法须同时登记新的规则版本（同任务 8 的 ALGORITHM）。
 # assertions 的 a1 → a2（T9-02 追加集成层翻译器）与 derivations 的 d1 → d2（演练发现 starring 成员沿用 cast 角色下的
-# 署名对齐，修正成员的页面边）都发生在 t9r1 产生任何血缘版本之前，只改阶段键、不换规则版本
+# 署名对齐，修正成员的页面边）、selections 的 l1 → l2（演练发现人物页面别名是署名原文，改为按原文或规范名匹配提及；l2 → l3：IMDb 独有人物缺人名时记 missing）都发生在 t9r1 产生任何血缘版本之前，只改阶段键、不换规则版本
 # （design“T9-02 实现要点与对计划的修正”）；t9r1 发布（生成 lv0001）之后再改算法必须换规则版本。
-ALGORITHM = {"sources": "s1", "assertions": "a2", "derivations": "d2", "selections": "l1", "impact": "i1"}
+ALGORITHM = {"sources": "s1", "assertions": "a2", "derivations": "d2", "selections": "l3", "impact": "i1"}
 STAGES = ("sources", "assertions", "derivations", "selections", "impact")
 STAGE_PREFIX = {"sources": "s", "assertions": "a", "derivations": "d", "selections": "l", "impact": "i"}
 
