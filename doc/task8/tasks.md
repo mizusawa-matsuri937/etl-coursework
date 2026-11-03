@@ -1,6 +1,6 @@
 # 任务 8 开发任务（评论清洗与重复识别）
 
-状态：2026-11-03 编写计划；T8-00 已执行并通过（AC00）；T8-01 至 T8-04 于同日实现并在业务库副本演练，T8-05 同日实现并经真实 scheduler（`etl_test`）验证。T8-06 至 T8-08 尚未完成，其命令与期望均标注 `（计划）`，实现后按实际运行结果改写。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-11-03 编写计划；T8-00 已执行并通过（AC00）；T8-01 至 T8-04 于同日实现并在业务库副本演练，T8-05、T8-06 同日实现（DAG 经真实 scheduler 在 `etl_test` 验证，演练库已删除）。T8-07、T8-08 尚未完成，其命令与期望均标注 `（计划）`，实现后按实际运行结果改写。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。每项 AC 的逐条复核命令见 [checklist](checklist.md)。每个实现阶段完成后先在业务库副本 `etl_t8_rehearsal` 演练（design“业务库副本演练”），再进入下一阶段。
 
@@ -119,16 +119,16 @@
 
   期望：`DAG run t8_e2e_vf2: success`，退出码 `0`；`docker compose exec -T postgres psql -U postgres -d etl_test -Atc "SELECT status, review_dedup_version_id, airflow_run_id FROM task8.run ORDER BY started_at; SELECT review_dedup_version_id, status FROM task8.dedup_version"` 输出 `failed|rd0001|t8_e2e_vf1`、`succeeded|rd0001|t8_e2e_vf2`、`rd0001|verified`。
 
-- [ ] T8-06 评价工具：开发池、六层盲测表、AI 草稿、导入校验、指标。规则：R45–R49；关联 AC13。
+- [x] T8-06 评价工具：开发池、六层盲测表、AI 草稿、导入校验、指标。规则：R45–R49；关联 AC13。
   - 文件：`src/etl_task8/evaluate.py`、`tests/integration/test_task8_evaluate.py`、`doc/task8/runbook.md`（评价章节）。
-  - 完成情况：未执行（计划）。
+  - 完成情况：2026-11-03 通过（只做工具与测试，未在正式库冻结或导出）。新增 5 项测试，全量 1,186 项通过；演练库 `freeze` 开发池 177,261 / 886,308 名评论者（运行后才冻结，`frozen_before_first_run` 为 `false`），`export` 120 项六层全满、`V2` 中 `weak_support` 10 项、盲测表无系统结论，用时约 92 秒。
 
   ```bash
-  # （计划）评价工具集成测试
+  # 评价工具集成测试（工作目录：项目根目录）
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_evaluate.py
   ```
 
-  期望（计划）：全部通过，退出码 `0`。
+  期望：`5 passed`，退出码 `0`。
 
 - [ ] T8-07 业务库副本全链路演练。规则：R41；关联 AC15。
   - 文件：`doc/task8/design.md`（以演练实测替换试算或注明差异）、`doc/task8/tasks.md`、`doc/task8/checklist.md`。

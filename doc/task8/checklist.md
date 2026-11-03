@@ -1,6 +1,6 @@
 # 任务 8 AC 完成情况（评论清洗与重复识别）
 
-状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T8-01 至 T8-03 实现后 AC02、AC03、AC04、AC05、AC14 通过并勾选；T8-04 实现后 AC01、AC06（补齐）与 AC07–AC10 通过并勾选；T8-05 实现后 AC11、AC12 通过并勾选；其余尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T8-01 至 T8-03 实现后 AC02、AC03、AC04、AC05、AC14 通过并勾选；T8-04 实现后 AC01、AC06（补齐）与 AC07–AC10 通过并勾选；T8-05 实现后 AC11、AC12 通过并勾选；T8-06 实现后 AC13 通过并勾选；其余尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`，`psql -Atc` 输出首行会多一个 `SET`）。
 
@@ -10,7 +10,7 @@
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望：`1170 passed`（2026-11-03 T8-04 后实测：任务 1–7 的 1,121 项不减少，任务 8 共 49 项）。
+期望：`1186 passed`（2026-11-03 T8-06 后实测：任务 1–7 的 1,121 项不减少，任务 8 共 65 项）。
 
 ## AC00 计划文件规范
 
@@ -158,14 +158,14 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC13 评价工具
 
-- [ ] 未执行。
+- [x] 2026-11-03 通过（T8-06）：开发池在首次运行前冻结且重复冻结为 `already_frozen`；六层抽样排除开发池、配额与 `V2` 弱支持下限及补位顺序正确；盲测表与 AI 草稿不含系统结论（草稿只读盲测 CSV）；缺依据的改判与存疑项导入被拒；指标与手算一致，分母为 0 记“无定义”。只有工具与测试，正式库尚未冻结或导出（T8-08）。
 
 ```bash
-# （计划）验证开发池排除、六层配额、盲测不泄露、草稿不读结论、缺依据改判被拒、指标手算
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_evaluate.py
+# 验证开发池排除、六层配额、盲测不泄露、草稿不读结论、缺依据改判被拒、指标手算
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_evaluate.py -k "ac13"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`5 passed`，退出码 `0`。
 
 ## AC14 纯函数单元测试
 
