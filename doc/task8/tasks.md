@@ -1,6 +1,6 @@
 # 任务 8 开发任务（评论清洗与重复识别）
 
-状态：2026-11-03 编写计划；T8-00 已执行并通过（AC00）。T8-01 至 T8-08 尚未实现，其命令与期望均标注 `（计划）`，实现后按实际运行结果改写。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-11-03 编写计划；T8-00 已执行并通过（AC00）；T8-01 至 T8-03 于同日实现并在业务库副本演练（演练库已删除）。T8-04 至 T8-08 尚未实现，其命令与期望均标注 `（计划）`，实现后按实际运行结果改写。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。每项 AC 的逐条复核命令见 [checklist](checklist.md)。每个实现阶段完成后先在业务库副本 `etl_t8_rehearsal` 演练（design“业务库副本演练”），再进入下一阶段。
 
@@ -41,17 +41,17 @@
 
   期望：`3 passed`，退出码 `0`。
 
-- [ ] T8-03 去重与目标层 `review_dedup`：分组核验、`D1`–`D3`、逻辑评论、`ReviewMapping`、`Reviewer`、候选 `C1`、`C2`。规则：R03–R05、R10、R11、R14–R25；关联 AC01、AC03、AC05、AC06。
+- [x] T8-03 去重与目标层 `review_dedup`：分组核验、`D1`–`D3`、逻辑评论、`ReviewMapping`、`Reviewer`、候选 `C1`、`C2`。规则：R03–R05、R10、R11、R14–R25；关联 AC01、AC03、AC05、AC06。
   - 文件：`src/etl_task8/dedup.py`、`tests/integration/test_task8_dedup.py`。
   - 目标：按用户哈希分区提交；隔离与不完整记录写映射；哈希碰撞拆组；演练库上逻辑评论数、各层次记录数、候选数与试算对照，抽查各层实例。
-  - 完成情况：未执行（计划）。
+  - 完成情况：2026-11-03 通过。5 项测试通过（AC01、AC03、AC05、AC06 家族内部分、分区与写入批与中断恢复），全量 1,158 项通过。演练库 34 个单元 388 秒：7,911,696 条记录各一行映射（`mapped` 7,849,553、`quarantined` 62,131、`incomplete` 12），逻辑评论 1,908,386（试算约 1,908,873），`D1` 4,501、`D2` 9,432、`D3` 5,927,234，C1 4,202 组（试算 4,204）、家族内 C2 3,470 对，哈希碰撞 0；差异解释见 design“演练实测”。统计组内的 C2（AC06 的 X4）由 T8-04 补充。
 
   ```bash
-  # （计划）去重与目标层集成测试
+  # 去重与目标层集成测试（工作目录：项目根目录）
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_dedup.py
   ```
 
-  期望（计划）：全部通过，退出码 `0`。
+  期望：`5 passed`，退出码 `0`。
 
 - [ ] T8-04 归属与统计 `review_attribution`、版本物化与差异、分批恢复与并发锁。规则：R26–R36、R38；关联 AC07–AC10。
   - 文件：`src/etl_task8/{attribution,versions,runner}.py`、`tests/integration/test_task8_{attribution,runs}.py`。

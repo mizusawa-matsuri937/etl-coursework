@@ -1,16 +1,16 @@
 # 任务 8 AC 完成情况（评论清洗与重复识别）
 
-状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；AC01–AC18 尚未执行，全部保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T8-01 至 T8-03 实现后 AC02、AC03、AC04、AC05、AC14 通过并勾选，AC01、AC06 部分完成（依赖 T8-04，未勾选）；其余尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`，`psql -Atc` 输出首行会多一个 `SET`）。
 
-一次跑全部测试（计划）：
+一次跑全部测试：
 
 ```bash
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望（计划）：全量通过（任务 1–7 的 `1121 passed` 不减少，外加任务 8 新增测试）。
+期望：`1158 passed`（2026-11-03 T8-03 后实测：任务 1–7 的 1,121 项不减少，任务 8 新增 37 项）。
 
 ## AC00 计划文件规范
 
@@ -26,14 +26,14 @@ grep -c "^- R[0-9][0-9] \[" doc/task8/spec.md
 
 ## AC01 输入版本、分层与原始记录全部保留
 
-- [ ] 未执行。
+- [ ] 部分完成（T8-01、T8-03，2026-11-03）：两个抽取（全量与样本）中只读指定抽取；有效、`invalid_utf8`、`unknown_line`、无产品 ID 的隔离与缺 5 个字段的记录在 `review_mapping` 各恰好一行，隔离为 `quarantined`、不完整为 `incomplete` 且 `logical_review_id` 为空；`lr_` 前缀且不等于任何 `source_review_id`；`public` 各表行数与摘要不变。演练库 7,911,696 条记录各一行映射。未完成：只读 `cv0003` 的部分依赖 T8-04 的归属阶段与两个 `cv` 版本的夹具，所以不勾选。
 
 ```bash
-# （计划）验证只读指定抽取与 cv0003、每条原始记录一行映射、隔离与不完整记录的状态、lr_ 前缀、public 不变
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_dedup.py -k "ac01"
+# 已完成部分：抽取限定、每条原始记录一行映射、隔离与不完整记录的状态、lr_ 前缀、public 不变
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_clean.py tests/integration/test_task8_dedup.py -k "ac01"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`2 passed, 7 deselected`，退出码 `0`。
 
 ## AC02 helpfulness 状态与不完整记录
 
@@ -48,14 +48,14 @@ docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task8_
 
 ## AC03 内容键只用原值、核验与 Reviewer
 
-- [ ] 未执行。
+- [x] 2026-11-03 通过（T8-03）：K1 只差大小写、K2 只差末尾空格（任务 1 保留末尾空格）、K3 同正文不同摘要、K4 注入哈希碰撞都不合并；K4 在核验时拆成两条逻辑评论（子组序号 0、1）并各写一条 `hash_collision`；`reviewer` 中 U5 一行含 `Ann` 2 次与 `Ann "A"` 1 次，同名的 U6 单独一行。演练库 1,294 个用户有多个显示名（与试算一致），哈希碰撞 0。
 
 ```bash
-# （计划）验证大小写、空白、摘要差异不合并，哈希碰撞拆组，显示名变体
+# 验证大小写、空白、摘要差异不合并，哈希碰撞拆组，显示名变体
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_dedup.py -k "ac03"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`1 passed, 4 deselected`，退出码 `0`。
 
 ## AC04 评论家族
 
@@ -70,25 +70,25 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC05 去重层次、代表记录与稳定 ID
 
-- [ ] 未执行。
+- [x] 2026-11-03 通过（T8-03）：同 ASIN 八字段全同为 `D1_exact_same_asin`，只 helpfulness 不同为 `D2_same_asin_variant`（`diff_fields = {helpfulness}`，逻辑评论 helpfulness 取 `3/4`），同一家族 3 个 ASIN 为代表 + 2 条 `D3_family_copy`；代表记录为最小 `record_no`；跨家族同内容为两条逻辑评论；重跑（含换分区数）`logical_review_id` 不变；重复评论数 8 = `D1` + `D2` + `D3` = 键完整记录 21 − 逻辑评论 13。
 
 ```bash
-# （计划）验证 D1、D2、D3、代表记录、helpfulness 选择、跨家族不合并、重跑 ID 不变
+# 验证 D1、D2、D3、代表记录、helpfulness 选择、跨家族不合并、重跑 ID 不变
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_dedup.py -k "ac05"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`1 passed, 4 deselected`，退出码 `0`。
 
 ## AC06 不合并的候选
 
-- [ ] 未执行。
+- [ ] 部分完成（T8-03，2026-11-03）：X1 记一组 `cross_family_same_content`，X2（Jaccard 0.9286）记一对 `near_duplicate`，X3（0.6）无候选；关掉近似阈值后映射完全相同（候选不改变逻辑评论与映射）。未完成：X4（同一统计组两部作品上的近似评论）依赖 T8-04 的 `review_attribution`，所以不勾选。
 
 ```bash
-# （计划）验证 cross_family_same_content 与 near_duplicate 候选，候选不改变逻辑评论
-docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_dedup.py tests/integration/test_task8_attribution.py -k "ac06"
+# 已完成部分：X1–X3 与候选不改变映射（X4 待 T8-04 的 test_task8_attribution.py）
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_dedup.py -k "ac06"
 ```
 
-期望（计划）：测试通过，退出码 `0`。
+期望：`1 passed, 4 deselected`，退出码 `0`。
 
 ## AC07 商品与作品归属、合集口径
 
