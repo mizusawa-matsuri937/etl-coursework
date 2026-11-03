@@ -397,3 +397,23 @@ check_inputs → review_clean → review_family → review_dedup → review_attr
 **WAL 峰值（新发现）**：PostgreSQL 18 的 `CREATE DATABASE … TEMPLATE` 默认 `STRATEGY = WAL_LOG`，复制 30 GB 的库会先写约 27 GB WAL；建库后 VM 磁盘剩余一度只有 814 MB（`max_wal_size = 1GB`，下一次检查点前 WAL 不回收）。手动 `CHECKPOINT` 后 WAL 回到 1,024 MB、剩余 28 GB。第 2 阶段记录的“58 GB → 28 GB”是检查点之后的读数。runbook 第 3 节因此在建库后加一步 `CHECKPOINT`；删除演练库后同样执行一次，剩余回到 58 GB。
 
 演练库已删除，`pg_database` 只剩 `airflow_meta`、`etl_movies`、`etl_test`、`postgres`、`template0`、`template1`；`etl_movies` 仍没有 schema `task8`、迁移仍到 `601`。
+
+## 正式库实测（T8-08，`etl_movies`）
+
+2026-11-03 在 Airflow 正常配置（scheduler `ETL_ENV=prod`、`ETL_DB_NAME=etl_movies`，`list-import-errors` 无错误，DAG 未暂停）下运行。先 `evaluate freeze`（应用迁移 `701`；`frozen`，177,261 / 886,308，`frozen_before_first_run: true`；再执行为 `already_frozen`），再经 Airflow 触发 `t8_full_1`：9 个任务 success，15 分 13 秒（`review_clean` 442 秒、`review_family` 43 秒、`review_dedup` 332 秒、`review_attribution` 6 秒、`finalize_version` 36 秒），生成 `rd0001`（`verified`）；`t8_full_2` 为 `reused`。`check` 退出码 0、`problems` 为空。耗时是同机记录，不是性能实测。
+
+| 项目 | T8-07 演练 | 正式库 | 说明 |
+|---|---|---|---|
+| 阶段键 | — | 与演练完全相同 | 同一输入与规则 |
+| `summary.json` | — | 与演练相比只有 `run_id`、`stage_counts`（耗时）不同 | 业务数字逐项相同（映射 7,911,696、逻辑评论 1,908,386、重复 5,941,167、家族 140,584、归属逻辑评论 257,733、统计组 8,377） |
+| 用时 | 887 秒（不经 Airflow） | 913 秒（经 Airflow，含任务调度） | |
+| `task8` 体量 | 6,200 MB | 6,200 MB（`review_clean` 2,770、`review_mapping` 2,338、`logical_review` 631、`reviewer` 162 MB） | 超出 4 GB 预算，原因见 T8-03 一节；磁盘剩余 58 → 52 GB |
+| 上游主表 | — | 运行前后行数不变（`public.review_record` 7,931,696 等，含样本抽取），`task7` 仍有 `cv0001`–`cv0003` | R39 |
+
+### 评价抽样的修正：`V5` 按作品对去重
+
+第一次 `evaluate export` 的 `V5` 有 5 对作品各出现两次（例如 `Laser Mission` 的两个单品）：统计组 `basis` 里同一对作品可能同时有 `likely_duplicate_movie` 与 `shared_logical_review` 两条依据（正式库 368 条依据、302 对作品），原查询按依据而不是按作品对取项，`item_key` 重复。修正为按 `(least(a, b), greatest(a, b))` 去重后再按 `md5(item_key)` 排序取前 20；`test_task8_evaluate.py` 的夹具补一对“既是 `likely_duplicate_movie` 又共享评论”的作品，并断言 `item_key` 不重复、`V5` 等于全部不同作品对（修正前该测试失败，修正后通过；全量 1,186 项通过）。尚未导入任何标注，修正后重新导出：其余 115 项与修正前逐项相同，`V5` 换入 5 对新作品；编号按 `md5(item_key)` 全局重排。这是实现缺陷的修正，不改变 R46 的配额与规则。
+
+### AI 草稿
+
+`eval_items_ai_draft.csv` 由 AI（Claude）只读盲测表逐项阅读后填写（不读 `task8.eval_item` 与其他结论表）：`same` 96、`different` 23、`unsure` 1，`ai_doubt` 为 `true` 41 项。拿不准的主要是三类：只差 ASIN、正文很泛（礼物、整季购买等）而商品标题为空，无法确认两个 ASIN 是否同一作品；同一用户同一商品上同正文但摘要、日期或评分不同的重贴；同名作品（`Peter Pan`、`Versus`）与合装商品。导出命令自带的 `eval_items_draft.csv` 是规则式草稿，只作对照。审核与导入步骤见 runbook 第 5 节。

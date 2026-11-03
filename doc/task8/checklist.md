@@ -1,6 +1,6 @@
 # 任务 8 AC 完成情况（评论清洗与重复识别）
 
-状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T8-01 至 T8-03 实现后 AC02、AC03、AC04、AC05、AC14 通过并勾选；T8-04 实现后 AC01、AC06（补齐）与 AC07–AC10 通过并勾选；T8-05 实现后 AC11、AC12 通过并勾选；T8-06 实现后 AC13 通过并勾选；T8-07 演练后 AC15 通过并勾选；其余尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T8-01 至 T8-03 实现后 AC02、AC03、AC04、AC05、AC14 通过并勾选；T8-04 实现后 AC01、AC06（补齐）与 AC07–AC10 通过并勾选；T8-05 实现后 AC11、AC12 通过并勾选；T8-06 实现后 AC13 通过并勾选；T8-07 演练后 AC15 通过并勾选；T8-08 正式库运行后 AC16、AC18 通过并勾选；AC17 等待付林轩审核标注，保持未勾选（导入后的命令标注 `（计划）`）。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`，`psql -Atc` 输出首行会多一个 `SET`）。
 
@@ -198,28 +198,49 @@ docker compose exec -T postgres psql -U postgres -Atc "SELECT datname FROM pg_da
 
 ## AC16 正式库全量运行
 
-- [ ] 未执行。
+- [x] 2026-11-03 通过（T8-08，AI 执行）：先冻结开发池（`frozen_before_first_run: true`），经 Airflow `t8_full_1` 生成 `rd0001`（`verified`），同参 `t8_full_2` 为 `reused`；7,911,696 条原始记录各一行映射，有效 7,849,565 + 隔离 62,131 = 读取，重复 5,941,167 = 键完整 7,849,553 − 逻辑评论 1,908,386；作品评分不含合集，统计组内每条只计一次（257,733）；上游主表行数不变，`cv0001`–`cv0003` 都在；`check` 退出码 0、`"problems": []`。
 
 ```bash
-# （计划）只读核对
+# 只读核对
 docker compose --profile crawl run --rm -T crawler python -m etl_task8.check > /dev/null; echo "exit=$?"
 ```
 
-期望（计划）：`exit=0`。
+期望：`exit=0`。
 
 ```bash
-# （计划）每条原始记录一行映射（期望 SET 之后为 7911696）
+# 每条原始记录一行映射
 docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT count(*) FROM task8.review_mapping m JOIN task8.dedup_version v ON v.dedup_stage_key = m.dedup_stage_key WHERE v.review_dedup_version_id = 'rd0001';"
 ```
 
-期望（计划）：`7911696`。
+期望：`SET` 之后为 `7911696`。
+
+```bash
+# 两次运行：succeeded 与 reused
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT status, review_dedup_version_id, airflow_run_id FROM task8.run ORDER BY started_at; SELECT review_dedup_version_id, status FROM task8.dedup_version;"
+```
+
+期望：`SET` 之后为 `succeeded|rd0001|t8_full_1`、`reused|rd0001|t8_full_2`、`rd0001|verified`。
+
+```bash
+# 任务 7 的三个冲突消解版本仍在
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT string_agg(conflict_version_id, ',' ORDER BY conflict_version_id) FROM task7.conflict_version;"
+```
+
+期望：`SET` 之后为 `cv0001,cv0002,cv0003`。
 
 ## AC17 正式库评价
 
-- [ ] 未执行。
+- [ ] 等待付林轩审核标注。2026-11-03 已导出 `ev_rd0001` 120 项（六层配额 15/25/20/20/20/20 无补位，`V2` 中 `weak_support` 10，`item_key` 不重复），AI 只读盲测表填写草稿 `eval_items_ai_draft.csv`（41 项拿不准）；**尚未导入任何标注，指标未计算**。审核与导入步骤见 runbook 第 5 节与 [report](report.md) 第 6.2 节。
 
 ```bash
-# （计划）导入标注后的指标
+# 当前：评价项 120、标注 0
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT count(*), count(DISTINCT item_key) FROM task8.eval_item WHERE eval_set_id = 'ev_rd0001'; SELECT count(*) FROM task8.eval_label WHERE eval_set_id = 'ev_rd0001';"
+```
+
+期望（现在）：`SET` 之后为 `120|120` 与 `0`。
+
+```bash
+# （计划，导入标注后）指标
 docker compose --profile crawl run --rm -T crawler python -m etl_task8.evaluate metrics
 ```
 
@@ -227,17 +248,24 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task8.evaluate 
 
 ## AC18 迁移、测试与仓库卫生
 
-- [ ] 未执行。
+- [x] 2026-11-03 通过（T8-08，AI 执行）：正式库迁移为 `001,…,601,701`；全量测试 1,186 项通过（任务 1–7 的 1,121 项不减少）；`src/etl_task8` 的写语句目标全部在 `task8`；`git ls-files` 不含 `.env`、`outputs/`、评价表或原始数据。
 
 ```bash
-# （计划）迁移版本
+# 迁移版本
 docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT string_agg(version, ',' ORDER BY version) FROM public.schema_migration;"
 ```
 
-期望（计划）：`001,101,102,103,201,301,302,401,501,601,701`。
+期望：`SET` 之后为 `001,101,102,103,201,301,302,401,501,601,701`。
+
+```bash
+# 写语句目标只在 task8（无输出）
+grep -nE "(INSERT INTO|UPDATE|DELETE FROM|TRUNCATE|CREATE TABLE|DROP TABLE|COPY) +[a-z_]+\." src/etl_task8/*.py | grep -vE "(INSERT INTO|UPDATE|DELETE FROM|TRUNCATE|CREATE TABLE|DROP TABLE|COPY) +task8\."; echo "write-grep-exit=$?"
+```
+
+期望：只有 `write-grep-exit=1`。
 
 ```bash
 git ls-files | grep -Ei '(^|/)\.env$|^outputs/|eval_items|eval_pairs|cluster_sample|review_queue|name\.basics|title\.(basics|akas|crew|principals|ratings)|\.tsv(\.gz)?$|movies\.txt'; echo "grep-exit=$?"
 ```
 
-期望：没有匹配行，只有 `grep-exit=1`（2026-11-03 T8-00 时实测如此；实现后再运行一次）。
+期望：没有匹配行，只有 `grep-exit=1`。

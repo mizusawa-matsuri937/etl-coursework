@@ -1,6 +1,6 @@
 # 任务 8 开发任务（评论清洗与重复识别）
 
-状态：2026-11-03 编写计划；T8-00 已执行并通过（AC00）；T8-01 至 T8-04 于同日实现并在业务库副本演练，T8-05、T8-06 同日实现（DAG 经真实 scheduler 在 `etl_test` 验证，演练库已删除）。T8-07 同日在业务库副本按“先冻结、再运行”重做全链路并通过（演练库已删除）；T8-08 尚未完成，其命令与期望标注 `（计划）`，实现后按实际运行结果改写。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-11-03 编写计划；T8-00 已执行并通过（AC00）；T8-01 至 T8-04 于同日实现并在业务库副本演练，T8-05、T8-06 同日实现（DAG 经真实 scheduler 在 `etl_test` 验证，演练库已删除）。T8-07 同日在业务库副本按“先冻结、再运行”重做全链路并通过（演练库已删除）；T8-08 同日在正式库运行完成（`rd0001` `verified`，报告与盲测表、AI 草稿已导出），评价待付林轩审核标注，故未勾选。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。每项 AC 的逐条复核命令见 [checklist](checklist.md)。每个实现阶段完成后先在业务库副本 `etl_t8_rehearsal` 演练（design“业务库副本演练”），再进入下一阶段。
 
@@ -149,12 +149,39 @@
   期望：只有 `airflow_meta`、`etl_movies`、`etl_test`、`postgres`、`template0`、`template1`，没有 `etl_t8_rehearsal`。
 
 - [ ] T8-08 正式库运行与报告：冻结开发池、经 Airflow 生成 `rd0001`、重跑 `reused`、核对、导出报告与盲测表；审核标注导入后计算指标，编写 `report.md` 与交接文档。规则：正式库运行检验全部规则（见 AC16–AC18 的 Rule 列）；关联 AC16–AC18。
-  - 文件：`doc/task8/{report,spec,design,tasks,checklist}.md`、`doc/handoffs/<日期>-task8-to-task9.md`、`README.md`、`CLAUDE.md`；`outputs/task8/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rd0001/`（不入 Git）。
-  - 完成情况：未执行（计划）。
+  - 文件：`doc/task8/{report,design,runbook,tasks,checklist}.md`、`src/etl_task8/evaluate.py`（`V5` 按作品对去重）、`tests/integration/test_task8_evaluate.py`、`README.md`、`CLAUDE.md`；交接文档 `doc/handoffs/<日期>-task8-to-task9.md` 待评价完成后编写；`outputs/task8/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rd0001/`（不入 Git）。
+  - 完成情况：2026-11-03 **正式库运行完成，评价待付林轩审核标注**（因此不勾选）。先 `freeze`（`frozen_before_first_run: true`），`t8_full_1` 9 个任务 success（15 分 13 秒）生成 `rd0001` `verified`，`t8_full_2` `reused`；`check` 退出码 0；数字与 T8-07 演练逐项相同（逻辑评论 1,908,386、重复 5,941,167），见 [report](report.md)。发现并修正评价 `V5` 重复抽同一对作品（全量 1,186 项通过），重导 120 项；AI 草稿 `eval_items_ai_draft.csv` 已生成（41 项拿不准），未导入任何标注，指标未计算。
 
   ```bash
-  # （计划）正式库只读核对
+  # 正式库只读核对
   docker compose --profile crawl run --rm -T crawler python -m etl_task8.check > /dev/null; echo "exit=$?"
   ```
 
-  期望（计划）：`exit=0`。
+  期望：`exit=0`。
+
+  ```bash
+  # 两次 Airflow 运行与版本状态（只读）
+  docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT status, review_dedup_version_id, airflow_run_id FROM task8.run ORDER BY started_at; SELECT review_dedup_version_id, status FROM task8.dedup_version;"
+  ```
+
+  期望：`SET` 之后为 `succeeded|rd0001|t8_full_1`、`reused|rd0001|t8_full_2`、`rd0001|verified`。
+
+  ```bash
+  # 评价集与 AI 草稿（本地 outputs，不入 Git）：120 项、item_key 不重复、尚未导入标注
+  docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT count(*), count(DISTINCT item_key) FROM task8.eval_item WHERE eval_set_id = 'ev_rd0001'; SELECT count(*) FROM task8.eval_label WHERE eval_set_id = 'ev_rd0001';"
+  ```
+
+  期望：`SET` 之后为 `120|120` 与 `0`。
+
+  ```bash
+  python3 -c "import csv, collections; r=list(csv.DictReader(open('outputs/task8/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rd0001/eval/eval_items_ai_draft.csv', encoding='utf-8'))); print(len(r), len({x['item_id'] for x in r}), dict(collections.Counter(x['ai_label'] for x in r)), sum(x['ai_doubt'] == 'true' for x in r), sum(bool(x['human_label']) for x in r))"
+  ```
+
+  期望：`120 120 {'same': 96, 'different': 23, 'unsure': 1} 41 0`（`human_label` 全空，待审核）。
+
+  ```bash
+  # V5 按作品对去重的回归测试（工作目录：项目根目录）
+  docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task8_evaluate.py
+  ```
+
+  期望：`5 passed`，退出码 `0`。

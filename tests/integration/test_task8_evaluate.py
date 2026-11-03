@@ -30,6 +30,13 @@ def world(conn, make_settings, tmp_path):
     recs += [Rec(s5, f"EY{i}", text=f"totally other words {i}", time=unix(2)) for i in range(6)]
     for i in range(6):                                                                # V3：更多跨家族同内容
         recs += copies(["B0000E2EQ1", "B0000E2EQ2"], f"EUC{i}", text="Order for a friend")
+    # V5：一对作品既是 likely_duplicate_movie，又共享逻辑评论（统计组依据里同一对出现两次）
+    p1, p2 = "B0000E2EP1", "B0000E2EP2"
+    for i in range(3):
+        recs += copies([p1, p2], f"EP{i}", text=f"pair shared review {i}")
+    m1, m2 = h.mid("EP1"), h.mid("EP2")
+    products = [*products, h.Product(p1, "movie", (m1,)), h.Product(p2, "movie", (m2,))]
+    dups = [*dups, (m1, m2)]
     eid = h.setup(conn, make_settings, tmp_path, recs)
     h.seed_upstream(conn, eid, products, dups)
     frozen = ev.freeze_dev_pool(conn, eid)
@@ -89,6 +96,15 @@ def test_ac13_strata_exclude_dev_pool_and_blind_table_does_not_leak(conn, world,
     keys = conn.execute("SELECT item_key FROM task8.eval_item WHERE eval_set_id = %s ORDER BY item_id",
                         (out["eval_set_id"],)).fetchall()
     assert [k for (k,) in keys] == sorted((k for (k,) in keys), key=lambda k: hashlib.md5(k.encode()).hexdigest())
+    # 同一对作品同时有 likely_duplicate_movie 与 shared_logical_review 两条依据时只抽一项（正式库 T8-08 发现的重复项）
+    assert len({k for (k,) in keys}) == len(keys)
+    pairs = {tuple(sorted((e["a"], e["b"]))) for (basis,) in conn.execute(
+        "SELECT basis FROM task8.stat_group WHERE attribution_stage_key = %s AND movie_count > 1",
+        (v["attribution_stage_key"],)) for e in basis}
+    double = conn.execute("SELECT count(*) FROM task8.stat_group g, jsonb_array_elements(g.basis) e "
+                          "WHERE g.attribution_stage_key = %s AND g.movie_count > 1", (v["attribution_stage_key"],)).fetchone()[0]
+    assert double > len(pairs)                                  # 夹具里确有一对作品带两条依据
+    assert {(i[2], i[3]) for i in by["V5"]} == pairs and len(by["V5"]) == len(pairs)
 
 
 def test_ac13_quota_weak_floor_and_fill_order():

@@ -166,11 +166,14 @@ def build_pools(conn: psycopg.Connection, rd: str, per_stratum: int = TARGET_TOT
             FROM task8.dup_candidate c WHERE c.stage_key IN (%(dk)s, %(ak)s) AND c.candidate_type = 'near_duplicate'
             AND {not_dev.format(col='c.reviewer_id')} ORDER BY md5('V4:' || c.candidate_id) LIMIT %(n)s""", "logical"),
         # V5：多作品统计组的连边（作品对）
+        # V5：统计组的连边；同一对作品可能同时有 likely_duplicate_movie 与 shared_logical_review 两条依据，按作品对去重
         "V5": items("V5", """
-            SELECT 'V5:' || (e->>'a') || ':' || (e->>'b'), e->>'a', e->>'b', false
-            FROM task8.stat_group g, jsonb_array_elements(g.basis) e
-            WHERE g.attribution_stage_key = %(ak)s AND g.movie_count > 1
-            ORDER BY md5('V5:' || (e->>'a') || ':' || (e->>'b')) LIMIT %(n)s""", "movie"),
+            SELECT k, a, b, false FROM (
+                SELECT DISTINCT 'V5:' || least(e->>'a', e->>'b') || ':' || greatest(e->>'a', e->>'b') AS k,
+                       least(e->>'a', e->>'b') AS a, greatest(e->>'a', e->>'b') AS b
+                FROM task8.stat_group g, jsonb_array_elements(g.basis) e
+                WHERE g.attribution_stage_key = %(ak)s AND g.movie_count > 1) x
+            ORDER BY md5(k) LIMIT %(n)s""", "movie"),
         # V6：同一用户在同一 ASIN 上的两条逻辑评论，彼此不是候选
         "V6": items("V6", f"""
             WITH g AS (SELECT l.reviewer_id, m.asin, min(m.logical_review_id) a, max(m.logical_review_id) b

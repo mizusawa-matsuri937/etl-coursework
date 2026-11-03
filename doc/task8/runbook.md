@@ -142,13 +142,15 @@ python3 scripts/run_dag_e2e.py --dag-id amazon_reviews_task8_dedup --run-id t8_f
 python3 scripts/run_dag_e2e.py --dag-id amazon_reviews_task8_dedup --run-id t8_full_2 --conf '{}' --timeout 7200
 ```
 
-期望：`t8_full_1` 九个任务 success，生成 `rd0001`（`verified`）；`t8_full_2` 为 `reused`。
+期望：`t8_full_1` 九个任务 success，生成 `rd0001`（`verified`）；`t8_full_2` 为 `reused`。2026-11-03 实测：`t8_full_1` 15 分 13 秒，`t8_full_2` 约 40 秒（只记 `reused` 审计与报告）。DAG 的 `finalize_report` 已把报告写到 `outputs/task8/<抽取>/rd0001/t8_full_1/`（`t8_full_2/` 同内容另加 `run_summary.json`）。
 
-4. 只读核对、报告导出、版本差异与查询：
+4. 只读核对、报告导出、版本差异与查询（`report export` 不带 `--run-key` 时目录名为 `task8.run` 的内部运行 ID，2026-11-03 为 `6404e937820c46b7b27b9ce8e3e883e0/`，内容与 `t8_full_1/` 逐字节相同）：
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task8.check
 ```
+
+期望：退出码 0，`"problems": []`。
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task8.report export
@@ -164,22 +166,43 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task8.query rev
 
 ## 5. 评价与标注（R45–R49）
 
-1. 正式运行后导出盲测表与 AI 草稿（输出到 `outputs/task8/<抽取>/<去重版本>/eval/`：`eval_items.csv`、`eval_items_draft.csv`、`LABELING.md`）：
+1. 正式运行后导出盲测表（输出到 `outputs/task8/<抽取>/<去重版本>/eval/`：`eval_items.csv`、`eval_items_draft.csv`、`LABELING.md`；约 1.5 分钟）：
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task8.evaluate export
 ```
 
-2. 标注人（付林轩）以 `eval_items_draft.csv` 为底稿填 `human_label`（`same`/`different`/`unsure`）、`human_evidence`、`note`，另存为 `eval_items_labeled.csv`。`ai_doubt` 为 `true` 的项，或结论与 `ai_label` 不同的项，必须填 `human_evidence`，否则导入拒绝（`unsure` 除外）；`note` 不得原样粘贴 `ai_reason`。AI 草稿由 `generate_ai_draft` 只读盲测行生成，也可在审核前由 Claude 子代理只读盲测表另行预填，报告如实写“AI 预填、付林轩审核”。
+期望：`ev_rd0001`，120 项，六层 15/25/20/20/20/20 均无补位，`V2` 中 `weak_support` 10。已导入标注时拒绝重导（`--force` 会清除标注）。
 
-3. 导入与指标：
+2. **审核底稿（2026-11-03 已生成，等待付林轩审核）**。目录 `outputs/task8/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rd0001/eval/`：
+
+| 文件 | 内容 |
+|---|---|
+| `eval_items.csv` | 盲测表（120 行，sha256 `af936db0…`），只有两侧原始字段 |
+| `eval_items_ai_draft.csv` | **审核用底稿**：AI（Claude）只读 `eval_items.csv` 逐项阅读后填写的草稿（sha256 `b330dc0d…`），不读 `task8` 结论表与数据库 |
+| `eval_items_draft.csv` | `evaluate export` 自动生成的规则式草稿（`generate_ai_draft`，只看字段是否相同），只作对照，不用于审核 |
+| `LABELING.md` | 标注口径 |
+| `ai_draft_work/` | AI 草稿的来历：逐项结论 `ai_labels.py`、生成脚本 `make_draft.py`、修复 `V5` 重复项之前的旧盲测表 |
+
+各列含义：`item_id` 编号；`question` 为 review 类（两侧是否同一个用户写的同一条评论）或 movie 类（两侧是否同一部作品）；`left_*`、`right_*` 为两侧用户、日期、评分、摘要、正文前 500 字符、ASIN、商品标题、商品类别；`ai_label` 为 AI 建议（`same`/`different`/`unsure`）；`ai_doubt` 为 `true` 表示 AI 拿不准（41 项），请重点核对；`ai_reason` 为 AI 的简短依据；`human_label`、`human_evidence`、`note` 由审核人填写。
+
+审核步骤：
+
+- 用表格软件打开 `eval_items_ai_draft.csv`，逐行在 `human_label` 填 `same`、`different` 或 `unsure`（口径见 `LABELING.md`：平台在不同版本上的复制、同一商品上的重复提交算 `same`；同一用户对不同商品或另写的一条算 `different`；`question` 为作品类时判断是否同一部作品）。
+- `ai_doubt` 为 `true` 的项，或你的结论与 `ai_label` 不同的项，必须在 `human_evidence` 写可核实的依据（例如 Amazon 商品页 `https://www.amazon.com/dp/<ASIN>` 显示的片名、IMDb 链接，或你核对的具体字段，如“两侧正文逐字相同、ASIN 为同片 DVD 与 VHS”）；标为 `unsure` 的项可以不填。缺依据时整批导入被拒绝。
+- `note` 可写备注，不能原样复制 `ai_reason`。如沿用任务 7 的做法，可在 `note` 前加“人工填写：”。
+- 不要改 `item_id`、`ai_label`、`ai_doubt` 与两侧字段；另存为同目录下的 `eval_items_labeled.csv`（UTF-8 CSV）。
+
+3. 导入（校验通过才全部写入 `task8.eval_label`；默认要求 120 项齐全）与指标（写 `metrics.json`、`metrics.md`）：
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task8.evaluate import /opt/etl/outputs/task8/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rd0001/eval/eval_items_labeled.csv --annotator 付林轩
 ```
 
+期望：`"imported": 120`、`"annotator": "付林轩"`；被拒绝时按提示补 `human_evidence` 后重导。
+
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task8.evaluate metrics
 ```
 
-指标定义见 spec R48：`unsure` 单独计数，不进分母；分母为 0 记“无定义”；只代表分层样本。
+指标定义见 spec R48：`unsure` 单独计数，不进分母；分母为 0 记“无定义”；只代表分层样本。报告如实写“AI 预填、付林轩审核”。
