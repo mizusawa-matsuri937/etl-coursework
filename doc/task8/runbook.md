@@ -64,7 +64,17 @@ docker compose exec -T postgres psql -U postgres -c "CREATE DATABASE etl_t8_rehe
 docker compose start airflow-scheduler airflow-dag-processor airflow-apiserver
 ```
 
-2. 在副本上完整运行（不经 Airflow）、核对、导出到单独目录：
+建库默认按 `WAL_LOG` 复制，会先写约 27 GB WAL（2026-11-03 实测建库后 VM 磁盘只剩 814 MB）；立即执行检查点回收 WAL，再确认剩余约 28 GB：
+
+```bash
+docker compose exec -T postgres psql -U postgres -c "CHECKPOINT"
+```
+
+```bash
+docker compose exec -T postgres df -h /var/lib/postgresql
+```
+
+2. 在副本上先冻结开发池、再完整运行（不经 Airflow）、核对、导出到单独目录（评价表用 `ETL_OUTPUT_DIR` 写到 `outputs/rehearsal_t8/`，不与正式库的 `outputs/task8/` 混在一起），最后同输入重跑（期望 `reused`）：
 
 ```bash
 docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t8_rehearsal crawler python -m etl_task8.evaluate freeze
@@ -82,10 +92,22 @@ docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t8_rehearsal crawl
 docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t8_rehearsal crawler python -m etl_task8.report export --extraction-id f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8 --output-dir /opt/etl/outputs/rehearsal_t8 --run-key rehearsal1
 ```
 
-3. 删除演练库并确认：
+```bash
+docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t8_rehearsal -e ETL_OUTPUT_DIR=/opt/etl/outputs/rehearsal_t8 crawler python -m etl_task8.evaluate export
+```
+
+```bash
+docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t8_rehearsal crawler python -m etl_task8.runner run
+```
+
+3. 删除演练库、回收 WAL 并确认：
 
 ```bash
 docker compose exec -T postgres psql -U postgres -c "DROP DATABASE etl_t8_rehearsal"
+```
+
+```bash
+docker compose exec -T postgres psql -U postgres -c "CHECKPOINT"
 ```
 
 ```bash

@@ -373,3 +373,27 @@ check_inputs → review_clean → review_family → review_dedup → review_attr
 | 商品类别（有效 / 隔离） | 见上文“归属与评分”表 | 电影 298,769 / 2,557；有作品合集 1,759 / 16；无作品合集 14,482 / 110；剧集 29,298 / 135；演唱会或其他 39,055 / 251；非电影 564 / 5；已采集待确认 493,088 / 3,892；未采集 6,972,550 / 55,153 | 与试算逐项一致 |
 | 映射、层次、家族、候选 | 见 T8-01 至 T8-03 | 与 T8-03 演练相同（逻辑评论 1,908,386，`D1` 4,501、`D2` 9,432、`D3` 5,927,234；C1 4,202；家族内 C2 3,470） | 同一实现与输入 |
 | `task8` 体量 | 预算 ≤ 4 GB | 6,157 MB（新增归属 58 MB、商品统计 40 MB，其余统计表各约 1.5 MB） | 超预算原因见 T8-03 一节 |
+
+## 业务库副本全链路演练实测（T8-07，`etl_t8_rehearsal`）
+
+2026-11-03 按 runbook 第 3 节的顺序重做全链路（第 2 阶段演练是先运行后冻结，`frozen_before_first_run` 为 `false`，不作为 AC15 的证据）：停 Airflow 三个服务后 `CREATE DATABASE etl_t8_rehearsal TEMPLATE etl_movies OWNER etl_app`（14:56:49 至 14:59:41，2 分 52 秒），随即恢复 Airflow；然后依次 `evaluate freeze` → `runner run` → `check` → `report export` → `evaluate export` → 同输入再 `runner run`。耗时是同机记录，不是性能实测。
+
+| 项目 | design 试算 | 第 2 阶段演练（T8-04） | T8-07 演练 | 说明 |
+|---|---|---|---|---|
+| 开发池冻结 | — | 177,261 / 886,308，`frozen_before_first_run = false` | `frozen`，177,261 / 886,308，`frozen_before_first_run = true` | 本次先冻结后运行，顺序符合 R45 |
+| 运行 | 预算 ≤ 40 分钟 | `DiskFull` 修复后从核验单元续跑，7 分 13 秒 | 一次跑完 `succeeded`，887 秒（清洗 428、家族 77、去重 328、归属 7 秒），`rd0001` `verified` | 第 2 阶段只计续跑部分，本次从头计时 |
+| 映射 / 逻辑评论 / 重复数 | 7,911,696 / 约 1,908,873 / 约 594 万 | 7,911,696 / 1,908,386 / 5,941,167 | 相同 | 与试算的差异原因见 T8-03 一节（试算用 MD5 简化键、未排除不完整记录） |
+| `D1` / `D2` / `D3` | `D1 + D2` 13,933 | 4,501 / 9,432 / 5,927,234 | 相同 | |
+| 家族 / 多 ASIN / `weak_support`（多 ASIN） | 140,587 / 45,956 / — | 140,584 / 45,953 / 12,054 | 相同 | |
+| C1 / 家族内 C2 / 统计组内 C2 | 4,204 / — / — | 4,202 / 3,470 / 7 | 相同 | |
+| 归属逻辑评论 / 统计组 / 多作品组 | 257,733 / — / 259 | 257,733 / 8,377 / 259 | 相同 | |
+| 作品平均分（去重前 → 后） | — | 4.0542 → 4.0303 | 相同 | |
+| `check` | — | 退出码 0 | 退出码 0，`problems` 为空 | |
+| `report export` | — | 7 个文件 | 7 个文件，19 秒；`summary.json` 与第 2 阶段相比只有 `run_id` 与各阶段本次运行计数（第 2 阶段是续跑，清洗与家族记为 `skipped`）不同，业务数字逐项相同 | |
+| `evaluate export` | — | 120 项 | 120 项六层全满（`V2` 中 `weak_support` 10），93 秒；`eval_items.csv` 与第 2 阶段逐字节相同（开发池按 `md5(reviewer_id)` 确定，抽样可复现） | |
+| 同输入重跑 | — | — | `reused`，指向 `rd0001`，1 秒 | R35 |
+| `task8` 体量 | ≤ 4 GB | 6,157 MB | 6,200 MB（含评价表） | 超预算原因见 T8-03 一节 |
+
+**WAL 峰值（新发现）**：PostgreSQL 18 的 `CREATE DATABASE … TEMPLATE` 默认 `STRATEGY = WAL_LOG`，复制 30 GB 的库会先写约 27 GB WAL；建库后 VM 磁盘剩余一度只有 814 MB（`max_wal_size = 1GB`，下一次检查点前 WAL 不回收）。手动 `CHECKPOINT` 后 WAL 回到 1,024 MB、剩余 28 GB。第 2 阶段记录的“58 GB → 28 GB”是检查点之后的读数。runbook 第 3 节因此在建库后加一步 `CHECKPOINT`；删除演练库后同样执行一次，剩余回到 58 GB。
+
+演练库已删除，`pg_database` 只剩 `airflow_meta`、`etl_movies`、`etl_test`、`postgres`、`template0`、`template1`；`etl_movies` 仍没有 schema `task8`、迁移仍到 `601`。

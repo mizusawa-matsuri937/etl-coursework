@@ -1,6 +1,6 @@
 # 任务 8 开发任务（评论清洗与重复识别）
 
-状态：2026-11-03 编写计划；T8-00 已执行并通过（AC00）；T8-01 至 T8-04 于同日实现并在业务库副本演练，T8-05、T8-06 同日实现（DAG 经真实 scheduler 在 `etl_test` 验证，演练库已删除）。T8-07、T8-08 尚未完成，其命令与期望均标注 `（计划）`，实现后按实际运行结果改写。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-11-03 编写计划；T8-00 已执行并通过（AC00）；T8-01 至 T8-04 于同日实现并在业务库副本演练，T8-05、T8-06 同日实现（DAG 经真实 scheduler 在 `etl_test` 验证，演练库已删除）。T8-07 同日在业务库副本按“先冻结、再运行”重做全链路并通过（演练库已删除）；T8-08 尚未完成，其命令与期望标注 `（计划）`，实现后按实际运行结果改写。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。每项 AC 的逐条复核命令见 [checklist](checklist.md)。每个实现阶段完成后先在业务库副本 `etl_t8_rehearsal` 演练（design“业务库副本演练”），再进入下一阶段。
 
@@ -130,17 +130,23 @@
 
   期望：`5 passed`，退出码 `0`。
 
-- [ ] T8-07 业务库副本全链路演练。规则：R41；关联 AC15。
-  - 文件：`doc/task8/design.md`（以演练实测替换试算或注明差异）、`doc/task8/tasks.md`、`doc/task8/checklist.md`。
-  - 目标：建 `etl_t8_rehearsal`，全链路运行、`check`、`report export`、`evaluate freeze`/`export` 演练；逐项解释与试算基线的差异；删除演练库。
-  - 完成情况：未执行（计划）。
+- [x] T8-07 业务库副本全链路演练。规则：R41；关联 AC15。
+  - 文件：`doc/task8/design.md`（“业务库副本全链路演练实测（T8-07）”）、`doc/task8/runbook.md`（第 3 节补 `CHECKPOINT`、评价导出与重跑）、`doc/task8/tasks.md`、`doc/task8/checklist.md`。
+  - 完成情况：2026-11-03 通过。先 `freeze`（`frozen_before_first_run: true`）再 `runner run`：`rd0001` `succeeded`/`verified`，887 秒；映射 7,911,696、逻辑评论 1,908,386、重复 5,941,167、家族 140,584、归属逻辑评论 257,733，与第 2 阶段演练逐项相同；`check` 退出码 0；`report export` 7 个文件；`evaluate export` 120 项六层全满；重跑 `reused`。建库时 WAL 峰值约 27 GB，`CHECKPOINT` 后回收；演练库已删除。
 
   ```bash
-  # （计划）演练结束后确认演练库已删除
+  # 演练导出的关键数字（演练库已删除，读本地 outputs/rehearsal_t8，不入 Git）
+  python3 -c "import json; s=json.load(open('outputs/rehearsal_t8/task8/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rd0001/rehearsal1/summary.json')); print(s['version_status'], s['records']['read'], s['logical_reviews'], s['duplicates']['total'], s['families']['families'], s['movies']['logical_distinct'], s['stat_groups']['multi_movie_groups'])"
+  ```
+
+  期望：`verified 7911696 1908386 5941167 140584 257733 259`。
+
+  ```bash
+  # 演练结束后确认演练库已删除
   docker compose exec -T postgres psql -U postgres -Atc "SELECT datname FROM pg_database ORDER BY 1"
   ```
 
-  期望（计划）：只有 `airflow_meta`、`etl_movies`、`etl_test`、`postgres`、`template0`、`template1`，没有 `etl_t8_rehearsal`。
+  期望：只有 `airflow_meta`、`etl_movies`、`etl_test`、`postgres`、`template0`、`template1`，没有 `etl_t8_rehearsal`。
 
 - [ ] T8-08 正式库运行与报告：冻结开发池、经 Airflow 生成 `rd0001`、重跑 `reused`、核对、导出报告与盲测表；审核标注导入后计算指标，编写 `report.md` 与交接文档。规则：正式库运行检验全部规则（见 AC16–AC18 的 Rule 列）；关联 AC16–AC18。
   - 文件：`doc/task8/{report,spec,design,tasks,checklist}.md`、`doc/handoffs/<日期>-task8-to-task9.md`、`README.md`、`CLAUDE.md`；`outputs/task8/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rd0001/`（不入 Git）。

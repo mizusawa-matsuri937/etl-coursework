@@ -1,6 +1,6 @@
 # 任务 8 AC 完成情况（评论清洗与重复识别）
 
-状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T8-01 至 T8-03 实现后 AC02、AC03、AC04、AC05、AC14 通过并勾选；T8-04 实现后 AC01、AC06（补齐）与 AC07–AC10 通过并勾选；T8-05 实现后 AC11、AC12 通过并勾选；T8-06 实现后 AC13 通过并勾选；其余尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T8-01 至 T8-03 实现后 AC02、AC03、AC04、AC05、AC14 通过并勾选；T8-04 实现后 AC01、AC06（补齐）与 AC07–AC10 通过并勾选；T8-05 实现后 AC11、AC12 通过并勾选；T8-06 实现后 AC13 通过并勾选；T8-07 演练后 AC15 通过并勾选；其余尚未执行，保持未勾选并标注 `（计划）`。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`，`psql -Atc` 输出首行会多一个 `SET`）。
 
@@ -180,14 +180,21 @@ docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task8_
 
 ## AC15 业务库副本演练
 
-- [ ] 未执行。
+- [x] 2026-11-03 通过（T8-07，AI 执行）：先冻结开发池（`frozen_before_first_run: true`）再完整运行，`rd0001` `succeeded`、`verified`（887 秒），`check` 退出码 0、`problems` 为空，同输入重跑 `reused`；映射 7,911,696、逻辑评论 1,908,386（试算约 1,908,873）、重复 5,941,167、家族 140,584（试算 140,587）、C1 4,202（试算 4,204），差异来自试算的 MD5 简化键与未排除不完整记录，逐项解释见 design“业务库副本全链路演练实测（T8-07）”与 T8-03 一节；演练库已删除，`etl_movies` 未写入（无 `task8` schema）。
 
 ```bash
-# （计划）演练结束后确认演练库已删除
+# 演练导出的关键数字（读本地 outputs/rehearsal_t8，不入 Git）
+python3 -c "import json; s=json.load(open('outputs/rehearsal_t8/task8/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/rd0001/rehearsal1/summary.json')); print(s['version_status'], s['records']['read'], s['logical_reviews'], s['duplicates']['total'], s['families']['families'], s['movies']['logical_distinct'], s['stat_groups']['multi_movie_groups'])"
+```
+
+期望：`verified 7911696 1908386 5941167 140584 257733 259`。
+
+```bash
+# 演练结束后确认演练库已删除
 docker compose exec -T postgres psql -U postgres -Atc "SELECT datname FROM pg_database ORDER BY 1"
 ```
 
-期望（计划）：输出 `airflow_meta`、`etl_movies`、`etl_test`、`postgres`、`template0`、`template1`，没有 `etl_t8_rehearsal`；演练的运行记录、`check` 结果与试算差异解释写入完成情况与 design。
+期望：输出 `airflow_meta`、`etl_movies`、`etl_test`、`postgres`、`template0`、`template1`，没有 `etl_t8_rehearsal`。
 
 ## AC16 正式库全量运行
 
