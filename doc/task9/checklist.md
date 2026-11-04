@@ -1,6 +1,6 @@
 # 任务 9 AC 完成情况（字段级数据血缘）
 
-状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T9-01 完成后 AC02、AC05 通过并勾选；T9-02 完成后 AC06–AC09 通过并勾选；T9-03 完成后 AC01、AC03、AC04、AC10 通过并勾选；T9-04 完成后 AC11–AC14 通过并勾选，AC15 部分通过（按实体增量重建待定）未勾选；T9-05 完成后 AC16、AC17 通过并勾选；其余未执行。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T9-01 完成后 AC02、AC05 通过并勾选；T9-02 完成后 AC06–AC09 通过并勾选；T9-03 完成后 AC01、AC03、AC04、AC10 通过并勾选；T9-04 完成后 AC11–AC14 通过并勾选；2026-11-04 AC15 按方案 C 改写后通过并勾选；T9-05 完成后 AC16、AC17 通过并勾选；其余未执行。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`，`psql -Atc` 输出首行会多一个 `SET`）。标注“（计划）”的命令在对应任务实现前不可运行，实现后实际核对再改写期望。
 
@@ -10,7 +10,7 @@
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望：2026-11-03 任务 8 完成时为 `1186 passed`；T9-01 完成后为 `1218 passed`（新增 32 项，原有测试不减少）；T9-04 完成后为 `1262 passed`；T9-05 完成后为 `1278 passed`。
+期望：2026-11-03 任务 8 完成时为 `1186 passed`；T9-01 完成后为 `1218 passed`（新增 32 项，原有测试不减少）；T9-04 完成后为 `1262 passed`；T9-05 完成后为 `1278 passed`；T9-06 完成后为 `1285 passed`；2026-11-04 AC15 补测试后为 `1286 passed`（约 6.5 分钟）。
 
 ## AC00 计划文件规范
 
@@ -227,14 +227,21 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC15 来源与规则变化定位、版本差异
 
-- [ ] 部分通过，未勾选（T9-04，2026-11-03）：`verify-sources` 列出被改快照、受影响字段与任务 3 至 9 的重跑步骤，文件不可读记 `unavailable` 不算不一致；`impact --rule` 与规则版本只列出手工追踪可达的字段；第二个上游 cv（只改片长容差）生成的 `lv0002` 与 `lv0001` 的 `diff` 只在 `runtime_minutes` 上列出变化，与任务 7 两个版本逐行一致。**“第二个血缘版本只重建受影响实体”未实现**：当前新的上游版本改变全部阶段键、全量重建；三种方案与代价见 design“T9-04 实现要点”，待用户决定。
+- [x] 2026-11-04 通过（T9-04；AC15 按用户 2026-11-04 选定的方案 C 改写）：`verify-sources` 列出被改快照、受影响字段与任务 3 至 9 的重跑步骤，文件不可读记 `unavailable` 不算不一致；`impact --rule` 与规则版本只列出手工追踪可达的字段；第二个上游 cv（只改片长容差）生成的 `lv0002` 五个阶段键全部换新（全量重建），事前在 `lv0001` 上 `impact --rule RT1 --rule-version t7r3` 定位的字段集合 `{movie.runtime_minutes}` 与 `diff` 报出的完全相同，变化的选择都在 `impact` 列出的选择之内，没有新增或删除的选择，其余选择的值与证据签名不变；`diff` 的值变化与任务 7 两个版本逐行一致。
 
 ```bash
-# verify-sources、impact --rule、report diff（已实现部分）
+# verify-sources、impact --rule、全量重建与 diff = 事前 impact
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_impact.py -k "ac15"
 ```
 
-期望：`4 passed`，退出码 `0`。
+期望：`5 passed`，退出码 `0`。
+
+```bash
+# 只看全量重建后 diff 与事前 impact 的对照
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_impact.py -k "ac15 and full_rebuild"
+```
+
+期望：`1 passed, 4 deselected`，退出码 `0`。
 
 ## AC16 版本、幂等、恢复、并发与 DAG
 

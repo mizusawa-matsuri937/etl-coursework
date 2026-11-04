@@ -1,6 +1,6 @@
 # 任务 9 开发任务（字段级数据血缘）
 
-状态：2026-11-03 编写计划；T9-00 已执行并通过（AC00）；T9-01 至 T9-03 已完成；T9-04 除 AC15 的按实体增量重建外完成（待用户决定方案）；T9-05、T9-06 已完成；T9-07、T9-08 未开始。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-11-03 编写计划；T9-00 已执行并通过（AC00）；T9-01 至 T9-03 已完成；T9-04 至 T9-06 已完成（2026-11-04 用户选定 AC15 方案 C，AC15 改为全量重建加差异核对后通过）；T9-07、T9-08 未开始。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。标注“（计划）”的命令在对应任务实现前不可运行，实现后实际核对再改写期望。每项 AC 的逐条复核命令见 [checklist](checklist.md)。每个实现阶段完成后先在业务库副本 `etl_t9_rehearsal` 演练（design“业务库副本演练”），再进入下一阶段。
 
@@ -76,17 +76,17 @@
 
   期望：在 `SET` 之后输出 `469671|469671`。
 
-- [ ] T9-04 影响闭包、四个演示查询、影响分析、来源核验与版本差异。规则：R28–R35；关联 AC11–AC15。
+- [x] T9-04 影响闭包、四个演示查询、影响分析、来源核验与版本差异。规则：R28–R35；关联 AC11–AC15。
   - 文件：`src/etl_task9/{impact,query,versions,report}.py`、`src/etl_task9/{runner,rules}.py`（`--through impact`）、`tests/integration/{test_task9_query,test_task9_impact}.py`、`tests/integration/_task9_helpers.py`（`add_products`）、`tests/fixtures/task9/README.md`。
   - 目标：`field`、`product`、`review`、`source`、`person`、`impact` 子命令；`verify-sources`；`report diff`；上游重跑映射；演练库上对 design 中真实 ID 执行四个查询并人工看一遍输出。
-  - 完成情况：2026-11-03 除 AC15 的“第二个血缘版本只重建受影响实体”外完成（该项未实现，三种方案待用户决定，见 design“T9-04 实现要点”），因此本项保持未勾选。14 项新测试通过，全量 `1262 passed`。副本影响闭包 887,035 行（31 秒），四个演示查询输出要点见 design“演示查询”，`verify-sources` 快照与 IMDb 文件全部一致。
+  - 完成情况：2026-11-03 完成实现，14 项新测试通过，全量 `1262 passed`；AC15 的按实体增量重建经用户 2026-11-04 选定方案 C 改为“全量重建 + `diff` 与事前 `impact` 一致”，补测试 `test_ac15_full_rebuild_diff_matches_prior_rule_impact` 后 AC15 通过（本文件共 15 项）。副本影响闭包 887,035 行（31 秒），四个演示查询输出要点见 design“演示查询”，`verify-sources` 快照与 IMDb 文件全部一致。
 
   ```bash
   # 查询与影响分析集成测试（工作目录：项目根目录）
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_query.py tests/integration/test_task9_impact.py
   ```
 
-  期望：`14 passed`，退出码 `0`。
+  期望：`15 passed`，退出码 `0`。
 
   ```bash
   # 可选：副本上的影响闭包行数与 Legend release_year 查询（只读；副本保留到 T9-07）

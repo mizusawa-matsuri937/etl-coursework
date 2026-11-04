@@ -145,3 +145,34 @@ def test_ac15_report_diff_lists_changes_between_lineage_versions(conn, t9, monke
     assert set(d["by_field"]) == {"movie.runtime_minutes"}, d["by_field"]
     assert d["changed_selections"] == len(d["details"]) > 0
     assert keys_for_version(conn, lv2).inputs.conflict_version_id == cv2
+
+
+def test_ac15_full_rebuild_diff_matches_prior_rule_impact(conn, t9, monkeypatch):
+    """方案 C（用户 2026-11-04 确认）：上游规则变化后新血缘版本全量重建（五个阶段键全部换新）；事前在旧版本上
+    `impact --rule RT1 --rule-version t7r3`（片长容差只用于 RT1 的差异分类）定位的受影响字段集合，与 diff 报出的
+    变化字段集合相同（不多报、不漏报）；变化的选择都在 impact 列出的选择之内，其余选择的值、状态、决策、采用断言
+    签名与来源集合全部不变，也没有新增或删除的选择。"""
+    lv1 = _version(conn, t9, t9.run_id)
+    before = rule_impact(conn, t9.keys, rule_id="RT1", rule_version="t7r3", limit=1_000_000)
+    assert set(before["by_field"]) == {"movie.runtime_minutes"} and before["affected_selections"] > 0
+    impacted = {(s["entity_type"], s["entity_id"], s["field_name"], s["member_key"]) for s in before["selections"]}
+    total = conn.execute("SELECT count(*) FROM task9.field_selection WHERE stage_key = %s",
+                         (t9.keys.selections,)).fetchone()[0]
+    assert total > len(impacted)                                     # 有足够多未受影响的选择可供比对
+
+    cv2 = _second_cv(conn, monkeypatch, t9)
+    over = {"conflict_version_id": cv2, "review_dedup_version_id": "rd0003"}
+    out2 = h.run(conn, t9, through="impact", batch_size=500, over=over)
+    lv2 = _version(conn, t9, out2["run_id"], **over)
+    k1, k2 = keys_for_version(conn, lv1), keys_for_version(conn, lv2)
+    assert all(getattr(k1, s) != getattr(k2, s) for s in ("sources", "assertions", "derivations", "selections",
+                                                           "impact"))      # 全量重建，不复用旧阶段键
+    d = diff_versions(conn, lv1, lv2, limit=1_000_000)
+    assert set(d["by_field"]) == set(before["by_field"])             # 字段集合一致
+    assert d["counts"]["added"] == d["counts"]["removed"] == 0
+    changed = {(x["entity_type"], x["entity_id"], x["field_name"], x["member_key"]) for x in d["details"]}
+    assert len(changed) == d["changed_selections"] > 0
+    assert changed <= impacted                                       # 变化都在事前定位的范围内
+    n2 = conn.execute("SELECT count(*) FROM task9.field_selection WHERE stage_key = %s",
+                      (k2.selections,)).fetchone()[0]
+    assert n2 == total                                               # 其余 total - |changed| 个选择逐项不变
