@@ -1,6 +1,6 @@
 # 任务 9 AC 完成情况（字段级数据血缘）
 
-状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T9-01 完成后 AC02、AC05 通过并勾选；T9-02 完成后 AC06–AC09 通过并勾选；T9-03 完成后 AC01、AC03、AC04、AC10 通过并勾选；T9-04 完成后 AC11–AC14 通过并勾选；2026-11-04 AC15 按方案 C 改写后通过并勾选；T9-05 完成后 AC16、AC17 通过并勾选；T9-06 完成后 AC18 通过并勾选；2026-11-04 T9-07 完成后 AC19 通过并勾选；同日 T9-08 正式库运行后 AC20、AC22 通过并勾选；AC21 待付林轩审核，未执行。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T9-01 完成后 AC02、AC05 通过并勾选；T9-02 完成后 AC06–AC09 通过并勾选；T9-03 完成后 AC01、AC03、AC04、AC10 通过并勾选；T9-04 完成后 AC11–AC14 通过并勾选；2026-11-04 AC15 按方案 C 改写后通过并勾选；T9-05 完成后 AC16、AC17 通过并勾选；T9-06 完成后 AC18 通过并勾选；2026-11-04 T9-07 完成后 AC19 通过并勾选；同日 T9-08 正式库运行后 AC20、AC22 通过并勾选；AC21 于同日付林轩审核采纳 AI 草稿并导入后通过并勾选。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`，`psql -Atc` 输出首行会多一个 `SET`）。标注“（计划）”的命令在对应任务实现前不可运行，实现后实际核对再改写期望。
 
@@ -342,14 +342,21 @@ docker compose --profile crawl run --rm -T crawler python -m etl_task9.query rev
 
 ## AC21 正式库抽查评价
 
-- [ ] 未执行（待付林轩审核）。2026-11-04 已导出 60 项审核表与 AI 草稿（`L1` 15、`L2` 15、`L3` 10、`L4` 10、`L5` 10，无补位；草稿 `correct` 47、`unsure` 13），位置 `outputs/task9/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/lv0001/eval/`；**没有导入任何标注**，AI 草稿不是人工审核结论。审核、导入与指标步骤见 runbook 第 5 节与交接文档 `doc/handoffs/2026-11-04-task9-review-pending.md`。
+- [x] 2026-11-04 通过：60 项（`L1` 15、`L2` 15、`L3` 10、`L4` 10、`L5` 10，无补位）由 AI 预填、付林轩审核后按草稿原样采纳导入（`correct` 47、`unsure` 13），血缘链正确率 1.000（47/47，`unsure` 13 不进分母；L1 14/14、L2 10/10、L3 8/8、L4 10/10、L5 5/5）；只代表分层样本，不是付林轩独立手工标注。
 
 ```bash
-# 审核表配额与尚未导入标注（只读）
+# 审核表配额与已导入标注（只读）
 docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT stratum, count(*) FROM task9.eval_item WHERE eval_set_id = 'ev_lv0001' GROUP BY 1 ORDER BY 1; SELECT count(*) FROM task9.eval_label;"
 ```
 
-期望：在 `SET` 之后输出 `L1|15`、`L2|15`、`L3|10`、`L4|10`、`L5|10` 与 `0`（审核导入后应为 `60`）。
+期望：在 `SET` 之后输出 `L1|15`、`L2|15`、`L3|10`、`L4|10`、`L5|10` 与 `60`。
+
+```bash
+# 指标
+docker compose --profile crawl run --rm -T crawler python -m etl_task9.evaluate metrics --version lv0001
+```
+
+期望：JSON 中 `labeled_total` 为 `60`，`overall` 为 `correct` 47、`denominator` 47、`unsure` 13、`value` 1.0。
 
 ## AC22 迁移、测试与仓库内容
 

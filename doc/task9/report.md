@@ -1,6 +1,6 @@
 # 任务 9（字段级数据血缘）运行与交付报告
 
-状态：2026-11-04 编写。**正式库运行完成，评价待审核**：血缘版本 `lv0001`（规则 `t9r1`，`verified`）已经 Airflow 生成并核对；60 项血缘链抽查的审核表与 AI 草稿已导出，**尚未由付林轩审核，没有导入任何标注，第 7 节指标为空**。规则、AC 与设计以 [spec](spec.md)、[design](design.md) 为准，逐项复核命令见 [checklist](checklist.md)，运行与审核方法见 [runbook](runbook.md)。数字来自 2026-11-04 对正式库 `etl_movies` 的只读查询与 `outputs/task9/<抽取>/lv0001/t9_full_1/summary.json`；没有验证的内容在文中明确说明。
+状态：2026-11-04 编写。**任务 9 完成**：血缘版本 `lv0001`（规则 `t9r1`，`verified`）已经 Airflow 生成并核对；60 项血缘链抽查由 AI 预填草稿、付林轩审核后按草稿原样采纳导入（2026-11-04），血缘链正确率 1.000（47/47，`unsure` 13 不进分母；L1 14/14、L2 10/10、L3 8/8、L4 10/10、L5 5/5）。规则、AC 与设计以 [spec](spec.md)、[design](design.md) 为准，逐项复核命令见 [checklist](checklist.md)，运行与审核方法见 [runbook](runbook.md)。数字来自 2026-11-04 对正式库 `etl_movies` 的只读查询与 `outputs/task9/<抽取>/lv0001/t9_full_1/summary.json`；没有验证的内容在文中明确说明。
 
 ## 1. 概要
 
@@ -8,7 +8,7 @@
 - 血缘四层：源记录 429,323 条 → 字段断言 1,548,754 条 → 派生边 2,106,585 条（另有字段选择的 select 边 493,144 条）→ 字段选择 531,371 个，影响闭包 887,035 行；评论层（7,911,696 条映射）用视图，不复制。
 - **覆盖率**：范围内非空最终值 469,671 个，**全部可追溯到原始证据（100%）**；规划时现状试算为 85.6%（严格口径，411,673 个中 352,311 个）。试算缺口 59,362 个（类型页面成员 10,320、版本多值特征 46,027、评论上界 3,015）全部由只读重放补出定位，标 `relocated`，重放与上游不一致 0。
 - 运行：Airflow `t9_full_1` 10 个任务 success（触发到结束 449 秒），`t9_full_2` 为 `reused`；`etl_task9.check` 退出码 0、`problems` 为空；`verify-sources` 快照 9,590、IMDb 文件 5 个、评论文件全部一致；上游行数运行前后不变。
-- 评价：60 项分层样本 `ev_lv0001` 与 AI 草稿已导出（草稿 `correct` 47、`unsure` 13），**待付林轩审核**。
+- 评价：60 项分层样本 `ev_lv0001` 由 AI 预填、付林轩审核后按草稿原样采纳导入（`correct` 47、`unsure` 13），血缘链正确率 1.000（47/47，`unsure` 不进分母），只代表分层样本。
 
 ## 2. 目标与方法概述
 
@@ -117,17 +117,29 @@
 
 工程层面的修正（不改变 spec 规则）：正式库导出审核表时发现，推断上界这类**选择项**的依赖评论证据只有定位、没有正文前 80 个字符（R47 要求；L5 的评论归属项原本就有）。补测试 `test_ac18_bound_review_evidence_has_text_head`（修正前失败、修正后通过），`evaluate.item_rows` 从 `public.review_staging` 只读补上正文前 80 个字符；尚未导入标注，用 `evaluate export --force` 重新导出、`draft` 重新生成，60 项样本不变（按 `md5(选择键)` 抽样），只有该类项的证据摘录变化。
 
-## 7. 评价（待审核）
+## 7. 评价
 
 ### 7.1 样本与草稿
 
 - 评价集 `ev_lv0001`：60 项，`L1` 作品标量 15、`L2` 作品多值成员 15、`L3` 版本字段 10、`L4` 人物 10、`L5` 评论与商品归属 10（商品归属 5、评论归属 5），均无补位（R46）。审核表 `eval_items.csv` 每项有实体、字段、最终值、处理路径与原始证据摘录，不含 `trace_status` 等系统状态列（R47）。
 - **AI 草稿**：`evaluate draft` 只读审核表与原始证据文件（解压快照核对正文哈希并检索定位原文、按行号读 IMDb 原行、取评论正文前 80 个字符）生成 `eval_items_draft.csv`：`correct` 47、`unsure` 13（`ai_doubt` 13 项，全部是 `unsure`）；分层为 `L1` 14/1、`L2` 10/5、`L3` 8/2、`L4` 10/0、`L5` 5/5（`correct`/`unsure`）。`unsure` 的原因：最终值经规范化、对齐或受控词映射，没有原样出现在证据里（11 项，如演职员成员是 `person_id`、商品所属作品是 `movie_id`、上界是由评论时间推出的日期），或快照里没找到定位原文（2 项：B000QRIKOA 的类别、B000OSLBZQ 的所属作品）。草稿不会给出 `incorrect`，错判只能由人工给出。
-- **尚未审核**：付林轩还没有审核草稿，`task9.eval_label` 为 0 行。AI 草稿不是人工审核结论，不能当作标注导入。
+- **审核与导入**：2026-11-04 付林轩审核草稿后确认按草稿原样采纳（`correct` 47、`unsure` 13，没有改判，因此不需要 `human_evidence`），另存为 `eval_labels.csv` 后以 `--annotator 付林轩` 导入，`task9.eval_label` 60 行。这是“AI 预填、人工审核采纳”，不是付林轩独立逐项手工标注。
 
 ### 7.2 指标
 
-待付林轩审核并导入后，用 `evaluate metrics --version lv0001` 计算血缘链正确率（总体与分层，`unsure` 单列不进分母），写入本节。导入与指标命令见 runbook 第 5 节与交接文档 `doc/handoffs/2026-11-04-task9-review-pending.md`。
+`evaluate metrics --version lv0001`（2026-11-04）：
+
+| 层 | correct | incorrect | unsure | 正确率 |
+|---|---|---|---|---|
+| L1 作品标量 | 14 | 0 | 1 | 1.000 |
+| L2 作品多值成员 | 10 | 0 | 5 | 1.000 |
+| L3 版本字段 | 8 | 0 | 2 | 1.000 |
+| L4 人物 | 10 | 0 | 0 | 1.000 |
+| L5 评论与商品归属 | 5 | 0 | 5 | 1.000 |
+| 合计 | 47 | 0 | 13 | 1.000 |
+
+- 正确率只代表 60 条分层抽查样本，不代表全量；`unsure` 13 项（11 项最终值经规范化、对齐或受控词映射后不原样出现在证据里，2 项快照中未找到定位原文）不进分母，这些链条的正确性没有得到确认。
+- 没有 `incorrect`，所以错误类型分布为空。指标文件 `outputs/task9/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/lv0001/eval/metrics.md`（不入 Git）。
 
 ## 8. 已知局限
 
@@ -138,7 +150,7 @@
 - **全量重建**：每个新血缘版本约 7.5 分钟、4.2 GB；旧版本按 R36 保留，需要时由用户清理（H09）。
 - **体量超预算**：`task9` 4.2 GB，超出 design 的 1.5–2.5 GB 预算（第 6 节）。
 - **`nm17757708` 缺人名行**：IMDb `name.basics` 没有该人，规范名为 `missing`，路径改连演职员行，质量问题 1 条（上游事实）。
-- **评价待审核**：第 7 节指标为空；草稿的 `correct` 只表示最终值原样出现在原始证据里，不代表处理路径的每一步都被核对过。
+- **评价样本有限**：60 项中 13 项为 `unsure` 不进分母；草稿的 `correct` 依据是最终值原样出现在原始证据里，审核为采纳草稿而非独立逐项手工标注。
 
 ## 9. 交付物与复现
 
@@ -147,7 +159,7 @@
 | 迁移与视图 | `sql/801_task9_schema.sql`、`sql/801_task9_views.sql` |
 | 源码与 DAG | `src/etl_task9/`、`dags/amazon_movies_task9_lineage.py` |
 | 运行报告 | `outputs/task9/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/lv0001/t9_full_1/`（`summary.json`、`report.md`、`examples.md`、`quality_issues.csv`、`checksums.json`、`run_summary.json`）；同目录 `t9_full_2/`（重跑）、`manual/`（`report export` 手动导出，内容相同），均不入 Git |
-| 审核表与 AI 草稿 | `outputs/task9/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/lv0001/eval/`：`eval_items.csv`（sha256 `aef18344c641c27682dbb2484b29ac551b404565c0284873d6232683903d1791`）、`eval_items_draft.csv`（sha256 `fdaeaf2fa8be7c8a74904816e134ff178e65312cfd593f237eb5cee6a715ebb9`）、`LABELING.md`，不入 Git |
+| 审核表与 AI 草稿 | `outputs/task9/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/lv0001/eval/`：`eval_items.csv`（sha256 `aef18344c641c27682dbb2484b29ac551b404565c0284873d6232683903d1791`）、`eval_items_draft.csv`（sha256 `fdaeaf2fa8be7c8a74904816e134ff178e65312cfd593f237eb5cee6a715ebb9`）、`LABELING.md`、`eval_labels.csv`（导入文件，sha256 `7539bb139d8487e3c40b0d4f4bff91cf53ce20ef48f462845573e1142dfaf2bf`）、`metrics.md`，不入 Git |
 | 演练导出 | `outputs/rehearsal_t9/task9/<抽取>/lv0001/`（`rehearsal/`、`rehearsal_full/`，不入 Git） |
 
 只读复现关键数字：

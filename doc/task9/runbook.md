@@ -166,7 +166,7 @@ Airflow 的 run-id 不能重复使用；再次触发时换新的 run-id（同输
 
 ## 5. 血缘链抽查（T9-08，R46–R49）
 
-2026-11-04 已在正式库执行下面的 `export`（因修正评论摘录又以 `--force` 重导一次，见 design“T9-08 正式库运行实测”）与 `draft`：60 项，草稿 `correct` 47、`unsure` 13。文件在 `outputs/task9/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/lv0001/eval/`（不入 Git）。**`import` 与 `metrics` 尚未执行**，须等付林轩审核完成。已导入标注后 `export` 会拒绝重导；`--force` 会清除已导入的标注，审核开始后不要再用。
+2026-11-04 已在正式库执行下面的 `export`（因修正评论摘录又以 `--force` 重导一次，见 design“T9-08 正式库运行实测”）与 `draft`：60 项，草稿 `correct` 47、`unsure` 13。文件在 `outputs/task9/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/lv0001/eval/`（不入 Git）。同日付林轩审核后按草稿原样采纳，另存 `eval_labels.csv` 并执行下面的 `import` 与 `metrics`：导入 60 项，血缘链正确率 1.000（47/47，`unsure` 13 不进分母）。已导入标注后 `export` 会拒绝重导；`--force` 会清除已导入的标注，审核开始后不要再用。
 
 ```bash
 docker compose --profile crawl run --rm -T crawler python -m etl_task9.evaluate export --version lv0001
