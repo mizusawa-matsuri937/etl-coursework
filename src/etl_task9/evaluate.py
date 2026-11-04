@@ -253,6 +253,16 @@ def item_rows(conn: psycopg.Connection, keys: Keys, items: list[dict[str, Any]],
             if e["kind"] == "imdb" and e.get("line_no"):
                 wanted.setdefault((e["snapshot"], e["file"]), set()).add(int(e["line_no"]))
     lines = _imdb_lines(imdb_root, wanted)
+    # 选择项（如推断上界）经路径树得到的评论证据只有定位，补上正文前 80 个字符（R47）
+    need = sorted({e["source_review_id"] for r in rows for e in r["_evidence"]
+                   if e["kind"] == "review" and "text_80" not in e and e.get("source_review_id")})
+    heads = dict(conn.execute("SELECT source_review_id, left(review_text_raw, %s) FROM public.review_staging "
+                              "WHERE extraction_id = %s AND source_review_id = ANY(%s)",
+                              (REVIEW_LIMIT, i.extraction_id, need)).fetchall()) if need else {}
+    for r in rows:
+        for e in r["_evidence"]:
+            if e["kind"] == "review" and "text_80" not in e:
+                e["text_80"] = heads.get(e.get("source_review_id")) or ""
     for r in rows:
         for e in r["_evidence"]:
             if e["kind"] == "imdb":

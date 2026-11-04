@@ -1,6 +1,6 @@
 # 任务 9 AC 完成情况（字段级数据血缘）
 
-状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T9-01 完成后 AC02、AC05 通过并勾选；T9-02 完成后 AC06–AC09 通过并勾选；T9-03 完成后 AC01、AC03、AC04、AC10 通过并勾选；T9-04 完成后 AC11–AC14 通过并勾选；2026-11-04 AC15 按方案 C 改写后通过并勾选；T9-05 完成后 AC16、AC17 通过并勾选；T9-06 完成后 AC18 通过并勾选；2026-11-04 T9-07 完成后 AC19 通过并勾选；其余未执行。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T9-01 完成后 AC02、AC05 通过并勾选；T9-02 完成后 AC06–AC09 通过并勾选；T9-03 完成后 AC01、AC03、AC04、AC10 通过并勾选；T9-04 完成后 AC11–AC14 通过并勾选；2026-11-04 AC15 按方案 C 改写后通过并勾选；T9-05 完成后 AC16、AC17 通过并勾选；T9-06 完成后 AC18 通过并勾选；2026-11-04 T9-07 完成后 AC19 通过并勾选；同日 T9-08 正式库运行后 AC20、AC22 通过并勾选；AC21 待付林轩审核，未执行。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`，`psql -Atc` 输出首行会多一个 `SET`）。标注“（计划）”的命令在对应任务实现前不可运行，实现后实际核对再改写期望。
 
@@ -10,7 +10,7 @@
 docker compose --profile test run --rm etl-test pytest -q tests
 ```
 
-期望：2026-11-03 任务 8 完成时为 `1186 passed`；T9-01 完成后为 `1218 passed`（新增 32 项，原有测试不减少）；T9-04 完成后为 `1262 passed`；T9-05 完成后为 `1278 passed`；T9-06 完成后为 `1285 passed`；2026-11-04 AC15 补测试后为 `1286 passed`（约 6.5 分钟）。
+期望：2026-11-03 任务 8 完成时为 `1186 passed`；T9-01 完成后为 `1218 passed`（新增 32 项，原有测试不减少）；T9-04 完成后为 `1262 passed`；T9-05 完成后为 `1278 passed`；T9-06 完成后为 `1285 passed`；2026-11-04 AC15 补测试后为 `1286 passed`（约 6.5 分钟）；同日 AC18 补测试后为 `1287 passed`。
 
 ## AC00 计划文件规范
 
@@ -267,28 +267,35 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC18 抽查评价工具
 
-- [x] 2026-11-03 合成夹具通过：配额与 `L2 → L1 → L3` 补足、审核表路径与证据摘录、草稿读快照与 IMDb 原行、缺依据改判等四类不合格整批拒绝、指标与手算一致（含“无定义”）、命令行四步。
+- [x] 2026-11-03 合成夹具通过：配额与 `L2 → L1 → L3` 补足、审核表路径与证据摘录、草稿读快照与 IMDb 原行、缺依据改判等四类不合格整批拒绝、指标与手算一致（含“无定义”）、命令行四步。2026-11-04 正式库导出时发现推断上界项的依赖评论缺正文前 80 个字符，补测试 `bound_review_evidence_has_text_head`（修正前失败）并修正后通过。
 
 ```bash
 # 五层配额、审核表、AI 草稿、导入校验、指标、命令行（工作目录：项目根目录）
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_evaluate.py -k "ac18"
 ```
 
-期望：`7 passed`，退出码 `0`。
+期望：`8 passed`，退出码 `0`。
 
 ```bash
 # 只看导入校验（缺外部依据的改判、缺错误类型、粘贴 ai_reason、标注值越界）
 docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_evaluate.py -k "ac18 and import_rejects"
 ```
 
-期望：`1 passed, 6 deselected`。
+期望：`1 passed, 7 deselected`。
+
+```bash
+# 只看推断上界项的依赖评论正文摘录（R47）
+docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_evaluate.py -k "ac18 and bound_review"
+```
+
+期望：`1 passed, 7 deselected`。
 
 ## AC19 业务库副本全链路演练
 
 - [x] 2026-11-04 通过（T9-07）：副本 `etl_t9_rehearsal`（T9-01 建库时停 Airflow 并 `CHECKPOINT`）清出空 `task9` 后全链路运行 `lv0001`，`succeeded`/`verified`，`check` 退出码 0；覆盖率 100%（试算 85.6%）、断言 1,548,754、派生边 2,106,585、重放补定位 34,531 + 46,027 + 3,015 全部一致，与试算的差异逐项解释见 design“业务库副本全链路演练实测”；删库后 `CHECKPOINT`（卷空闲 108 GB）；`etl_movies` 迁移仍为 `001`–`701`、没有 `task9`。
 
 ```bash
-# 副本已删除、正式库未写入、全链路导出的关键数字（只读）
+# 副本已删除、全链路导出的关键数字（只读）
 docker compose exec -T postgres psql -U postgres -Atc "SELECT count(*) FROM pg_database WHERE datname = 'etl_t9_rehearsal'"
 python3 -c 'import json; d=json.load(open("outputs/rehearsal_t9/task9/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/lv0001/rehearsal_full/summary.json")); c=d["counts"]; print(d["status"], c["non_null"], c["non_null_traceable"], c["coverage"], c["field_impact"], d["stage_keys"]["impact"])'
 diff outputs/rehearsal_t9/task9/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/lv0001/rehearsal/examples.md outputs/rehearsal_t9/task9/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/lv0001/rehearsal_full/examples.md; echo "diff=$?"
@@ -298,39 +305,67 @@ diff outputs/rehearsal_t9/task9/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0b
 
 ## AC20 正式库全量运行与核对
 
-- [ ] 未执行（计划）。
+- [x] 2026-11-04 通过（T9-08）：Airflow `t9_full_1` 生成 `lv0001`（10 个任务 success，449 秒），`t9_full_2` 为 `reused`；`check` 退出码 0、`problems` 为空；非空最终值 469,671 个 `trace_status` 只有 traced 410,309 与 relocated 59,362（manual 0），`replay_mismatch` 0，证据问题 0，质量问题只有 `nm17757708` 缺 `imdb.name` 行（`dangling_edge` 1，见 report 第 3.1 节）；与目标层不一致 0；上游各表行数运行前后不变；`verify-sources` 快照、IMDb 与评论文件全部一致；四个演示查询对 design 中的真实 ID 返回完整结果，与副本演练的输出相同。详见 [report](report.md)。
 
 ```bash
-# 正式库只读核对（计划）
+# 正式库只读核对
 docker compose --profile crawl run --rm -T crawler python -m etl_task9.check > /dev/null; echo "exit=$?"
 ```
 
-期望（计划）：`exit=0`。
+期望：`exit=0`。
 
 ```bash
-# 血缘版本与 trace_status 分布（只读，计划）
-docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT lineage_version_id, status FROM task9.lineage_version; SELECT trace_status, count(*) FROM task9.field_selection WHERE lineage_version_id = 'lv0001' AND final_value IS NOT NULL GROUP BY 1 ORDER BY 1;"
+# 血缘版本、运行、非空值 trace_status 与质量问题（只读）
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT lineage_version_id, status FROM task9.lineage_version; SELECT airflow_run_id, status FROM task9.run WHERE kind = 'lineage' ORDER BY started_at;"
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT s.trace_status, count(*) FROM task9.field_selection s JOIN task9.lineage_version v ON v.selections_stage_key = s.stage_key WHERE v.lineage_version_id = 'lv0001' AND s.value_text IS NOT NULL GROUP BY 1 ORDER BY 1; SELECT issue_code, count(*) FROM task9.quality_issue GROUP BY 1;"
 ```
 
-期望（计划）：`lv0001|verified`；非空最终值的 `trace_status` 只有 `traced`、`relocated`（与 `manual`，正式库应为 0）。四个演示查询命令见 design“演示查询”。
+期望：第一条在 `SET` 之后输出 `lv0001|verified`、`t9_full_1|succeeded`、`t9_full_2|reused`；第二条输出 `relocated|59362`、`traced|410309`、`dangling_edge|1`。
+
+```bash
+# 来源核验：快照与 IMDb 文件在 crawler 容器，评论文件在 Airflow 容器
+docker compose --profile crawl run --rm -T crawler python -m etl_task9.impact verify-sources --kinds page_snapshot,imdb_row > /dev/null; echo "exit=$?"
+docker compose exec -T airflow-scheduler python -m etl_task9.impact verify-sources --kinds review_record > /dev/null; echo "exit=$?"
+```
+
+期望：两条都是 `exit=0`。
+
+```bash
+# 四个演示查询（只读）
+docker compose --profile crawl run --rm -T crawler python -m etl_task9.query field --movie-id mv_24a89e3536e837e6 --field release_year | python3 -c 'import json,sys; s=json.load(sys.stdin)["selections"][0]; print(s["value_text"], s["status"], s["trace_status"], s["decision_rule"], len(s["not_selected"]))'
+docker compose --profile crawl run --rm -T crawler python -m etl_task9.query source --asin B000063UR2 | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["affected_entities"], d["affected_selections"], [r["task"] for r in d["rerun_if_changed"]])'
+docker compose --profile crawl run --rm -T crawler python -m etl_task9.query person --person-id ps_fb262c7cedc84d5e | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["canonical_name"]["value_text"], len(d["credits"]), len(d["aliases"]), d["movie_count"])'
+docker compose --profile crawl run --rm -T crawler python -m etl_task9.query review --source-review-id 8f17b11666f52dc1fcca4fb62c233df9d5dc755992823c0470d135bb6341b55b | python3 -c 'import json,sys; d=json.load(sys.stdin); m=d["mapping"]; print(d["record"]["record_no"], m["mapping_status"], m["match_level"], m["logical_review_id"], [x["movie_id"] for x in d["movies"]])'
+```
+
+期望：依次输出 `1985 resolved traced year.table:YR2 2`、`9 41 ['task3', 'task4', 'task5', 'task6', 'task7', 'task8', 'task9']`、`Olivia de Havilland 6 2 4`、`6450929 mapped D3_family_copy lr_a206995a2a4ec3f45864 ['mv_24a89e3536e837e6']`。
 
 ## AC21 正式库抽查评价
 
-- [ ] 未执行（计划）。审核表由 AI 预填、付林轩审核后导入；指标写入 report（计划）。
+- [ ] 未执行（待付林轩审核）。2026-11-04 已导出 60 项审核表与 AI 草稿（`L1` 15、`L2` 15、`L3` 10、`L4` 10、`L5` 10，无补位；草稿 `correct` 47、`unsure` 13），位置 `outputs/task9/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/lv0001/eval/`；**没有导入任何标注**，AI 草稿不是人工审核结论。审核、导入与指标步骤见 runbook 第 5 节与交接文档 `doc/handoffs/2026-11-04-task9-review-pending.md`。
+
+```bash
+# 审核表配额与尚未导入标注（只读）
+docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT stratum, count(*) FROM task9.eval_item WHERE eval_set_id = 'ev_lv0001' GROUP BY 1 ORDER BY 1; SELECT count(*) FROM task9.eval_label;"
+```
+
+期望：在 `SET` 之后输出 `L1|15`、`L2|15`、`L3|10`、`L4|10`、`L5|10` 与 `0`（审核导入后应为 `60`）。
 
 ## AC22 迁移、测试与仓库内容
 
-- [ ] 未执行（计划）。
+- [x] 2026-11-04 通过（T9-08）：迁移清单含 `801`；全量测试 `1287 passed`（原 1,186 项不减少）；`src/etl_task9` 与 `sql/801_task9_*.sql` 的写语句目标全部在 `task9`，唯一例外是迁移 801 写 `public.schema_migration` 的登记行；仓库不含 `.env`、`outputs/`、评价表、快照或 IMDb 数据。
 
 ```bash
-# 迁移清单（只读，计划）
+# 迁移清单（只读）
 docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT string_agg(version, ',' ORDER BY version) FROM public.schema_migration;"
 ```
 
-期望（计划）：`SET` 之后为 `001,101,102,103,201,301,302,401,501,601,701,801`。
+期望：`SET` 之后为 `001,101,102,103,201,301,302,401,501,601,701,801`。
 
 ```bash
-git ls-files | grep -E "^outputs/|\.env$|eval_items|\.tsv\.gz$|\.html\.gz$" | wc -l
+# 仓库内容与写语句目标
+git ls-files | grep -E "^outputs/|\.env$|eval_items|eval_labels|\.tsv\.gz$|\.html\.gz$" | wc -l
+grep -rnE "(INSERT INTO|UPDATE|DELETE FROM|TRUNCATE) +[a-z0-9_]+\." src/etl_task9 sql/801_task9_schema.sql sql/801_task9_views.sql | grep -v -E "(INSERT INTO|UPDATE|DELETE FROM|TRUNCATE) +task9\."
 ```
 
-期望（计划）：`0`。
+期望：第一条 `0`；第二条只输出 `sql/801_task9_schema.sql:317:INSERT INTO public.schema_migration (version) VALUES ('801');`。全量测试命令见本文开头（`1287 passed`）。

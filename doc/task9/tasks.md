@@ -1,6 +1,6 @@
 # 任务 9 开发任务（字段级数据血缘）
 
-状态：2026-11-03 编写计划；T9-00 已执行并通过（AC00）；T9-01 至 T9-03 已完成；T9-04 至 T9-06 已完成（2026-11-04 用户选定 AC15 方案 C，AC15 改为全量重建加差异核对后通过）；T9-07 于 2026-11-04 完成；T9-08 未开始。每完成一个任务在本地提交一次，未经用户要求不推送。
+状态：2026-11-03 编写计划；T9-00 已执行并通过（AC00）；T9-01 至 T9-03 已完成；T9-04 至 T9-06 已完成（2026-11-04 用户选定 AC15 方案 C，AC15 改为全量重建加差异核对后通过）；T9-07 于 2026-11-04 完成；T9-08 于同日完成正式库运行、审核表与 AI 草稿导出，评价待付林轩审核（AC21 未执行），因此 T9-08 保持未勾选。每完成一个任务在本地提交一次，未经用户要求不推送。
 
 命令均在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板`（macOS 默认 zsh）下直接复制运行，不使用变量缩写。标注“（计划）”的命令在对应任务实现前不可运行，实现后实际核对再改写期望。每项 AC 的逐条复核命令见 [checklist](checklist.md)。每个实现阶段完成后先在业务库副本 `etl_t9_rehearsal` 演练（design“业务库副本演练”），再进入下一阶段。
 
@@ -126,7 +126,7 @@
   docker compose --profile test run --rm etl-test pytest -q tests/integration/test_task9_evaluate.py
   ```
 
-  期望：`7 passed`，退出码 `0`。
+  期望：`8 passed`，退出码 `0`（2026-11-04 T9-08 补 1 项：推断上界项的依赖评论正文摘录）。
 
 - [x] T9-07 业务库副本全链路演练。规则：R43；关联 AC19。
   - 文件：`doc/task9/design.md`（“业务库副本全链路演练实测”）、`doc/task9/runbook.md`、`doc/task9/tasks.md`、`doc/task9/checklist.md`。
@@ -143,12 +143,20 @@
   期望：第一条 `0`；第二条 `verified 469671 469671 1.0 887035 if9ab0bf333bd203`；第三条只输出 `diff=0`（全链路与分阶段演练的实例逐字节相同）。
 
 - [ ] T9-08 正式库运行与报告：经 Airflow 生成 `lv0001`、重跑 `reused`、核对、四个演示查询、导出报告与审核表；审核标注导入后计算指标，编写 `report.md` 与交接文档。规则：正式库运行检验全部规则（见 AC20–AC22 的 Rule 列）；关联 AC20–AC22。
-  - 文件：`doc/task9/{report,tasks,checklist,design}.md`、`doc/handoffs/<日期>-task9-to-<下一步>.md`、`README.md`、`CLAUDE.md`。
-  - 完成情况：未执行（计划）。
+  - 文件：`doc/task9/{report,tasks,checklist,design,runbook}.md`、`doc/handoffs/2026-11-04-task9-review-pending.md`、`README.md`、`CLAUDE.md`；`src/etl_task9/evaluate.py` 与 `tests/integration/test_task9_evaluate.py`（推断上界项的依赖评论补正文前 80 个字符）。
+  - 完成情况：2026-11-04 正式库部分完成：迁移 801 应用，Airflow `t9_full_1` 生成 `lv0001`（449 秒，`verified`），`t9_full_2` 为 `reused`，`check` 退出码 0；非空值 469,671 个全部 traced/relocated（覆盖率 100%，试算 85.6%）；四个演示查询、`verify-sources`、`report export` 符合预期；`task9` 4,222 MB；60 项审核表与 AI 草稿（`correct` 47、`unsure` 13）已导出到 `outputs/`。**审核标注未导入、指标未计算**（待付林轩审核），所以本项不勾选。全量测试 `1287 passed`。结果见 [report](report.md)。
 
   ```bash
-  # 正式库只读核对（工作目录：项目根目录）（计划）
+  # 正式库只读核对（工作目录：项目根目录）
   docker compose --profile crawl run --rm -T crawler python -m etl_task9.check > /dev/null; echo "exit=$?"
   ```
 
-  期望（计划）：`exit=0`。
+  期望：`exit=0`。
+
+  ```bash
+  # 审核表与草稿已导出、标注尚未导入（只读）
+  ls outputs/task9/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/lv0001/eval/
+  docker compose exec -T postgres psql -U postgres -d etl_movies -Atc "SET default_transaction_read_only = on; SELECT count(*) FROM task9.eval_item WHERE eval_set_id = 'ev_lv0001'; SELECT count(*) FROM task9.eval_label;"
+  ```
+
+  期望：第一条列出 `LABELING.md`、`eval_items.csv`、`eval_items_draft.csv`；第二条在 `SET` 之后输出 `60` 与 `0`（审核导入后第二个数应为 `60`，然后按 runbook 第 5 节计算指标、补 report 第 7 节，勾选 AC21 与本项）。

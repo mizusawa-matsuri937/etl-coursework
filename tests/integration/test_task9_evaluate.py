@@ -107,12 +107,34 @@ def test_ac18_export_strata_by_md5_and_review_table(conn, ev):
                 assert e["file_unavailable"] and e["loaded_row"]
             if e["kind"] == "review":
                 assert len(e.get("text_80", "")) <= 80 and e["raw_sha256"]
+                head = conn.execute("SELECT left(review_text_raw, 80) FROM public.review_staging "
+                                    "WHERE source_review_id = %s", (e["source_review_id"],)).fetchone()
+                assert e.get("text_80") == (head[0] or ""), (r["item_id"], e["source_review_id"])
     assert {"page", "imdb", "review"} <= kinds
     stored = dict(conn.execute("SELECT item_id, path_sha256 FROM task9.eval_item WHERE eval_set_id = %s",
                                (eval_set_id(ev.lv),)).fetchall())
     assert all(stored[r["item_id"]] == hashlib.sha256(r["path"].encode()).hexdigest() for r in ev.rows)
     assert "label" in ev.rows[0] and "trace_status" not in ev.rows[0]          # 不给标注人看系统状态列
     assert (ev.dir / "LABELING.md").exists()
+
+
+def test_ac18_bound_review_evidence_has_text_head(conn, ev):
+    """推断上界这类选择项的依赖评论也给正文前 80 个字符（R47），不只 L5 的评论归属项；草稿的读取记录里能看到原文。
+    （2026-11-04 正式库导出发现上界项的评论摘录为空后补的测试。）"""
+    from etl_task9.evaluate import item_rows
+    from etl_task9.versions import keys_for_version
+    keys = keys_for_version(conn, ev.lv)
+    sid = conn.execute("SELECT selection_id FROM task9.field_selection WHERE stage_key = %s AND field_name = "
+                       "'inferred_upper_bound' AND value_text IS NOT NULL AND trace_status = 'relocated' "
+                       "ORDER BY selection_id LIMIT 1", (keys.selections,)).fetchone()[0]
+    rows = item_rows(conn, keys, [{"kind": "selection", "key": sid, "item_id": "T001", "stratum": "L1"}],
+                     imdb_root="/nonexistent")
+    revs = [e for e in json.loads(rows[0]["evidence"]) if e["kind"] == "review"]
+    assert revs, "评论上界的证据应含依赖评论"
+    for e in revs:
+        head = conn.execute("SELECT left(review_text_raw, 80) FROM public.review_staging WHERE source_review_id = %s",
+                            (e["source_review_id"],)).fetchone()[0]
+        assert head and e["text_80"] == head
 
 
 def test_ac18_draft_reads_raw_evidence_files(ev):

@@ -436,6 +436,14 @@ Legend 抽查（`mv_24a89e3536e837e6`）：`release_year` 登记任务 6 候选 
 
 **删库与空间回收**：确认副本没有会话后 `DROP DATABASE etl_t9_rehearsal`，再 `CHECKPOINT`。postgres 卷空闲由演练开始时约 64 GB（清 `task9` 后 72 GB，跑完 68 GB）回收到 **108 GB**（已用 42 GB），`pg_wal` 1.1 GB；剩下的库为 `etl_movies` 36 GB、`etl_test`、`airflow_meta`。演练没有发现新缺陷，未改实现。
 
+## T9-08 正式库运行实测（`etl_movies`，2026-11-04）
+
+- **运行**：运行前只读记录上游行数；Airflow `t9_full_1`（`--conf '{}'`，即 R01 默认版本）在 `check_inputs` 应用迁移 801，10 个任务 success，触发到结束 449 秒；`t9_full_2` 31 秒，`task9.run` 记 `reused`。阶段键与 T9-07 副本完全相同（`s11f2e418823b9fe`、`a0d345df84d5280a`、`d8f913d99aa00f0e`、`l7292c0631b27f9a`、`if9ab0bf333bd203`），各项计数、覆盖率（100%）与导出的 `examples.md`（sha256 `12d28395…`）逐项相同；运行后上游行数不变，迁移为 `001`–`801`。
+- **体量**：`task9` 4,222 MB（副本 4,218 MB），`etl_movies` 36 → 40 GB，卷空闲 104 GB。
+- **核对**：`check` 退出码 0（12 秒）；`verify-sources` 快照与 IMDb（`crawler`，12 秒）、评论文件（Airflow 容器）全部一致；六个查询的 JSON 与副本相同。
+- **审核表的修正**：首次 `evaluate export` 后发现推断上界这类选择项的依赖评论证据缺正文前 80 个字符（R47），L5 评论归属项不受影响。补测试 `test_ac18_bound_review_evidence_has_text_head`，`evaluate.item_rows` 改为对没有摘录的评论证据从 `public.review_staging` 只读补齐；标注尚未导入，`evaluate export --version lv0001 --force` 重新导出（样本按 md5 确定，60 项不变）并重新 `draft`。草稿 `correct` 47、`unsure` 13，分层见 report 第 7 节。
+- **待办**：付林轩审核草稿、导入、计算指标（AC21），见交接文档 `doc/handoffs/2026-11-04-task9-review-pending.md`。
+
 ## 夹具设计（R42）
 
 任务 7 的教训是夹具与真实输出不同形会掩盖缺陷。任务 9 的夹具在 `etl_test` 中按顺序建立任务 1–8 的真实表结构（应用迁移 `001`–`701`），用各任务自己的装载或写入函数生成上游行（任务 1 装载器读合成 gzip；任务 3–8 用各自 `tests/fixtures` 的写法），保证 jsonb 键名、数组与阶段键与正式库一致；只有 IMDb 与快照文件是小型合成文件。`tests/integration/conftest.py` 增加 `DROP SCHEMA IF EXISTS task9`。每个 AC 独立初始化。
