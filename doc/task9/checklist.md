@@ -1,6 +1,6 @@
 # 任务 9 AC 完成情况（字段级数据血缘）
 
-状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T9-01 完成后 AC02、AC05 通过并勾选；T9-02 完成后 AC06–AC09 通过并勾选；T9-03 完成后 AC01、AC03、AC04、AC10 通过并勾选；T9-04 完成后 AC11–AC14 通过并勾选；2026-11-04 AC15 按方案 C 改写后通过并勾选；T9-05 完成后 AC16、AC17 通过并勾选；其余未执行。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
+状态：2026-11-03 编写。AC00 已由 AI 运行文档检查并勾选；T9-01 完成后 AC02、AC05 通过并勾选；T9-02 完成后 AC06–AC09 通过并勾选；T9-03 完成后 AC01、AC03、AC04、AC10 通过并勾选；T9-04 完成后 AC11–AC14 通过并勾选；2026-11-04 AC15 按方案 C 改写后通过并勾选；T9-05 完成后 AC16、AC17 通过并勾选；T9-06 完成后 AC18 通过并勾选；2026-11-04 T9-07 完成后 AC19 通过并勾选；其余未执行。AI 的检查不等于用户亲自复核。AC 的输入与预期只在 [spec](spec.md) 定义，本文只记完成情况、复核命令和应看到的结果。
 
 复核方法：以下命令都在项目根目录 `/Users/aqua_night/codex_project/数据存储与管理/ETL作业模板` 直接复制运行（macOS 默认的 zsh 即可）。`pytest` 命令连接独立测试库 `etl_test`，不碰业务库；业务库只给只读查询（带 `SET default_transaction_read_only = on;`，`psql -Atc` 输出首行会多一个 `SET`）。标注“（计划）”的命令在对应任务实现前不可运行，实现后实际核对再改写期望。
 
@@ -70,7 +70,7 @@ docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_
 期望：`2 passed, 60 deselected`，退出码 `0`。
 
 ```bash
-# 可选：副本上的商品与评论视图（只读；副本保留到 T9-07）
+# 可选：副本上的商品与评论视图（只读；副本已于 2026-11-04 删除，期望仅为当时实测记录）
 docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT collection_status, category, movie_id, relation_type, match_status, edition_title FROM task9.v_product_lineage WHERE asin = 'B000063UR2' AND conflict_version_id = 'cv0003'"
 docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT record_no, mapping_status, match_level, logical_review_id, family_id, movie_id FROM task9.v_review_lineage WHERE source_review_id = '8f17b11666f52dc1fcca4fb62c233df9d5dc755992823c0470d135bb6341b55b' AND review_dedup_version_id = 'rd0001'"
 ```
@@ -112,7 +112,7 @@ docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_
 期望：`5 passed, 28 deselected`，退出码 `0`。
 
 ```bash
-# 可选：业务库副本上按操作类型的边数（只读；副本保留到 T9-07）
+# 可选：业务库副本上按操作类型的边数（只读；副本已于 2026-11-04 删除，期望仅为当时实测记录）
 docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT operation, count(*) FROM task9.derivation WHERE stage_key = 'd8f913d99aa00f0e' GROUP BY 1 ORDER BY 1"
 ```
 
@@ -130,7 +130,7 @@ docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_
 期望：`6 passed, 56 deselected`，退出码 `0`。
 
 ```bash
-# 可选：业务库副本上的重放一致性与质量问题（只读）
+# 可选：业务库副本上的重放一致性与质量问题（只读；副本已于 2026-11-04 删除，期望仅为当时实测记录）
 docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT target_kind, consistent, count(*) FROM task9.relocation WHERE stage_key = 'd8f913d99aa00f0e' GROUP BY 1, 2 ORDER BY 1, 2"
 docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT issue_code, detail->>'nconst', count(*) FROM task9.quality_issue WHERE stage_key = 'd8f913d99aa00f0e' GROUP BY 1, 2"
 ```
@@ -149,7 +149,7 @@ docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_
 期望：`2 passed, 31 deselected`，退出码 `0`。
 
 ```bash
-# 可选：业务库副本上评论上界的依赖边（只读）
+# 可选：业务库副本上评论上界的依赖边（只读；副本已于 2026-11-04 删除，期望仅为当时实测记录）
 docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT count(*), count(*) FILTER (WHERE role = 'direct_dependency'), count(*) FILTER (WHERE relocated) FROM task9.derivation WHERE stage_key = 'd8f913d99aa00f0e' AND operation = 'aggregate'"
 ```
 
@@ -167,7 +167,7 @@ docker compose --profile test run --rm etl-test pytest -q tests/unit/test_task9_
 期望：`5 passed, 57 deselected`，退出码 `0`。
 
 ```bash
-# 可选：副本上的状态与 trace_status 分布、非空值覆盖率（只读）
+# 可选：副本上的状态与 trace_status 分布、非空值覆盖率（只读；副本已于 2026-11-04 删除，期望仅为当时实测记录）
 docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT status, trace_status, count(*) FROM task9.field_selection WHERE stage_key = 'l7292c0631b27f9a' GROUP BY 1, 2 ORDER BY 1, 2"
 docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -Atc "SET default_transaction_read_only = on; SELECT count(*), count(*) FILTER (WHERE trace_status IN ('traced', 'relocated', 'manual')) FROM task9.field_selection WHERE stage_key = 'l7292c0631b27f9a' AND value_text IS NOT NULL"
 ```
@@ -186,7 +186,7 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 期望：`2 passed, 8 deselected`，退出码 `0`。
 
 ```bash
-# 可选：副本上 Legend release_year 的未采用候选（只读查询命令，副本保留到 T9-07）
+# 可选：副本上 Legend release_year 的未采用候选（只读查询命令；副本已于 2026-11-04 删除，期望仅为当时实测记录）
 docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t9_rehearsal crawler python -m etl_task9.query field --movie-id mv_24a89e3536e837e6 --field release_year | grep -c '"upstream_reason": "minor_tolerance"'
 ```
 
@@ -285,7 +285,16 @@ docker compose --profile test run --rm etl-test pytest -q tests/integration/test
 
 ## AC19 业务库副本全链路演练
 
-- [ ] 未执行（计划）。步骤见 design“业务库副本演练”与 runbook（计划）；演练结论写入 design“业务库副本全链路演练实测”。
+- [x] 2026-11-04 通过（T9-07）：副本 `etl_t9_rehearsal`（T9-01 建库时停 Airflow 并 `CHECKPOINT`）清出空 `task9` 后全链路运行 `lv0001`，`succeeded`/`verified`，`check` 退出码 0；覆盖率 100%（试算 85.6%）、断言 1,548,754、派生边 2,106,585、重放补定位 34,531 + 46,027 + 3,015 全部一致，与试算的差异逐项解释见 design“业务库副本全链路演练实测”；删库后 `CHECKPOINT`（卷空闲 108 GB）；`etl_movies` 迁移仍为 `001`–`701`、没有 `task9`。
+
+```bash
+# 副本已删除、正式库未写入、全链路导出的关键数字（只读）
+docker compose exec -T postgres psql -U postgres -Atc "SELECT count(*) FROM pg_database WHERE datname = 'etl_t9_rehearsal'"
+python3 -c 'import json; d=json.load(open("outputs/rehearsal_t9/task9/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/lv0001/rehearsal_full/summary.json")); c=d["counts"]; print(d["status"], c["non_null"], c["non_null_traceable"], c["coverage"], c["field_impact"], d["stage_keys"]["impact"])'
+diff outputs/rehearsal_t9/task9/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/lv0001/rehearsal/examples.md outputs/rehearsal_t9/task9/f1e8b845d8a2294867227193e55f4d3c9ac51bafb24daf0bb6873f19e370d6d8/lv0001/rehearsal_full/examples.md; echo "diff=$?"
+```
+
+期望：第一条 `0`；第二条 `verified 469671 469671 1.0 887035 if9ab0bf333bd203`；第三条只输出 `diff=0`（全链路与分阶段演练的实例逐字节相同）。
 
 ## AC20 正式库全量运行与核对
 

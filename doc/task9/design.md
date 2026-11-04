@@ -411,6 +411,31 @@ Legend 抽查（`mv_24a89e3536e837e6`）：`release_year` 登记任务 6 候选 
 - **指标**（R48）：正确率 = `correct` /（`correct` + `incorrect`），总体与分层，`unsure` 单列，分母为 0 记“无定义”；另给错误类型计数与标注人；`metrics.md` 声明只代表 60 条抽查样本、标注为 AI 预填与人工逐项审核。
 - **对计划的修正**：L5 由“合并后按 md5 排序”改为两类交替（理由见上）；快照哈希不一致也列为存疑原因。夹具补了任务 8 评论映射（见 `tests/fixtures/task9/README.md`）。正式库的审核表与草稿留给 T9-08 生成，T9-06 没有在正式库或副本上导出。
 
+## 业务库副本全链路演练实测（T9-07，2026-11-04）
+
+副本 `etl_t9_rehearsal` 是 T9-01 用 `CREATE DATABASE … TEMPLATE etl_movies` 建的（当时停 Airflow、建库后 `CHECKPOINT`），T9-02 至 T9-05 在上面分阶段运行，保留了多组旧阶段键（`task9` 约 10 GB）。为了从头验证全链路，本次没有重建副本，而是在副本里清出空的 `task9`：确认副本无其他连接后，一个事务内 `DROP SCHEMA task9 CASCADE` 并删除 `public.schema_migration` 的 `801` 登记行，随后 `CHECKPOINT`；`runner run` 再从迁移 801 开始完整运行。这一步只动副本，正式库 `etl_movies` 的迁移仍为 `001`–`701`、没有 `task9`（运行前后只读核对）。不建库就不需要停 Airflow。
+
+| 项目 | 试算或预算（规划） | 分阶段演练（T9-01 至 T9-05） | 全链路实测（`lv0001`） | 差异解释 |
+|---|---|---|---|---|
+| 运行 | — | 五个阶段分五次运行 | `runner run` 退出码 0，`succeeded`，`lv0001` `verified`；同输入再跑 `reused`（1 秒） | — |
+| 墙钟 | 20–40 分钟（预算） | 各阶段之和约 7.5 分钟 | 440 秒（sources 59、assertions 86、derivations 164、selections 84、impact 32 秒，其余为迁移、版本与 verify） | 预算按逐个解压快照估计；实际快照核验只用约 10 秒（线程池），主要是库内连接。各阶段与分阶段运行相差在 ±25 秒内（同机记录，不是性能实测） |
+| 阶段键 | — | `s11f2e418823b9fe`、`a0d345df84d5280a`、`d8f913d99aa00f0e`、`l7292c0631b27f9a`、`if9ab0bf333bd203` | 五个键完全相同 | 键只由输入与算法签名决定，全链路与分阶段得到同一结果 |
+| 源记录 | 约 45 万 | 429,323 | 429,323（快照 9,590 全部 `ok`、IMDb 202,298、评论 217,435、人工修订 0） | 预算对 IMDb 被引用行的估计偏高（实测 202,298，见 T9-01 修正） |
+| 断言 | 80–100 万 | 1,548,754 | 1,548,754（extract 1,062,036、candidate 156,568、derived 330,150） | 预算未计任务 3 页面字段、IMDb 按列拆分与集成层断言（T9-01、T9-02） |
+| 派生边 | 约 150 万 | 2,106,585 + select 边 493,144 | 同左，12 种操作计数逐项相同；悬空、缺父、环均为 0 | 预算未计抽取边与选择边 |
+| 重放补定位 | 缺口 10,320 + 46,027 + 3,015（试算） | 类型词面 34,531、版本特征 46,027、第二早评论 3,015，全部一致 | 同左，`replay_mismatch` 0 | 类型按词面计（34,531 条词面覆盖 10,320 个页面侧成员） |
+| 字段选择 | 约 45 万 | 531,371 | 531,371（非空 469,671） | 试算 411,673 未计人物外部 ID、IMDb 独有人物、商品类别等（T9-03） |
+| 覆盖率（严格口径） | 85.6%（试算） | 100% | **100%**（traced 410,386、relocated 59,362、untraced 61,623 全部是空值；非空值缺口 0） | relocated 59,362 正好等于试算缺口 |
+| 与目标层一致 | — | 不一致 0 | 不一致 0 | — |
+| 影响闭包 | 200–300 万（预算） | 887,035 | 887,035（涉及源记录 399,451、选择 469,672，最长 5） | 预算高估了每个字段的源记录数（T9-04） |
+| 质量问题 | — | 1 | 1（`nm17757708` 缺 `imdb.name` 行，改连演职员行） | 上游事实（T9-01） |
+| `task9` 体量 | 1.5–2.5 GB（预算） | 估约 3.9 GB（按行数比例从含旧键的表推算） | **4,218 MB**（`assertion` 1,411、`derivation` 1,246、`field_selection` 614、`source_record` 584、`field_impact` 213、`entity_stage` 96、`relocation` 54 MB） | 这次只有一组键，是实测值；比按行数比例的估计多约 0.3 GB（索引与 TOAST 不随行数线性分摊）。超预算原因同 T9-02 |
+| 导出 | — | `outputs/rehearsal_t9/…/lv0001/rehearsal/` | `outputs/rehearsal_t9/…/lv0001/rehearsal_full/`：`summary.json` 与上次相比只有 `run_id`、`created_at`、`verified_at` 不同，`examples.md` 逐字节相同 | 旧导出保留未删 |
+
+演示查询（命令同“演示查询”一节，加 `-e ETL_DB_NAME=etl_t9_rehearsal`）结果与 T9-04 实测一致：Legend `release_year` 为 `1985`、`resolved`、`year.table:YR2`，两条 `minor_tolerance` 候选；B000063UR2 影响 9 个实体的 41 个选择、`tt0089469` 影响 12 个实体的 56 个选择；Olivia de Havilland 6 条署名、2 个别名、1 个外部 ID、4 部作品 6 个角色、映射事件 0；`impact --rule rating:MR2` 26 个 `mpaa_rating`。`verify-sources`：`crawler` 容器里快照 9,590 与 5 个 IMDb 文件全部 `ok`、评论文件 `unavailable`（退出码 0）；Airflow 容器里（`docker compose exec -T -e ETL_DB_NAME=etl_t9_rehearsal airflow-scheduler python -m etl_task9.impact verify-sources --kinds review_record`）评论文件 217,435 条引用 `ok`。`check` 退出码 0（14 秒）、`problems` 为空。
+
+**删库与空间回收**：确认副本没有会话后 `DROP DATABASE etl_t9_rehearsal`，再 `CHECKPOINT`。postgres 卷空闲由演练开始时约 64 GB（清 `task9` 后 72 GB，跑完 68 GB）回收到 **108 GB**（已用 42 GB），`pg_wal` 1.1 GB；剩下的库为 `etl_movies` 36 GB、`etl_test`、`airflow_meta`。演练没有发现新缺陷，未改实现。
+
 ## 夹具设计（R42）
 
 任务 7 的教训是夹具与真实输出不同形会掩盖缺陷。任务 9 的夹具在 `etl_test` 中按顺序建立任务 1–8 的真实表结构（应用迁移 `001`–`701`），用各任务自己的装载或写入函数生成上游行（任务 1 装载器读合成 gzip；任务 3–8 用各自 `tests/fixtures` 的写法），保证 jsonb 键名、数组与阶段键与正式库一致；只有 IMDb 与快照文件是小型合成文件。`tests/integration/conftest.py` 增加 `DROP SCHEMA IF EXISTS task9`。每个 AC 独立初始化。

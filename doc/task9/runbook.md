@@ -90,7 +90,17 @@ docker compose exec -T airflow-scheduler airflow dags list-import-errors
 
 ## 3. 业务库副本演练（T9-07，R43）
 
-副本 `etl_t9_rehearsal` 已在 T9-01 建立（保留到 T9-07），建删步骤见 design“业务库副本演练”。在副本上完整运行、核对与导出（不经 Airflow；导出写到 `outputs/rehearsal_t9/`，不与正式库的 `outputs/task9/` 混在一起）：
+**副本已于 2026-11-04 删除**；下面是当时的实际步骤，再次演练须先按 design“业务库副本演练”重建副本（停 Airflow → `CREATE DATABASE etl_t9_rehearsal TEMPLATE etl_movies OWNER etl_app` → `CHECKPOINT` → 恢复 Airflow）。结果见 design“业务库副本全链路演练实测”。
+
+1. 清出空的 `task9`（只在副本上；先确认没有其他会话）：
+
+```bash
+docker compose exec -T postgres psql -U postgres -Atc "SELECT count(*) FROM pg_stat_activity WHERE datname = 'etl_t9_rehearsal'"
+docker compose exec -T postgres psql -U postgres -d etl_t9_rehearsal -v ON_ERROR_STOP=1 -c "BEGIN; DROP SCHEMA task9 CASCADE; DELETE FROM public.schema_migration WHERE version = '801'; COMMIT;"
+docker compose exec -T postgres psql -U postgres -c "CHECKPOINT"
+```
+
+2. 完整运行（从迁移 801 开始，不经 Airflow，2026-11-04 实测 440 秒）、同输入重跑（`reused`）、核对与导出（导出写到 `outputs/rehearsal_t9/`，不与正式库的 `outputs/task9/` 混在一起）：
 
 ```bash
 docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t9_rehearsal crawler python -m etl_task9.runner run
@@ -101,10 +111,24 @@ docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t9_rehearsal crawl
 ```
 
 ```bash
-docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t9_rehearsal -e ETL_OUTPUT_DIR=/opt/etl/outputs/rehearsal_t9 crawler python -m etl_task9.report export --run-key rehearsal
+docker compose --profile crawl run --rm -T -e ETL_DB_NAME=etl_t9_rehearsal -e ETL_OUTPUT_DIR=/opt/etl/outputs/rehearsal_t9 crawler python -m etl_task9.report export --run-key rehearsal_full
 ```
 
-同输入再运行一次 `runner run`，期望 `"status": "reused"`。演示查询与影响分析命令见 design“演示查询”（加 `-e ETL_DB_NAME=etl_t9_rehearsal`）。
+3. 演示查询与影响分析见 design“演示查询”（加 `-e ETL_DB_NAME=etl_t9_rehearsal`）；评论文件的来源核验在 Airflow 容器里：
+
+```bash
+docker compose exec -T -e ETL_DB_NAME=etl_t9_rehearsal airflow-scheduler python -m etl_task9.impact verify-sources --kinds review_record > /dev/null; echo "exit=$?"
+```
+
+4. 删库并回收空间（确认副本无会话后）：
+
+```bash
+docker compose exec -T postgres psql -U postgres -c "DROP DATABASE etl_t9_rehearsal"
+docker compose exec -T postgres psql -U postgres -c "CHECKPOINT"
+docker compose exec -T postgres df -h /var/lib/postgresql
+```
+
+2026-11-04 实测：删库前空闲 68 GB，删库并 `CHECKPOINT` 后 108 GB。
 
 ## 4. 正式运行（T9-08）
 
